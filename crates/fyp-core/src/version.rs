@@ -75,7 +75,13 @@ pub fn quick_info(input: &[u8]) -> Result<QuickInfo> {
     });
     let looks_encrypted = find(tail, b"/Encrypt").is_some();
     let has_eof_marker = rfind(tail, b"%%EOF").is_some();
-    Ok(QuickInfo { version, header_offset, startxref, looks_encrypted, has_eof_marker })
+    Ok(QuickInfo {
+        version,
+        header_offset,
+        startxref,
+        looks_encrypted,
+        has_eof_marker,
+    })
 }
 
 /// Reverse byte-slice search.
@@ -96,7 +102,13 @@ mod tests {
         let (v, off) = detect_version(b"%PDF-1.7\n%\xE2\xE3\xCF\xD3\n").expect("header");
         assert_eq!(v, PdfVersion { major: 1, minor: 7 });
         assert_eq!(off, 0);
-        assert_eq!(detect_version(b"junk\n%PDF-2.0").expect("header").0.to_string(), "2.0");
+        assert_eq!(
+            detect_version(b"junk\n%PDF-2.0")
+                .expect("header")
+                .0
+                .to_string(),
+            "2.0"
+        );
         assert_eq!(detect_version(b"not a pdf"), Err(Error::BadHeader));
         assert_eq!(detect_version(b"%PDF-x.y"), Err(Error::BadHeader));
     }

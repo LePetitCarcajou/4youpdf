@@ -47,7 +47,9 @@ fn minimal_fixture_objects_parse() {
         while start > 0 && bytes[start - 1].is_ascii_digit() {
             start -= 1;
         }
-        let (_, obj) = fyp_core::parser::Parser::at(&bytes, start).parse_indirect().expect("indirect");
+        let (_, obj) = fyp_core::parser::Parser::at(&bytes, start)
+            .parse_indirect()
+            .expect("indirect");
         assert!(obj.as_dict().is_some());
         count += 1;
         offset += rel + 6;

@@ -42,7 +42,9 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::BadHeader => write!(f, "missing or malformed %PDF header"),
-            Error::Syntax { offset, message } => write!(f, "syntax error at byte {offset}: {message}"),
+            Error::Syntax { offset, message } => {
+                write!(f, "syntax error at byte {offset}: {message}")
+            }
             Error::UnexpectedEof => write!(f, "unexpected end of input"),
             Error::TooDeep => write!(f, "object nesting too deep"),
         }

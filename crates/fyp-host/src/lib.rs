@@ -53,7 +53,10 @@ pub fn discover(root: &Path, trusted: bool) -> (Vec<DiscoveredModule>, Vec<HostE
     let entries = match std::fs::read_dir(root) {
         Ok(e) => e,
         Err(source) => {
-            errors.push(HostError::Io { path: root.to_path_buf(), source });
+            errors.push(HostError::Io {
+                path: root.to_path_buf(),
+                source,
+            });
             return (ok, errors);
         }
     };
@@ -66,18 +69,29 @@ pub fn discover(root: &Path, trusted: bool) -> (Vec<DiscoveredModule>, Vec<HostE
         let text = match std::fs::read_to_string(&manifest_path) {
             Ok(t) => t,
             Err(source) => {
-                errors.push(HostError::Io { path: manifest_path, source });
+                errors.push(HostError::Io {
+                    path: manifest_path,
+                    source,
+                });
                 continue;
             }
         };
-        let manifest = match Manifest::from_toml(&text).and_then(|m| m.validate(trusted).map(|()| m)) {
-            Ok(m) => m,
-            Err(source) => {
-                errors.push(HostError::Manifest { path: manifest_path, source });
-                continue;
-            }
-        };
-        ok.push(DiscoveredModule { dir, manifest, trusted });
+        let manifest =
+            match Manifest::from_toml(&text).and_then(|m| m.validate(trusted).map(|()| m)) {
+                Ok(m) => m,
+                Err(source) => {
+                    errors.push(HostError::Manifest {
+                        path: manifest_path,
+                        source,
+                    });
+                    continue;
+                }
+            };
+        ok.push(DiscoveredModule {
+            dir,
+            manifest,
+            trusted,
+        });
     }
     ok.sort_by(|a, b| a.manifest.id.cmp(&b.manifest.id));
     (ok, errors)

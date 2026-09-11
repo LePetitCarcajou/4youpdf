@@ -17,7 +17,9 @@ pub fn api_version() -> (u32, u32) {
 mod tests {
     #[test]
     fn declares_current_api() {
-        let mut it = fyp_plugin_api::API_VERSION.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
+        let mut it = fyp_plugin_api::API_VERSION
+            .split('.')
+            .map(|p| p.parse::<u32>().unwrap_or(0));
         let host = (it.next().unwrap_or(0), it.next().unwrap_or(0));
         assert_eq!(super::api_version(), host);
     }

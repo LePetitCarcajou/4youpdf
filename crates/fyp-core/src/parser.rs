@@ -22,12 +22,18 @@ pub struct Parser<'a> {
 impl<'a> Parser<'a> {
     /// Parser over the whole input.
     pub fn new(input: &'a [u8]) -> Self {
-        Parser { lexer: Lexer::new(input), peeked: Vec::new() }
+        Parser {
+            lexer: Lexer::new(input),
+            peeked: Vec::new(),
+        }
     }
 
     /// Parser starting at `offset`.
     pub fn at(input: &'a [u8], offset: usize) -> Self {
-        Parser { lexer: Lexer::at(input, offset), peeked: Vec::new() }
+        Parser {
+            lexer: Lexer::at(input, offset),
+            peeked: Vec::new(),
+        }
     }
 
     fn next_tok(&mut self) -> Result<(Token, usize)> {
@@ -101,7 +107,10 @@ impl<'a> Parser<'a> {
                 }),
             },
             Token::ArrayClose | Token::DictClose | Token::BraceOpen | Token::BraceClose => {
-                Err(Error::Syntax { offset, message: "unexpected delimiter".into() })
+                Err(Error::Syntax {
+                    offset,
+                    message: "unexpected delimiter".into(),
+                })
             }
         }
     }
@@ -113,8 +122,13 @@ impl<'a> Parser<'a> {
             let gen = *gen;
             let third = self.next_tok()?;
             if matches!(third.0, Token::Keyword(ref k) if k == b"R") {
-                if !(0..=i64::from(u32::MAX)).contains(&first) || !(0..=i64::from(u16::MAX)).contains(&gen) {
-                    return Err(Error::Syntax { offset: o2, message: "reference out of range".into() });
+                if !(0..=i64::from(u32::MAX)).contains(&first)
+                    || !(0..=i64::from(u16::MAX)).contains(&gen)
+                {
+                    return Err(Error::Syntax {
+                        offset: o2,
+                        message: "reference out of range".into(),
+                    });
                 }
                 // Values fit: checked just above.
                 let num = u32::try_from(first).unwrap_or(0);
@@ -204,7 +218,9 @@ impl<'a> Parser<'a> {
         };
         let data = input[start..end].to_vec();
         // Position the lexer after `endstream`.
-        let after = find(&input[end..], b"endstream").map(|i| end + i + b"endstream".len()).unwrap_or(input.len());
+        let after = find(&input[end..], b"endstream")
+            .map(|i| end + i + b"endstream".len())
+            .unwrap_or(input.len());
         self.lexer.seek(after);
         self.peeked.clear();
         Ok(Object::Stream { dict, data })
@@ -218,10 +234,21 @@ impl<'a> Parser<'a> {
         let (t3, _) = self.next_tok()?;
         let (num, gen) = match (t1, t2, t3) {
             (Token::Integer(n), Token::Integer(g), Token::Keyword(k)) if k == b"obj" => (n, g),
-            _ => return Err(Error::Syntax { offset: o1, message: "expected `n g obj`".into() }),
+            _ => {
+                return Err(Error::Syntax {
+                    offset: o1,
+                    message: "expected `n g obj`".into(),
+                })
+            }
         };
-        let num = u32::try_from(num).map_err(|_| Error::Syntax { offset: o1, message: "bad object number".into() })?;
-        let gen = u16::try_from(gen).map_err(|_| Error::Syntax { offset: o1, message: "bad generation".into() })?;
+        let num = u32::try_from(num).map_err(|_| Error::Syntax {
+            offset: o1,
+            message: "bad object number".into(),
+        })?;
+        let gen = u16::try_from(gen).map_err(|_| Error::Syntax {
+            offset: o1,
+            message: "bad generation".into(),
+        })?;
         let obj = self.parse_object()?;
         // `endobj` is expected but missing ones are common; tolerate.
         let (t, o) = self.next_tok()?;
@@ -261,19 +288,35 @@ mod tests {
 
     #[test]
     fn references_vs_integers() {
-        assert_eq!(parse(b"12 0 R"), Object::Reference(ObjRef { num: 12, gen: 0 }));
-        assert_eq!(parse(b"[1 2 3]"), Object::Array(vec![Object::Integer(1), Object::Integer(2), Object::Integer(3)]));
-        assert_eq!(parse(b"[1 2 R 3]"), Object::Array(vec![
-            Object::Reference(ObjRef { num: 1, gen: 2 }),
-            Object::Integer(3)
-        ]));
+        assert_eq!(
+            parse(b"12 0 R"),
+            Object::Reference(ObjRef { num: 12, gen: 0 })
+        );
+        assert_eq!(
+            parse(b"[1 2 3]"),
+            Object::Array(vec![
+                Object::Integer(1),
+                Object::Integer(2),
+                Object::Integer(3)
+            ])
+        );
+        assert_eq!(
+            parse(b"[1 2 R 3]"),
+            Object::Array(vec![
+                Object::Reference(ObjRef { num: 1, gen: 2 }),
+                Object::Integer(3)
+            ])
+        );
     }
 
     #[test]
     fn dictionary() {
         let obj = parse(b"<< /Type /Page /Count 3 /Kids [4 0 R] >>");
         let d = obj.as_dict().expect("dict");
-        assert_eq!(d.get(&Name::new("Type")).and_then(Object::as_name), Some(&Name::new("Page")));
+        assert_eq!(
+            d.get(&Name::new("Type")).and_then(Object::as_name),
+            Some(&Name::new("Page"))
+        );
         assert_eq!(d.get(&Name::new("Count")).and_then(Object::as_i64), Some(3));
         assert!(matches!(d.get(&Name::new("Kids")), Some(Object::Array(_))));
     }
@@ -283,7 +326,10 @@ mod tests {
         let obj = parse(b"<< /Length 5 >>\nstream\nhello\nendstream");
         match obj {
             Object::Stream { dict, data } => {
-                assert_eq!(dict.get(&Name::new("Length")).and_then(Object::as_i64), Some(5));
+                assert_eq!(
+                    dict.get(&Name::new("Length")).and_then(Object::as_i64),
+                    Some(5)
+                );
                 assert_eq!(data, b"hello");
             }
             other => panic!("expected stream, got {other:?}"),
@@ -331,7 +377,9 @@ mod tests {
 
     #[test]
     fn indirect_object() {
-        let (r, obj) = Parser::new(b"7 0 obj\n<< /A 1 >>\nendobj").parse_indirect().expect("indirect");
+        let (r, obj) = Parser::new(b"7 0 obj\n<< /A 1 >>\nendobj")
+            .parse_indirect()
+            .expect("indirect");
         assert_eq!(r, ObjRef { num: 7, gen: 0 });
         assert!(obj.as_dict().is_some());
     }

@@ -59,7 +59,10 @@ pub enum Permission {
 impl Permission {
     /// Permissions that must be confirmed interactively each first run.
     pub fn is_sensitive(&self) -> bool {
-        matches!(self, Permission::Network { .. } | Permission::Subprocess { .. } | Permission::WriteDir)
+        matches!(
+            self,
+            Permission::Network { .. } | Permission::Subprocess { .. } | Permission::WriteDir
+        )
     }
 }
 
@@ -76,7 +79,11 @@ pub struct Limits {
 
 impl Default for Limits {
     fn default() -> Self {
-        Limits { timeout_ms: 60_000, memory_mib: 512, max_output_mib: 1024 }
+        Limits {
+            timeout_ms: 60_000,
+            memory_mib: 512,
+            max_output_mib: 1024,
+        }
     }
 }
 
@@ -151,7 +158,9 @@ impl std::fmt::Display for ManifestError {
             ManifestError::IncompatibleApi { wanted, have } => {
                 write!(f, "module built for API {wanted}, host provides {have}")
             }
-            ManifestError::NativeNotAllowed => write!(f, "third-party modules must use the wasm runtime"),
+            ManifestError::NativeNotAllowed => {
+                write!(f, "third-party modules must use the wasm runtime")
+            }
             ManifestError::BadNetworkHosts => write!(f, "network permission must list exact hosts"),
             ManifestError::Invalid(m) => write!(f, "invalid manifest: {m}"),
         }
@@ -242,7 +251,10 @@ min_inputs = 2
     fn refuses_incompatible_api() {
         let text = MERGE.replace("api_version = \"0.1.0\"", "api_version = \"0.9.0\"");
         let m = Manifest::from_toml(&text).expect("manifest");
-        assert!(matches!(m.validate(false), Err(ManifestError::IncompatibleApi { .. })));
+        assert!(matches!(
+            m.validate(false),
+            Err(ManifestError::IncompatibleApi { .. })
+        ));
     }
 
     #[test]
