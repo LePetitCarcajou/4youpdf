@@ -7,6 +7,7 @@
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
+use fyp_core::xref::SectionKind;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -72,9 +73,16 @@ fn main() -> anyhow::Result<()> {
                 }
             );
             // The quick facts above stay useful when the structure cannot be
-            // read (xref stream, broken table): report instead of failing.
+            // read (broken table, unsupported filter): report instead of failing.
             match fyp_core::document::Document::open(&bytes) {
                 Ok(doc) => {
+                    // Kind of the newest section, the one `startxref` points to.
+                    let kind = match doc.xref().kind() {
+                        SectionKind::Table => "table classique",
+                        SectionKind::Stream => "flux xref",
+                        SectionKind::Hybrid => "hybride (table + /XRefStm)",
+                    };
+                    println!("section xref {kind}");
                     println!("objets       {} dans la xref", doc.xref().object_count());
                     match doc.page_count() {
                         Ok(n) => println!("pages        {n}"),

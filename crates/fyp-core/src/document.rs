@@ -1,10 +1,15 @@
 //! Document access: opens a file through its cross-reference table and reads
-//! objects on demand (ISO 32000-2, 7.5 and 7.7).
+//! objects on demand (ISO 32000-2, 7.5 and 7.7), including objects stored
+//! in object streams (7.5.7).
 //!
-//! Only classic xref tables are read so far. A table that points to the
-//! wrong place is an error: rebuilding it by scanning the file is milestone
-//! 0.1, step 3.
+//! A table that points to the wrong place is an error: rebuilding it by
+//! scanning the file is milestone 0.1, step 3.
 
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex, PoisonError};
+
+use crate::filters::{self, DecodeLimits};
+use crate::lexer::{Lexer, Token};
 use crate::object::{Dict, Name, ObjRef, Object};
 use crate::parser::Parser;
 use crate::version::{self, PdfVersion};
@@ -13,30 +18,68 @@ use crate::{Error, Result};
 
 /// A PDF file opened through its cross-reference table. Objects are parsed
 /// lazily from the borrowed input.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Document<'a> {
     input: &'a [u8],
     version: PdfVersion,
     xref: Xref,
+    limits: DecodeLimits,
+    /// Object streams already decoded, by object number. Decoding one is
+    /// the expensive part; parsing an object out of it is cheap.
+    object_streams: Mutex<BTreeMap<u32, Arc<ObjectStream>>>,
+}
+
+/// A decoded object stream (ISO 32000-2, 7.5.7): its data and, for each
+/// object it holds, the object number and the absolute offset in `data`.
+#[derive(Debug)]
+struct ObjectStream {
+    data: Vec<u8>,
+    objects: Vec<(u32, usize)>,
+}
+
+impl Clone for Document<'_> {
+    fn clone(&self) -> Self {
+        Document {
+            input: self.input,
+            version: self.version,
+            xref: self.xref.clone(),
+            limits: self.limits,
+            object_streams: Mutex::new(self.cache().clone()),
+        }
+    }
 }
 
 impl<'a> Document<'a> {
     /// Check the header, then load the cross-reference chain announced by
-    /// the last `startxref`.
+    /// the last `startxref`, under the default [`DecodeLimits`].
     pub fn open(input: &'a [u8]) -> Result<Document<'a>> {
+        Document::open_with_limits(input, DecodeLimits::default())
+    }
+
+    /// Same as [`Document::open`] with explicit limits, applied to every
+    /// stream decoded on behalf of the document (cross-reference streams,
+    /// object streams, [`Document::decoded`]).
+    pub fn open_with_limits(input: &'a [u8], limits: DecodeLimits) -> Result<Document<'a>> {
         let info = version::quick_info(input)?;
         let startxref = info.startxref.ok_or(Error::MissingStartxref)?;
-        let xref = Xref::parse(input, startxref)?;
+        let xref = Xref::parse_with_limits(input, startxref, limits)?;
         Ok(Document {
             input,
             version: info.version,
             xref,
+            limits,
+            object_streams: Mutex::new(BTreeMap::new()),
         })
     }
 
     /// Version declared in the header.
     pub fn version(&self) -> PdfVersion {
         self.version
+    }
+
+    /// Limits applied when decoding streams for this document.
+    pub fn limits(&self) -> DecodeLimits {
+        self.limits
     }
 
     /// Trailer of the newest cross-reference section (ISO 32000-2, 7.5.5).
@@ -49,34 +92,24 @@ impl<'a> Document<'a> {
         &self.xref
     }
 
-    /// Read object `r` at the offset given by the table.
+    /// Read object `r` where the table says it is: at a byte offset, or
+    /// inside an object stream.
     ///
-    /// `Ok(None)` when the table does not list `r` as in use with that
+    /// `Ok(None)` when the table does not list `r` as stored with that
     /// generation: such a reference denotes the null object
     /// (ISO 32000-2, 7.3.10). If the object found at the offset is not `r`,
     /// the table is wrong and this is an [`Error::Syntax`].
     pub fn get(&self, r: ObjRef) -> Result<Option<Object>> {
-        let offset = match self.xref.get(r.num) {
-            Some(XrefEntry::InUse { offset, gen }) if gen == r.gen => offset,
-            _ => return Ok(None),
-        };
-        if offset >= self.input.len() {
-            return Err(Error::BadXref {
-                offset,
-                message: format!("object {} {} lies beyond end of file", r.num, r.gen),
-            });
+        match self.xref.get(r.num) {
+            Some(XrefEntry::InUse { offset, gen }) if gen == r.gen => {
+                self.parse_at(offset, r).map(Some)
+            }
+            // Compressed objects always have generation 0 (7.5.8.3).
+            Some(XrefEntry::InStream { stream_num, index }) if r.gen == 0 => {
+                self.get_compressed(r.num, stream_num, index).map(Some)
+            }
+            _ => Ok(None),
         }
-        let (found, obj) = Parser::at(self.input, offset).parse_indirect()?;
-        if found != r {
-            return Err(Error::Syntax {
-                offset,
-                message: format!(
-                    "xref points to object {} {}, found {} {}",
-                    r.num, r.gen, found.num, found.gen
-                ),
-            });
-        }
-        Ok(Some(obj))
     }
 
     /// Follow `obj` one level if it is a reference; a reference to a missing
@@ -85,6 +118,18 @@ impl<'a> Document<'a> {
         match obj {
             Object::Reference(r) => Ok(self.get(*r)?.unwrap_or(Object::Null)),
             other => Ok(other.clone()),
+        }
+    }
+
+    /// Decoded data of a stream object: its `/Filter` chain applied under
+    /// the document's limits, indirect `/Filter` and `/DecodeParms` values
+    /// resolved. Anything but a stream is [`Error::BadStructure`].
+    pub fn decoded(&self, obj: &Object) -> Result<Vec<u8>> {
+        match obj {
+            Object::Stream { dict, data } => {
+                filters::decode_stream_with(dict, data, |o| self.resolve(o), self.limits)
+            }
+            _ => Err(structure("not a stream")),
         }
     }
 
@@ -120,6 +165,157 @@ impl<'a> Document<'a> {
             _ => Err(structure(format!("{what} is not a dictionary"))),
         }
     }
+
+    /// Parse the indirect object at `offset` and check it is `r`.
+    fn parse_at(&self, offset: usize, r: ObjRef) -> Result<Object> {
+        if offset >= self.input.len() {
+            return Err(Error::BadXref {
+                offset,
+                message: format!("object {} {} lies beyond end of file", r.num, r.gen),
+            });
+        }
+        let (found, obj) = Parser::at(self.input, offset).parse_indirect()?;
+        if found != r {
+            return Err(Error::Syntax {
+                offset,
+                message: format!(
+                    "xref points to object {} {}, found {} {}",
+                    r.num, r.gen, found.num, found.gen
+                ),
+            });
+        }
+        Ok(obj)
+    }
+
+    /// Like [`Document::resolve`], but only for objects stored at a byte
+    /// offset. Used while loading an object stream, whose dictionary must
+    /// not depend on another object stream (7.5.7: object streams cannot
+    /// be nested); a reference into one gives `null`.
+    fn resolve_top_level(&self, obj: &Object) -> Result<Object> {
+        match obj {
+            Object::Reference(r) => match self.xref.get(r.num) {
+                Some(XrefEntry::InUse { offset, gen }) if gen == r.gen => self.parse_at(offset, *r),
+                _ => Ok(Object::Null),
+            },
+            other => Ok(other.clone()),
+        }
+    }
+
+    /// Object `num`, the `index`-th object of object stream `stream_num`.
+    fn get_compressed(&self, num: u32, stream_num: u32, index: u32) -> Result<Object> {
+        let stream = self.object_stream(stream_num)?;
+        let bad = |message: String| Error::BadObjectStream {
+            stream_num,
+            message,
+        };
+        let at_index = usize::try_from(index)
+            .ok()
+            .and_then(|i| stream.objects.get(i))
+            .filter(|(n, _)| *n == num);
+        // Tolerance: an index that does not match is a writer's slip; the
+        // object number list is authoritative (7.5.7).
+        let (_, offset) = at_index
+            .or_else(|| stream.objects.iter().find(|(n, _)| *n == num))
+            .copied()
+            .ok_or_else(|| bad(format!("does not hold object {num}")))?;
+        let obj = Parser::at(&stream.data, offset)
+            .parse_object()
+            .map_err(|e| bad(format!("object {num} at offset {offset}: {e}")))?;
+        if matches!(obj, Object::Stream { .. }) {
+            return Err(bad(format!(
+                "object {num} is a stream; streams cannot be inside an object stream"
+            )));
+        }
+        Ok(obj)
+    }
+
+    /// Object stream `stream_num`, decoded and cached.
+    fn object_stream(&self, stream_num: u32) -> Result<Arc<ObjectStream>> {
+        if let Some(cached) = self.cache().get(&stream_num) {
+            return Ok(Arc::clone(cached));
+        }
+        let stream = Arc::new(self.load_object_stream(stream_num)?);
+        self.cache().insert(stream_num, Arc::clone(&stream));
+        Ok(stream)
+    }
+
+    fn cache(&self) -> std::sync::MutexGuard<'_, BTreeMap<u32, Arc<ObjectStream>>> {
+        // A panic while the lock was held cannot happen in this crate;
+        // if a caller's thread died anyway the map is still consistent.
+        self.object_streams
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Read and decode object stream `stream_num` (7.5.7): a top-level
+    /// stream whose data starts with `/N` pairs `objnum offset`, offsets
+    /// relative to `/First`.
+    fn load_object_stream(&self, stream_num: u32) -> Result<ObjectStream> {
+        let bad = |message: &str| Error::BadObjectStream {
+            stream_num,
+            message: message.into(),
+        };
+        let r = ObjRef {
+            num: stream_num,
+            gen: 0,
+        };
+        let (dict, data) = match self.xref.get(stream_num) {
+            Some(XrefEntry::InUse { offset, gen: 0 }) => match self.parse_at(offset, r)? {
+                Object::Stream { dict, data } => (dict, data),
+                _ => return Err(bad("not a stream")),
+            },
+            Some(XrefEntry::InStream { .. }) => {
+                return Err(bad(
+                    "lies inside another object stream; object streams cannot be nested",
+                ))
+            }
+            _ => return Err(bad("not listed in the cross-reference table")),
+        };
+        let int = |key: &str| -> Result<Option<usize>> {
+            Ok(match dict.get(&Name::new(key)) {
+                None => None,
+                Some(obj) => Some(
+                    self.resolve_top_level(obj)?
+                        .as_i64()
+                        .and_then(|v| usize::try_from(v).ok())
+                        .ok_or_else(|| bad(&format!("/{key} is not a non-negative integer")))?,
+                ),
+            })
+        };
+        let count = int("N")?.ok_or_else(|| bad("no /N"))?;
+        let first = int("First")?.ok_or_else(|| bad("no /First"))?;
+        let decoded =
+            filters::decode_stream_with(&dict, &data, |o| self.resolve_top_level(o), self.limits)?;
+        if first > decoded.len() {
+            return Err(bad("/First lies beyond the decoded data"));
+        }
+        // `/N` comes from the file: never allocate from it. Each pair
+        // consumes input, and the loop stops at the first token that is not
+        // a pair, so it is bounded by the header's size.
+        let mut lexer = Lexer::new(decoded.get(..first).unwrap_or_default());
+        let mut objects = Vec::new();
+        for _ in 0..count {
+            lexer.skip_whitespace_and_comments();
+            let Token::Integer(num) = lexer.next_token()? else {
+                break;
+            };
+            lexer.skip_whitespace_and_comments();
+            let Token::Integer(rel) = lexer.next_token()? else {
+                return Err(bad("object number without offset in the header"));
+            };
+            let num = u32::try_from(num).map_err(|_| bad("object number out of range"))?;
+            let offset = usize::try_from(rel)
+                .ok()
+                .and_then(|rel| first.checked_add(rel))
+                .filter(|&o| o <= decoded.len())
+                .ok_or_else(|| bad(&format!("offset of object {num} lies beyond the data")))?;
+            objects.push((num, offset));
+        }
+        Ok(ObjectStream {
+            data: decoded,
+            objects,
+        })
+    }
 }
 
 fn structure(message: impl Into<String>) -> Error {
@@ -132,6 +328,7 @@ fn structure(message: impl Into<String>) -> Error {
 #[allow(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+    use std::io::Write;
 
     const CATALOG: &str = "<< /Type /Catalog /Pages 2 0 R >>";
 
@@ -157,6 +354,94 @@ mod tests {
         );
         out
     }
+
+    /// A stream object body with the given dictionary entries and raw data.
+    fn stream(extra: &str, data: &[u8]) -> Vec<u8> {
+        let mut out = format!("<< {extra} /Length {} >>\nstream\n", data.len()).into_bytes();
+        out.extend_from_slice(data);
+        out.extend_from_slice(b"\nendstream");
+        out
+    }
+
+    fn zlib(data: &[u8]) -> Vec<u8> {
+        let mut enc = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::best());
+        enc.write_all(data).expect("compress");
+        enc.finish().expect("finish")
+    }
+
+    /// PDF whose objects are given as raw bodies, with an uncompressed
+    /// cross-reference stream (`/W [1 4 2]`) as the last object. `rows`
+    /// gives the xref entries for objects 1..=n as `(type, field2, field3)`;
+    /// `None` means "type 1 at the object's real offset".
+    fn build_with_xref_stream(
+        objects: &[(u32, Vec<u8>)],
+        rows: &[Option<(u8, u64, u64)>],
+        size: u32,
+    ) -> Vec<u8> {
+        let mut out = b"%PDF-1.5\n".to_vec();
+        let mut offsets = BTreeMap::new();
+        for (num, body) in objects {
+            offsets.insert(*num, out.len());
+            out.extend_from_slice(format!("{num} 0 obj\n").as_bytes());
+            out.extend_from_slice(body);
+            out.extend_from_slice(b"\nendobj\n");
+        }
+        let xref_num = size - 1;
+        let startxref = out.len();
+        let mut data = vec![0, 0, 0, 0, 0, 0xff, 0xff];
+        for (i, row) in rows.iter().enumerate() {
+            let num = u32::try_from(i + 1).unwrap();
+            let (t, f2, f3) = row.unwrap_or_else(|| {
+                (
+                    1,
+                    u64::try_from(*offsets.get(&num).unwrap_or(&0)).unwrap(),
+                    0,
+                )
+            });
+            data.push(t);
+            data.extend_from_slice(&u32::try_from(f2).unwrap().to_be_bytes());
+            data.extend_from_slice(&u16::try_from(f3).unwrap().to_be_bytes());
+        }
+        // The xref stream lists itself.
+        data.push(1);
+        data.extend_from_slice(&u32::try_from(startxref).unwrap().to_be_bytes());
+        data.extend_from_slice(&[0, 0]);
+        out.extend_from_slice(format!("{xref_num} 0 obj\n").as_bytes());
+        out.extend_from_slice(&stream(
+            &format!("/Type /XRef /Size {size} /W [1 4 2] /Root 1 0 R"),
+            &data,
+        ));
+        out.extend_from_slice(format!("\nendobj\nstartxref\n{startxref}\n%%EOF\n").as_bytes());
+        out
+    }
+
+    /// Object stream body holding `objects` as `(num, source)`.
+    fn object_stream(objects: &[(u32, &str)], flate: bool) -> Vec<u8> {
+        let mut header = String::new();
+        let mut body = String::new();
+        for (num, src) in objects {
+            header.push_str(&format!("{num} {} ", body.len()));
+            body.push_str(src);
+            body.push('\n');
+        }
+        let content = format!("{header}\n{body}");
+        let first = header.len() + 1;
+        let n = objects.len();
+        if flate {
+            stream(
+                &format!("/Type /ObjStm /N {n} /First {first} /Filter /FlateDecode"),
+                &zlib(content.as_bytes()),
+            )
+        } else {
+            stream(
+                &format!("/Type /ObjStm /N {n} /First {first}"),
+                content.as_bytes(),
+            )
+        }
+    }
+
+    const PAGES: &str = "<< /Type /Pages /Kids [3 0 R] /Count 1 >>";
+    const PAGE: &str = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>";
 
     #[test]
     fn indirect_count_is_resolved() {
@@ -235,5 +520,228 @@ mod tests {
             Document::open(file).map(|_| ()),
             Err(Error::MissingStartxref)
         );
+    }
+
+    #[test]
+    fn decoded_applies_filters_with_document_limits() {
+        // Hex-encoded zlib data keeps the file ASCII for `build`.
+        let hex: String = zlib(b"payload")
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+            + ">";
+        let body = String::from_utf8_lossy(&stream(
+            "/Filter [/ASCIIHexDecode /FlateDecode]",
+            hex.as_bytes(),
+        ))
+        .into_owned();
+        let file = build(&[CATALOG, &body], |_| {});
+        let doc = Document::open(&file).expect("open");
+        let obj = doc.get(ObjRef { num: 2, gen: 0 }).unwrap().unwrap();
+        assert_eq!(doc.decoded(&obj).unwrap(), b"payload");
+        assert!(matches!(
+            doc.decoded(&Object::Integer(1)),
+            Err(Error::BadStructure { .. })
+        ));
+        let tight = DecodeLimits { max_output: 3 };
+        let doc = Document::open_with_limits(&file, tight).expect("open");
+        assert_eq!(doc.limits(), tight);
+        assert!(matches!(
+            doc.decoded(&obj),
+            Err(Error::LimitExceeded { limit: 3, .. })
+        ));
+    }
+
+    // --- Object streams (7.5.7) ---
+
+    #[test]
+    fn objects_come_out_of_a_flate_object_stream() {
+        let objstm = object_stream(&[(1, CATALOG), (2, PAGES)], true);
+        let file = build_with_xref_stream(
+            &[(3, PAGE.into()), (4, objstm)],
+            &[Some((2, 4, 0)), Some((2, 4, 1)), None, None],
+            6,
+        );
+        let doc = Document::open(&file).expect("open");
+        assert_eq!(
+            doc.xref().get(1),
+            Some(XrefEntry::InStream {
+                stream_num: 4,
+                index: 0
+            })
+        );
+        assert_eq!(doc.page_count(), Ok(1));
+        let catalog = doc.get(ObjRef { num: 1, gen: 0 }).unwrap().unwrap();
+        assert_eq!(
+            catalog.as_dict().unwrap().get(&Name::new("Type")),
+            Some(&Object::Name(Name::new("Catalog")))
+        );
+        // Generation 1 of a compressed object does not exist.
+        assert_eq!(doc.get(ObjRef { num: 1, gen: 1 }), Ok(None));
+        // The stream is decoded once: the cache holds it after the first read.
+        assert_eq!(doc.cache().len(), 1);
+        let _ = doc.get(ObjRef { num: 2, gen: 0 }).unwrap();
+        assert_eq!(doc.cache().len(), 1);
+        // A clone carries the cache along.
+        assert_eq!(doc.clone().cache().len(), 1);
+        // The xref stream itself is a readable stream object.
+        assert!(matches!(
+            doc.get(ObjRef { num: 5, gen: 0 }),
+            Ok(Some(Object::Stream { .. }))
+        ));
+    }
+
+    #[test]
+    fn wrong_index_falls_back_to_the_object_number_list() {
+        let objstm = object_stream(&[(1, CATALOG), (2, PAGES)], false);
+        // Indexes swapped, and an index beyond the list.
+        let file = build_with_xref_stream(
+            &[(3, PAGE.into()), (4, objstm)],
+            &[Some((2, 4, 1)), Some((2, 4, 9)), None, None],
+            6,
+        );
+        let doc = Document::open(&file).expect("open");
+        assert_eq!(doc.page_count(), Ok(1));
+        assert!(matches!(
+            doc.get(ObjRef { num: 2, gen: 0 }),
+            Ok(Some(Object::Dict(_)))
+        ));
+    }
+
+    #[test]
+    fn object_stream_cannot_be_nested_or_hold_a_stream() {
+        // Object 4 (the object stream) is itself declared inside object 9.
+        let objstm = object_stream(&[(1, CATALOG), (2, PAGES)], true);
+        let file = build_with_xref_stream(
+            &[(3, PAGE.into()), (4, objstm.clone())],
+            &[Some((2, 4, 0)), Some((2, 4, 1)), None, Some((2, 9, 0))],
+            6,
+        );
+        let doc = Document::open(&file).expect("open");
+        let err = doc.get(ObjRef { num: 1, gen: 0 });
+        assert!(
+            matches!(err, Err(Error::BadObjectStream { stream_num: 4, .. })),
+            "{err:?}"
+        );
+        assert_eq!(doc.cache().len(), 0);
+        // Object 1 inside the object stream is a stream.
+        let inner = String::from_utf8_lossy(&stream("/Length 1", b"x")).into_owned();
+        let objstm = object_stream(&[(1, &inner), (2, PAGES)], false);
+        let file = build_with_xref_stream(
+            &[(3, PAGE.into()), (4, objstm)],
+            &[Some((2, 4, 0)), Some((2, 4, 1)), None, None],
+            6,
+        );
+        let doc = Document::open(&file).expect("open");
+        let err = doc.get(ObjRef { num: 1, gen: 0 });
+        assert!(
+            matches!(err, Err(Error::BadObjectStream { stream_num: 4, .. })),
+            "{err:?}"
+        );
+        // Object 2 in the same stream is still fine.
+        assert!(matches!(
+            doc.get(ObjRef { num: 2, gen: 0 }),
+            Ok(Some(Object::Dict(_)))
+        ));
+    }
+
+    #[test]
+    fn malformed_object_streams() {
+        let cases: Vec<(&str, Vec<u8>)> = vec![
+            (
+                "not a stream",
+                b"<< /Type /ObjStm /N 1 /First 4 >>".to_vec(),
+            ),
+            ("no /N", stream("/Type /ObjStm /First 4", b"1 0 << >>")),
+            ("no /First", stream("/Type /ObjStm /N 1", b"1 0 << >>")),
+            (
+                "/First beyond data",
+                stream("/Type /ObjStm /N 1 /First 400", b"1 0 << >>"),
+            ),
+            (
+                "negative /N",
+                stream("/Type /ObjStm /N -1 /First 4", b"1 0 << >>"),
+            ),
+            (
+                "offset beyond data",
+                stream("/Type /ObjStm /N 1 /First 6", b"1 900 << >>"),
+            ),
+            (
+                "header without offset",
+                stream("/Type /ObjStm /N 1 /First 2", b"1 << >>"),
+            ),
+            (
+                "object missing",
+                stream("/Type /ObjStm /N 1 /First 4", b"7 0 << >>"),
+            ),
+            (
+                "garbage object",
+                stream("/Type /ObjStm /N 1 /First 4", b"1 0 >>"),
+            ),
+        ];
+        for (what, objstm) in cases {
+            let file = build_with_xref_stream(
+                &[(3, PAGE.into()), (4, objstm)],
+                &[Some((2, 4, 0)), None, None, None],
+                6,
+            );
+            let doc = Document::open(&file).expect("open");
+            let got = doc.get(ObjRef { num: 1, gen: 0 });
+            assert!(
+                matches!(got, Err(Error::BadObjectStream { stream_num: 4, .. })),
+                "{what}: {got:?}"
+            );
+        }
+        // Huge /N with a tiny header: no allocation, no hang.
+        let objstm = stream("/Type /ObjStm /N 4000000000 /First 4", b"1 0 << /A 1 >>");
+        let file = build_with_xref_stream(
+            &[(3, PAGE.into()), (4, objstm)],
+            &[Some((2, 4, 0)), None, None, None],
+            6,
+        );
+        let doc = Document::open(&file).expect("open");
+        assert!(matches!(
+            doc.get(ObjRef { num: 1, gen: 0 }),
+            Ok(Some(Object::Dict(_)))
+        ));
+        // Stream number not in the table, or listed as free.
+        let file = build_with_xref_stream(
+            &[(3, PAGE.into())],
+            &[Some((2, 40, 0)), None, None, Some((0, 0, 0))],
+            6,
+        );
+        let doc = Document::open(&file).expect("open");
+        assert!(matches!(
+            doc.get(ObjRef { num: 1, gen: 0 }),
+            Err(Error::BadObjectStream { stream_num: 40, .. })
+        ));
+    }
+
+    #[test]
+    fn object_stream_that_inflates_past_the_limit() {
+        let zeros = vec![b' '; 1 << 20];
+        let mut content = b"1 0 ".to_vec();
+        content.extend_from_slice(&zeros);
+        content.extend_from_slice(b"<< /Type /Catalog >>");
+        let objstm = stream(
+            "/Type /ObjStm /N 1 /First 4 /Filter /FlateDecode",
+            &zlib(&content),
+        );
+        let file = build_with_xref_stream(
+            &[(3, PAGE.into()), (4, objstm)],
+            &[Some((2, 4, 0)), None, None, None],
+            6,
+        );
+        let limits = DecodeLimits { max_output: 4096 };
+        let doc = Document::open_with_limits(&file, limits).expect("open");
+        assert!(matches!(
+            doc.get(ObjRef { num: 1, gen: 0 }),
+            Err(Error::LimitExceeded { limit: 4096, .. })
+        ));
+        let doc = Document::open(&file).expect("open");
+        assert!(matches!(
+            doc.get(ObjRef { num: 1, gen: 0 }),
+            Ok(Some(Object::Dict(_)))
+        ));
     }
 }

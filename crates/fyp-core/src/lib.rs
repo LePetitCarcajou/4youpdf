@@ -14,6 +14,7 @@
 #![warn(missing_docs)]
 
 pub mod document;
+pub mod filters;
 pub mod lexer;
 pub mod object;
 pub mod parser;
@@ -65,6 +66,29 @@ pub enum Error {
         /// Human-readable explanation.
         message: String,
     },
+    /// Encoded stream data that its filter cannot decode (ISO 32000-2, 7.4).
+    Filter {
+        /// Filter name as written in the file, e.g. `ASCII85Decode`.
+        filter: String,
+        /// Human-readable explanation.
+        message: String,
+    },
+    /// Decoding would produce more than the configured amount of data.
+    /// Protection against decompression bombs (ISO 32000-2, 7.4.4 note).
+    LimitExceeded {
+        /// The limit that was hit, in bytes.
+        limit: usize,
+        /// What was being produced when the limit was hit.
+        what: &'static str,
+    },
+    /// An object stream (ISO 32000-2, 7.5.7) that cannot be used: nested in
+    /// another object stream, holding a stream, or malformed.
+    BadObjectStream {
+        /// Object number of the object stream.
+        stream_num: u32,
+        /// Human-readable explanation.
+        message: String,
+    },
 }
 
 impl fmt::Display for Error {
@@ -87,6 +111,14 @@ impl fmt::Display for Error {
             Error::BadStructure { message } => {
                 write!(f, "invalid document structure: {message}")
             }
+            Error::Filter { filter, message } => write!(f, "{filter}: {message}"),
+            Error::LimitExceeded { limit, what } => {
+                write!(f, "{what} would exceed the limit of {limit} bytes")
+            }
+            Error::BadObjectStream {
+                stream_num,
+                message,
+            } => write!(f, "object stream {stream_num}: {message}"),
         }
     }
 }

@@ -11,6 +11,24 @@ fichier. Ils servent aux tests unitaires du noyau.
 - `prev-loop.pdf` — `minimal.pdf` dont le trailer contient `/Prev 209`,
   l'offset de sa propre table xref : la chaîne `/Prev` boucle sur elle-même.
 
-À ajouter au fil du développement : xref stream, object streams, fichier
-chiffré RC4/AES, xref cassée (offsets faux), `startxref` manquant, `/Length`
-indirect.
+- `xrefstream.pdf` — les trois objets de `minimal.pdf` et un flux xref
+  (ISO 32000-2, 7.5.8) non compressé, `/W [1 2 2]`, qui se liste lui-même.
+  Le contenu du flux est binaire : 25 octets, cinq entrées de cinq octets.
+- `objstm.pdf` — objets 1 et 2 (catalogue, arbre des pages) dans un object
+  stream (7.5.7) compressé Flate ; la page reste un objet ordinaire ; flux xref
+  Flate avec prédicteur PNG (`/Predictor 12 /Columns 5`).
+- `hybrid.pdf` — fichier hybride (7.5.8.4) : la table classique ne connaît que
+  les objets 1 et 2 ; la page (objet 3) est dans un object stream que seul le
+  flux xref désigné par `/XRefStm` référence. Ce flux est encodé en
+  ASCIIHex pour rester lisible.
+
+`xrefstream.pdf`, `objstm.pdf` et `hybrid.pdf` sont produits par les tests
+`#[ignore]` de `crates/fyp-core/tests/fixtures_gen.rs`, qui calculent les
+offsets et écrivent des fichiers identiques à chaque exécution :
+
+```
+cargo test -p fyp-core --test fixtures_gen -- --ignored
+```
+
+À ajouter au fil du développement : fichier chiffré RC4/AES, xref cassée
+(offsets faux), `startxref` manquant, `/Length` indirect, LZWDecode.
