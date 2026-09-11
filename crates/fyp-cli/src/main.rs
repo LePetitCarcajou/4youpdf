@@ -18,7 +18,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Show quick facts about a PDF without fully parsing it
+    /// Show facts about a PDF: header, cross-reference table, page count
     Info {
         /// Path to the PDF
         path: PathBuf,
@@ -71,6 +71,18 @@ fn main() -> anyhow::Result<()> {
                     "absent"
                 }
             );
+            // The quick facts above stay useful when the structure cannot be
+            // read (xref stream, broken table): report instead of failing.
+            match fyp_core::document::Document::open(&bytes) {
+                Ok(doc) => {
+                    println!("objets       {} dans la xref", doc.xref().object_count());
+                    match doc.page_count() {
+                        Ok(n) => println!("pages        {n}"),
+                        Err(e) => println!("pages        illisible ({e})"),
+                    }
+                }
+                Err(e) => println!("structure    illisible ({e})"),
+            }
         }
         Cmd::Modules { dir, trusted } => {
             let (found, errors) = fyp_host::discover(&dir, trusted);

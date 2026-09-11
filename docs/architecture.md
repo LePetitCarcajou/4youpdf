@@ -26,10 +26,10 @@ les plugins, ni l'hôte, ni l'interface.
 |---|---|---|---|
 | 1. Lexique | `lexer` | ISO 32000-2, 7.2 | fait, testé |
 | 2. Objets | `object`, `parser` | 7.3 | fait, testé |
-| 3. Fichier | `version`, `xref` (à venir) | 7.5 | `version` fait |
+| 3. Fichier | `version`, `xref` | 7.5 | fait, testé (table classique, chaîne `/Prev`) ; flux xref à venir |
 | 4. Filtres | `filters` (à venir) | 7.4 | — |
 | 5. Chiffrement | `fyp-crypto` | 7.6 | types |
-| 6. Document | `document` (à venir) | 7.7 | — |
+| 6. Document | `document` | 7.7 | fait, testé (objets via la xref, catalogue, nombre de pages) |
 | 7. Écriture | `writer` (à venir) | 7.5.5, 7.5.8 | — |
 
 Principe de tolérance : la lecture accepte ce que les lecteurs majeurs

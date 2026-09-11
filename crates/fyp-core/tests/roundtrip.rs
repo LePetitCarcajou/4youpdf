@@ -38,21 +38,18 @@ fn fixtures_have_a_valid_header() {
 fn minimal_fixture_objects_parse() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/minimal.pdf");
     let bytes = std::fs::read(root).expect("minimal.pdf");
-    // Walk every `N G obj` by scanning; the xref layer will replace this.
-    let mut offset = 0;
+    let doc = fyp_core::document::Document::open(&bytes).expect("open");
+    // Read every in-use object at the offset the xref gives.
     let mut count = 0;
-    while let Some(rel) = fyp_core::parser::find(&bytes[offset..], b" 0 obj") {
-        // back up to the start of the object number
-        let mut start = offset + rel;
-        while start > 0 && bytes[start - 1].is_ascii_digit() {
-            start -= 1;
+    for (num, entry) in doc.xref().entries() {
+        if let fyp_core::xref::XrefEntry::InUse { gen, .. } = entry {
+            let obj = doc
+                .get(fyp_core::object::ObjRef { num, gen })
+                .expect("get")
+                .expect("listed object");
+            assert!(obj.as_dict().is_some());
+            count += 1;
         }
-        let (_, obj) = fyp_core::parser::Parser::at(&bytes, start)
-            .parse_indirect()
-            .expect("indirect");
-        assert!(obj.as_dict().is_some());
-        count += 1;
-        offset += rel + 6;
     }
     assert_eq!(count, 3);
 }

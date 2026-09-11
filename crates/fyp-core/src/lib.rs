@@ -13,10 +13,12 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod document;
 pub mod lexer;
 pub mod object;
 pub mod parser;
 pub mod version;
+pub mod xref;
 
 use std::fmt;
 
@@ -36,6 +38,33 @@ pub enum Error {
     UnexpectedEof,
     /// Nesting deeper than [`parser::MAX_DEPTH`] (protection against hostile files).
     TooDeep,
+    /// No `startxref` near the end of the file (ISO 32000-2, 7.5.5).
+    MissingStartxref,
+    /// Malformed cross-reference section, or an offset from it that leads
+    /// nowhere (ISO 32000-2, 7.5.4).
+    BadXref {
+        /// Byte offset in the input.
+        offset: usize,
+        /// Human-readable explanation.
+        message: String,
+    },
+    /// The `/Prev` chain of incremental updates comes back to a section
+    /// already read (ISO 32000-2, 7.5.6). Protection against hostile files.
+    XrefLoop {
+        /// Offset of the section reached twice.
+        offset: usize,
+    },
+    /// Valid PDF relying on a feature not implemented yet.
+    Unsupported {
+        /// The missing feature, with its clause of ISO 32000-2.
+        feature: &'static str,
+    },
+    /// Objects parse but do not form the expected document structure
+    /// (ISO 32000-2, 7.7), e.g. a trailer without `/Root`.
+    BadStructure {
+        /// Human-readable explanation.
+        message: String,
+    },
 }
 
 impl fmt::Display for Error {
@@ -47,6 +76,17 @@ impl fmt::Display for Error {
             }
             Error::UnexpectedEof => write!(f, "unexpected end of input"),
             Error::TooDeep => write!(f, "object nesting too deep"),
+            Error::MissingStartxref => write!(f, "no startxref found"),
+            Error::BadXref { offset, message } => {
+                write!(f, "cross-reference error at byte {offset}: {message}")
+            }
+            Error::XrefLoop { offset } => {
+                write!(f, "/Prev chain loops back to the section at byte {offset}")
+            }
+            Error::Unsupported { feature } => write!(f, "not supported yet: {feature}"),
+            Error::BadStructure { message } => {
+                write!(f, "invalid document structure: {message}")
+            }
         }
     }
 }
