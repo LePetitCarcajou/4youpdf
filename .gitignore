@@ -6,3 +6,5 @@
 /app/dist
 *.log
 .DS_Store
+
+/tests/corpus-private/
