@@ -80,8 +80,11 @@ impl<'a> Parser<'a> {
             Token::DictOpen => {
                 let dict = self.parse_dict_body(depth)?;
                 // A dictionary followed by `stream` is a stream object.
+                // Tolerance: `stream` glued to its data (no EOL) lexes as a
+                // single keyword such as `streamBT`; the body is re-read
+                // from raw bytes at `o` anyway.
                 let (t, o) = self.next_tok()?;
-                if matches!(t, Token::Keyword(ref k) if k == b"stream") {
+                if matches!(t, Token::Keyword(ref k) if k.starts_with(b"stream")) {
                     self.parse_stream_body(dict, o)
                 } else {
                     self.push_back((t, o));
@@ -151,6 +154,15 @@ impl<'a> Parser<'a> {
         let input = self.lexer.input();
         // After `stream` comes CRLF or LF (ISO 32000-2, 7.3.8.1).
         let mut start = keyword_offset + b"stream".len();
+        // Tolerance: some writers put spaces before that EOL. Skip them only
+        // when an EOL really follows, so data bytes are never swallowed.
+        let mut p = start;
+        while matches!(input.get(p), Some(b' ' | b'\t')) {
+            p += 1;
+        }
+        if matches!(input.get(p), Some(b'\r' | b'\n')) {
+            start = p;
+        }
         if input.get(start) == Some(&b'\r') {
             start += 1;
         }
@@ -158,13 +170,23 @@ impl<'a> Parser<'a> {
             start += 1;
         }
         let declared = dict.get(&Name::new("Length")).and_then(Object::as_i64);
-        // Trust the declared length only if `endstream` really follows it
-        // (allowing an EOL). Otherwise the length is wrong and we scan.
+        // Trust the declared length only if `endstream` really follows it,
+        // separated at most by one EOL marker: CR, LF or CRLF (ISO 32000-2,
+        // 7.3.8.1). Any other byte there is data, so the length is wrong and
+        // we scan.
         let end = declared
             .and_then(|len| usize::try_from(len).ok())
             .and_then(|len| start.checked_add(len))
             .filter(|&end| end <= input.len())
-            .filter(|&end| find(&input[end..], b"endstream").is_some_and(|i| i <= 2));
+            .filter(|&end| {
+                let rest = input.get(end..).unwrap_or_default();
+                let rest = rest
+                    .strip_prefix(b"\r\n")
+                    .or_else(|| rest.strip_prefix(b"\n"))
+                    .or_else(|| rest.strip_prefix(b"\r"))
+                    .unwrap_or(rest);
+                rest.starts_with(b"endstream")
+            });
         let end = match end {
             Some(e) => e,
             None => {
@@ -271,6 +293,36 @@ mod tests {
     #[test]
     fn stream_with_wrong_length_recovers() {
         let obj = parse(b"<< /Length 999 >>\r\nstream\r\nabc\r\nendstream");
+        match obj {
+            Object::Stream { data, .. } => assert_eq!(data, b"abc"),
+            other => panic!("expected stream, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn stream_with_slightly_short_length_is_not_truncated() {
+        // `/Length 4` lands on `o`, two bytes before `endstream`: those bytes
+        // are data, not an EOL, so the length must be rejected.
+        let obj = parse(b"<< /Length 4 >>\nstream\nhello\nendstream");
+        match obj {
+            Object::Stream { data, .. } => assert_eq!(data, b"hello"),
+            other => panic!("expected stream, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn stream_keyword_followed_by_spaces_before_eol() {
+        let obj = parse(b"<< /Length 5 >>\nstream \t\r\nhello\nendstream");
+        match obj {
+            Object::Stream { data, .. } => assert_eq!(data, b"hello"),
+            other => panic!("expected stream, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn stream_keyword_glued_to_data() {
+        // No EOL after `stream`: the lexer sees a single `streamabc` keyword.
+        let obj = parse(b"<< /Length 3 >>\nstreamabc\nendstream");
         match obj {
             Object::Stream { data, .. } => assert_eq!(data, b"abc"),
             other => panic!("expected stream, got {other:?}"),
