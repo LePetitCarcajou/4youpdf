@@ -1,0 +1,26 @@
+[package]
+name = "fyp-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+fyp-core = { path = "../crates/fyp-core" }
+
+[[bin]]
+name = "parse_object"
+path = "fuzz_targets/parse_object.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "quick_info"
+path = "fuzz_targets/quick_info.rs"
+test = false
+doc = false
+bench = false

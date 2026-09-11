@@ -1,0 +1,15 @@
+[package]
+name = "fyp-crypto"
+description = "Standard security handler: RC4, AES-128/256, PDF 2.0 revision 6"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+fyp-core = { workspace = true }
+
+[lints]
+workspace = true

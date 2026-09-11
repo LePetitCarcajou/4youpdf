@@ -1,0 +1,8 @@
+/target
+/fuzz/target
+/fuzz/artifacts
+/fuzz/corpus
+/app/node_modules
+/app/dist
+*.log
+.DS_Store

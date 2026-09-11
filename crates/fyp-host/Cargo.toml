@@ -1,0 +1,18 @@
+[package]
+name = "fyp-host"
+description = "Loads 4YouPDF modules, enforces permissions and resource limits"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+fyp-core = { workspace = true }
+fyp-plugin-api = { workspace = true }
+thiserror = { workspace = true }
+# Next milestone: wasmtime = { version = "..", default-features = false, features = ["cranelift", "wasi"] }
+
+[lints]
+workspace = true

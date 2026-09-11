@@ -1,0 +1,4 @@
+tests/corpus/** filter=lfs diff=lfs merge=lfs -text
+*.rs text eol=lf
+*.toml text eol=lf
+*.md text eol=lf

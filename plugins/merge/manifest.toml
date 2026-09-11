@@ -1,0 +1,19 @@
+id = "org.4youpdf.merge"
+name = "Fusionner"
+version = "0.1.0"
+api_version = "0.1.0"
+license = "AGPL-3.0-or-later"
+source = "https://github.com/4youpdf/4youpdf/tree/main/plugins/merge"
+runtime = "wasm"
+permissions = [{ kind = "read_document" }, { kind = "write_document" }]
+
+[limits]
+timeout_ms = 60000
+memory_mib = 512
+max_output_mib = 2048
+
+[[actions]]
+id = "merge"
+label = "Fusionner"
+category = "pages"
+min_inputs = 2

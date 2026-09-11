@@ -1,0 +1,49 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/fyp-core",
+    "crates/fyp-crypto",
+    "crates/fyp-conformance",
+    "crates/fyp-plugin-api",
+    "crates/fyp-host",
+    "crates/fyp-cli",
+    "plugins/merge",
+]
+exclude = ["fuzz"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/4youpdf/4youpdf"
+authors = ["4YouPDF contributors"]
+
+[workspace.dependencies]
+fyp-core = { path = "crates/fyp-core" }
+fyp-crypto = { path = "crates/fyp-crypto" }
+fyp-conformance = { path = "crates/fyp-conformance" }
+fyp-plugin-api = { path = "crates/fyp-plugin-api" }
+fyp-host = { path = "crates/fyp-host" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+thiserror = "1"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+semver = "1"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+all = "warn"
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

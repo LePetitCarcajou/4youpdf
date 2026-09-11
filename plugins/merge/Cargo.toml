@@ -1,0 +1,18 @@
+[package]
+name = "fyp-plugin-merge"
+description = "4YouPDF module: merge several documents into one"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+fyp-plugin-api = { workspace = true }
+
+[lints]
+workspace = true

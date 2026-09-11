@@ -1,0 +1,26 @@
+[changelog]
+header = "# Changelog\n\nToutes les modifications notables de 4YouPDF. Généré par git-cliff à partir des Conventional Commits.\n"
+body = """
+{% if version %}## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}{% else %}## [Unreleased]{% endif %}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | upper_first }}
+{% for commit in commits %}- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | upper_first }}{% if commit.breaking %} **[BREAKING]**{% endif %}
+{% endfor %}{% endfor %}
+"""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+commit_parsers = [
+    { message = "^feat", group = "Ajouts" },
+    { message = "^fix", group = "Corrections" },
+    { message = "^perf", group = "Performance" },
+    { message = "^refactor", group = "Refactorisation" },
+    { message = "^docs", group = "Documentation" },
+    { message = "^test", skip = true },
+    { message = "^ci", skip = true },
+    { message = "^chore", skip = true },
+    { message = "^build", group = "Build" },
+]
+tag_pattern = "v[0-9].*"

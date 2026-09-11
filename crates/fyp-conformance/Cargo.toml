@@ -1,0 +1,15 @@
+[package]
+name = "fyp-conformance"
+description = "Rule engine for PDF/A, PDF/X, PDF/E, PDF/UA, PDF/VT checks"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+fyp-core = { workspace = true }
+
+[lints]
+workspace = true
