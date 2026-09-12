@@ -72,13 +72,40 @@ pub fn detect_version(input: &[u8]) -> Result<(PdfVersion, usize)> {
     Ok((PdfVersion { major, minor }, off))
 }
 
-/// A file with no header that is still worth trying: it starts with a
-/// comment line, as `%PDF` files do (some writers emit only the binary
-/// comment), and holds an object header (corpus: pdf.js `bug1606566.pdf`).
+/// A file with no header that is still worth trying: it holds an object
+/// header `n g obj` in its first kilobyte. Poppler and qpdf open such
+/// files ("may not be a PDF file, continuing anyway"). Corpus: pdf.js
+/// `bug1606566.pdf` starts with the binary comment alone, qpdf
+/// `issue-1503.pdf` with the tail of another file.
 fn looks_like_headerless_pdf(input: &[u8]) -> bool {
     let window = input.get(..HEADER_WINDOW).unwrap_or(input);
-    let first = window.iter().find(|&&b| !is_whitespace(b));
-    first == Some(&b'%') && find(window, b"obj").is_some()
+    let mut from = 0;
+    while let Some(i) = find(window.get(from..).unwrap_or_default(), b"obj") {
+        let at = from + i;
+        if is_object_header(window, at) {
+            return true;
+        }
+        from = at + 3;
+    }
+    false
+}
+
+/// Is the `obj` at `at` preceded by `n g` (digits, whitespace, digits,
+/// whitespace)?
+fn is_object_header(input: &[u8], at: usize) -> bool {
+    let before = input.get(..at).unwrap_or_default();
+    let to_gen = before.trim_ascii_end();
+    if to_gen.len() == before.len() {
+        return false;
+    }
+    let digits = |s: &[u8]| s.iter().rev().take_while(|b| b.is_ascii_digit()).count();
+    let gen_len = digits(to_gen);
+    if gen_len == 0 {
+        return false;
+    }
+    let to_num_ws = to_gen.get(..to_gen.len() - gen_len).unwrap_or_default();
+    let to_num = to_num_ws.trim_ascii_end();
+    to_num.len() < to_num_ws.len() && digits(to_num) > 0
 }
 
 fn digit(b: &u8) -> Option<u8> {
@@ -176,13 +203,25 @@ mod tests {
                 .expect("info")
                 .header_present
         );
-        // Not PDFs: no comment first, or a comment with no object at all.
+        // No comment line needed: junk, then objects (corpus: qpdf
+        // `issue-1503.pdf`, `fuzz-16214.pdf`).
+        let junk = b"arsttxref\r600003950 00000 n\r\n155 0 obj\r<< >>\rendobj\r";
+        assert!(!quick_info(junk).expect("info").header_present);
+        assert!(
+            !quick_info(b"        5 0 obj <<>> endobj\n%%EOF")
+                .expect("info")
+                .header_present
+        );
+        // Not PDFs: no object header at all.
         assert_eq!(quick_info(b"oops\n"), Err(Error::BadHeader));
         assert_eq!(
             quick_info(b"1/Catalogier\n]<\ntrailer"),
             Err(Error::BadHeader)
         );
         assert_eq!(quick_info(b"% just a comment\n"), Err(Error::BadHeader));
+        assert_eq!(quick_info(b"an object\n"), Err(Error::BadHeader));
+        assert_eq!(quick_info(b"1 obj\n"), Err(Error::BadHeader));
+        assert_eq!(quick_info(b"x 0 obj\n"), Err(Error::BadHeader));
     }
 
     #[test]

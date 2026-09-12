@@ -99,6 +99,7 @@ impl Xref {
             }
             next = prev_offset(&older.trailer, offset)?;
         }
+        free_object_zero(&mut entries);
         Ok(Xref {
             entries,
             trailer: newest.trailer,
@@ -447,6 +448,17 @@ fn next(lexer: &mut Lexer<'_>) -> Result<(Token, usize)> {
     lexer.skip_whitespace_and_comments();
     let at = lexer.pos();
     Ok((lexer.next_token()?, at))
+}
+
+/// Object number 0 is the head of the free list and never a stored object
+/// (ISO 32000-2, 7.5.4). A table listing it in use describes a writer's
+/// junk object (corpus: qpdf `obj0.pdf`), which readers ignore.
+fn free_object_zero(entries: &mut BTreeMap<u32, XrefEntry>) {
+    if let Some(entry) = entries.get_mut(&0) {
+        if !matches!(entry, XrefEntry::Free { .. }) {
+            *entry = XrefEntry::Free { gen: u16::MAX };
+        }
+    }
 }
 
 /// `/Prev` of a trailer: offset of the previous section, if any.
@@ -803,11 +815,22 @@ mod tests {
         let wrong_type = b"9 0 obj\n<< /Type /ObjStm /W [1 1 1] /Length 3 >>\nstream\n\x01\x02\x03\nendstream\nendobj\n";
         assert!(is_bad_xref(Xref::parse(wrong_type, 0)));
         // Widths of 8 bytes are the maximum and work.
-        let wide = b"9 0 obj\n<< /Type /XRef /Size 1 /W [1 8 8] /Length 17 >>\nstream\n\x01\x00\x00\x00\x00\x00\x00\x00\x2a\x00\x00\x00\x00\x00\x00\x00\x01\nendstream\nendobj\n";
+        let wide = b"9 0 obj\n<< /Type /XRef /Size 2 /Index [1 1] /W [1 8 8] /Length 17 >>\nstream\n\x01\x00\x00\x00\x00\x00\x00\x00\x2a\x00\x00\x00\x00\x00\x00\x00\x01\nendstream\nendobj\n";
         assert_eq!(
-            Xref::parse(wide, 0).expect("xref").get(0),
+            Xref::parse(wide, 0).expect("xref").get(1),
             Some(XrefEntry::InUse { offset: 42, gen: 1 })
         );
+        // Object 0 listed in use, in a stream or a table: free (7.5.4).
+        let zero = b"9 0 obj\n<< /Type /XRef /Size 1 /W [1 1 1] /Length 3 >>\nstream\n\x01\x2a\x00\nendstream\nendobj\n";
+        assert_eq!(
+            Xref::parse(zero, 0).expect("xref").get(0),
+            Some(XrefEntry::Free { gen: u16::MAX })
+        );
+        let zero_table =
+            b"xref\n0 2\n0000000015 00000 n \n0000000030 00000 n \ntrailer\n<< /Size 2 >>\n";
+        let xref = Xref::parse(zero_table, 0).expect("xref");
+        assert_eq!(xref.get(0), Some(XrefEntry::Free { gen: u16::MAX }));
+        assert_eq!(xref.get(1), Some(XrefEntry::InUse { offset: 30, gen: 0 }));
         // Generation beyond u16.
         let big_gen = b"9 0 obj\n<< /Type /XRef /Size 1 /W [1 1 3] /Length 5 >>\nstream\n\x01\x10\x01\x00\x00\nendstream\nendobj\n";
         assert!(is_bad_xref(Xref::parse(big_gen, 0)));

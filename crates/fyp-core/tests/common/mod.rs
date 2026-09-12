@@ -134,16 +134,26 @@ pub fn compare(original: &Document<'_>, rewritten: &Document<'_>) -> Result<(), 
             missing.join(", ")
         ));
     }
+    // A catalog written directly in the source trailer comes out as a new
+    // object: expected, not an appearance.
+    let promoted_root = match (
+        original.trailer().get(&Name::new("Root")),
+        rewritten.trailer().get(&Name::new("Root")),
+    ) {
+        (Some(Object::Dict(_)), Some(Object::Reference(r))) => Some(*r),
+        _ => None,
+    };
+    let is_extra = |r: &&ObjRef| !before.contains_key(r) && Some(**r) != promoted_root;
     let extra: Vec<String> = after
         .keys()
-        .filter(|r| !before.contains_key(r))
+        .filter(is_extra)
         .take(5)
         .map(|r| format!("{} {}", r.num, r.gen))
         .collect();
     if !extra.is_empty() {
         return Err(format!(
             "{} object(s) appeared, first: {}",
-            after.keys().filter(|r| !before.contains_key(r)).count(),
+            after.keys().filter(is_extra).count(),
             extra.join(", ")
         ));
     }

@@ -48,6 +48,25 @@ reconstruisant la xref par scan (`Document::reconstructed()` non vide) :
 - `prev-loop.pdf` — voir ci-dessus : la boucle `/Prev` est une table
   inutilisable, donc un cas de reconstruction.
 
+Seconde série d'écarts, issue du nettoyage du rapport corpus (voir
+`docs/architecture.md`, « Tolérances ») :
+
+- `no-header-junk.pdf` — `minimal.pdf` dont la ligne `%PDF-1.7` est
+  remplacée par huit octets quelconques (`XXXXXXXX`) : aucun en-tête, aucun
+  commentaire, mais des objets. Accepté sans reconstruction.
+- `root-dangling.pdf` — `minimal.pdf` avec `/Root 9 0 R` : la table est
+  saine mais son `/Root` ne mène à rien ; reconstruction, le catalogue est
+  retrouvé par son `/Type`.
+- `startxref-off.pdf` — `minimal.pdf` avec `startxref 205` au lieu de
+  `209` : la table est trouvée à côté, sans reconstruction
+  (`Document::relocated_startxref() == Some(209)`).
+- `object-zero.pdf` — `minimal.pdf` précédé d'un objet `0 0 obj` que la
+  table liste en usage : entrée lue comme libre, objet ignoré, pas de
+  reconstruction. Produit par `fixtures_gen.rs`.
+- `root-direct.pdf` — objets 2 et 3 de `minimal.pdf`, catalogue écrit
+  directement dans le trailer (`/Root << … >>`) : accepté, promu en objet
+  indirect `4 0` par le writer. Produit par `fixtures_gen.rs`.
+
 Fichiers chiffrés par le handler de sécurité standard (ISO 32000-2, 7.6),
 mot de passe utilisateur vide, mot de passe propriétaire `owner`, produits
 par `fixtures_gen.rs` avec `fyp-crypto` (vecteurs d'initialisation et sels
@@ -60,7 +79,8 @@ dictionnaire `/Info` dont le `/Title` est une chaîne chiffrée :
   `/StdCF` (`/CFM /AESV3`), PDF 2.0.
 
 `xrefstream.pdf`, `objstm.pdf`, `hybrid.pdf`, `inuse-offset-zero.pdf`,
-`encrypted-rc4.pdf` et `encrypted-aes256.pdf` sont produits par les tests
+`object-zero.pdf`, `root-direct.pdf`, `encrypted-rc4.pdf` et
+`encrypted-aes256.pdf` sont produits par les tests
 `#[ignore]` de `crates/fyp-core/tests/fixtures_gen.rs`, qui calculent les
 offsets et écrivent des fichiers identiques à chaque exécution :
 

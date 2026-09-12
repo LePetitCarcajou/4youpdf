@@ -122,6 +122,7 @@ fn repaired_fixtures_write_sound_files() {
         "no-startxref.pdf",
         "garbage-xref.pdf",
         "prev-loop.pdf",
+        "root-dangling.pdf",
     ] {
         let bytes = std::fs::read(dir.join(name)).expect("read fixture");
         let doc = Document::open(&bytes).expect("open");

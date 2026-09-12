@@ -142,6 +142,11 @@ fn main() -> anyhow::Result<()> {
                     if let Some(e) = doc.encryption() {
                         println!("chiffrement  {}", describe_encryption(&e));
                     }
+                    if let Some(at) = doc.relocated_startxref() {
+                        println!(
+                            "startxref    faux, table trouvée à l'offset {at} (toléré, sans reconstruction)"
+                        );
+                    }
                     // A repaired file must never pass for a sound one: say
                     // why the declared table was dropped.
                     match doc.reconstructed() {

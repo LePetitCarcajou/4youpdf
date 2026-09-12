@@ -31,6 +31,8 @@ enum Outcome {
     /// declared table had to be rebuilt.
     Passed {
         repaired: Option<String>,
+        /// `startxref` pointed elsewhere and the section was found nearby.
+        relocated: bool,
     },
     /// A git-lfs pointer whose content was never fetched: not a PDF.
     LfsPointer,
@@ -112,7 +114,10 @@ fn examine(bytes: &[u8]) -> Outcome {
             Err(e) => return failed(Stage::Unstable, e.to_string()),
         }
     }
-    Outcome::Passed { repaired }
+    Outcome::Passed {
+        repaired,
+        relocated: doc.relocated_startxref().is_some(),
+    }
 }
 
 /// Run `examine` on another thread so that a panic or a hang in the core
@@ -220,12 +225,29 @@ fn style_name(style: XrefStyle) -> &'static str {
 fn report(records: &[Record], corpus: &Path, total: Duration) -> String {
     let count =
         |pred: &dyn Fn(&Outcome) -> bool| records.iter().filter(|r| pred(&r.outcome)).count();
-    let sound = count(&|o| matches!(o, Outcome::Passed { repaired: None }));
-    let repaired_ok = count(&|o| matches!(o, Outcome::Passed { repaired: Some(_) }));
+    let sound = count(&|o| matches!(o, Outcome::Passed { repaired: None, .. }));
+    let repaired_ok = count(&|o| {
+        matches!(
+            o,
+            Outcome::Passed {
+                repaired: Some(_),
+                ..
+            }
+        )
+    });
+    let relocated = count(&|o| {
+        matches!(
+            o,
+            Outcome::Passed {
+                relocated: true,
+                ..
+            }
+        )
+    });
     let repaired_any = records
         .iter()
         .filter(|r| match &r.outcome {
-            Outcome::Passed { repaired } | Outcome::TripFailed { repaired, .. } => {
+            Outcome::Passed { repaired, .. } | Outcome::TripFailed { repaired, .. } => {
                 repaired.is_some()
             }
             _ => false,
@@ -263,6 +285,7 @@ fn report(records: &[Record], corpus: &Path, total: Duration) -> String {
     let _ = writeln!(out, "| Délai dépassé | {timed_out} |");
     let _ = writeln!(out, "| Pointeurs git-lfs non récupérés | {lfs} |");
     let _ = writeln!(out, "\nFichiers dont la xref a dû être reconstruite, tous résultats confondus : {repaired_any}.");
+    let _ = writeln!(out, "\nFichiers ouverts sans reconstruction mais dont `startxref` pointait à côté de la table : {relocated}.");
 
     let mut by_lot: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
     for r in records {
@@ -362,7 +385,9 @@ fn report(records: &[Record], corpus: &Path, total: Duration) -> String {
         "Le fichier s'ouvre, mais sa table déclarée a été rejetée. Une cause fréquente sur des fichiers que d'autres lecteurs ouvrent sans réparation signale une tolérance manquante dans `xref` ou `document::verify`.\n"
     );
     let groups = grouped(records.iter().filter_map(|r| match &r.outcome {
-        Outcome::Passed { repaired: Some(m) }
+        Outcome::Passed {
+            repaired: Some(m), ..
+        }
         | Outcome::TripFailed {
             repaired: Some(m), ..
         } => Some((r.path.as_str(), m.as_str())),
@@ -372,6 +397,28 @@ fn report(records: &[Record], corpus: &Path, total: Duration) -> String {
         let _ = writeln!(out, "Aucune.");
     }
     write_groups(&mut out, &groups);
+
+    let _ = writeln!(out, "\n## Priorité 5 — `startxref` corrigé\n");
+    let _ = writeln!(
+        out,
+        "Le fichier s'ouvre sur sa table déclarée, trouvée près de l'offset annoncé (décalage de quelques octets, en-tête précédé de déchets).\n"
+    );
+    let mut any_relocated = false;
+    for r in records {
+        if matches!(
+            r.outcome,
+            Outcome::Passed {
+                relocated: true,
+                ..
+            }
+        ) {
+            any_relocated = true;
+            let _ = writeln!(out, "- `{}`", r.path);
+        }
+    }
+    if !any_relocated {
+        let _ = writeln!(out, "Aucun.");
+    }
 
     let _ = writeln!(out, "\n## Les plus lents\n");
     let mut slowest: Vec<&Record> = records.iter().collect();
@@ -394,8 +441,20 @@ fn report(records: &[Record], corpus: &Path, total: Duration) -> String {
     );
     for r in records {
         let (result, detail) = match &r.outcome {
-            Outcome::Passed { repaired: None } => ("ok", String::new()),
-            Outcome::Passed { repaired: Some(m) } => ("réparé", m.clone()),
+            Outcome::Passed {
+                repaired: None,
+                relocated,
+            } => (
+                "ok",
+                if *relocated {
+                    "startxref corrigé".to_string()
+                } else {
+                    String::new()
+                },
+            ),
+            Outcome::Passed {
+                repaired: Some(m), ..
+            } => ("réparé", m.clone()),
             Outcome::LfsPointer => ("pointeur lfs", String::new()),
             Outcome::OpenFailed(m) => ("ouverture", m.clone()),
             Outcome::TripFailed {

@@ -367,3 +367,121 @@ fn newest_section_kind_of_each_fixture() {
         assert_eq!(doc.reconstructed(), None, "{name}");
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tolerances found in the corpus survey (see `tests/fixtures/README.md`)
+// ---------------------------------------------------------------------------
+
+/// Replace the value after the last `startxref` by `value`, at byte level.
+fn with_startxref(bytes: &[u8], value: &str) -> Vec<u8> {
+    let marker = b"startxref\n";
+    let at = bytes
+        .windows(marker.len())
+        .rposition(|w| w == marker)
+        .expect("startxref")
+        + marker.len();
+    let digits = bytes[at..]
+        .iter()
+        .take_while(|b| b.is_ascii_digit())
+        .count();
+    let mut out = bytes[..at].to_vec();
+    out.extend_from_slice(value.as_bytes());
+    out.extend_from_slice(&bytes[at + digits..]);
+    out
+}
+
+#[test]
+fn headerless_file_with_a_junk_first_line_is_accepted() {
+    let bytes = fixture("no-header-junk.pdf");
+    let info = fyp_core::version::quick_info(&bytes).expect("info");
+    assert!(!info.header_present);
+    let doc = Document::open(&bytes).expect("open");
+    assert_eq!(doc.reconstructed(), None);
+    assert_eq!(doc.page_count(), Ok(1));
+}
+
+#[test]
+fn dangling_root_sends_the_file_to_the_scan() {
+    let bytes = fixture("root-dangling.pdf");
+    let doc = Document::open(&bytes).expect("open");
+    assert!(
+        matches!(doc.reconstructed(), Some(Error::BadXref { message, .. }) if message.contains("/Root 9 0")),
+        "{:?}",
+        doc.reconstructed()
+    );
+    // The scan replaced the dangling reference by the catalog it found.
+    assert_eq!(
+        doc.trailer().get(&Name::new("Root")),
+        Some(&Object::Reference(ObjRef { num: 1, gen: 0 }))
+    );
+    assert_eq!(doc.page_count(), Ok(1));
+}
+
+#[test]
+fn object_zero_is_never_in_use() {
+    let bytes = fixture("object-zero.pdf");
+    let doc = Document::open(&bytes).expect("open");
+    assert_eq!(doc.reconstructed(), None);
+    assert!(matches!(doc.xref().get(0), Some(XrefEntry::Free { .. })));
+    assert_eq!(doc.get(ObjRef { num: 0, gen: 0 }), Ok(None));
+    assert_eq!(doc.xref().object_count(), 3);
+    assert_eq!(doc.page_count(), Ok(1));
+    // Same when the table is rebuilt: the scan skips `0 0 obj`.
+    let broken = with_startxref(&bytes, "999999");
+    let doc = Document::open(&broken).expect("open by scan");
+    assert!(doc.reconstructed().is_some());
+    assert_eq!(doc.get(ObjRef { num: 0, gen: 0 }), Ok(None));
+    assert_eq!(doc.xref().object_count(), 3);
+    assert_eq!(doc.page_count(), Ok(1));
+}
+
+#[test]
+fn wrong_startxref_is_relocated_to_the_nearby_table() {
+    let bytes = fixture("startxref-off.pdf");
+    let doc = Document::open(&bytes).expect("open");
+    assert_eq!(doc.reconstructed(), None);
+    assert_eq!(doc.relocated_startxref(), Some(209));
+    assert_eq!(doc.page_count(), Ok(1));
+    // Beyond the end of the file, nothing nearby: scanned, not relocated.
+    let far = with_startxref(&fixture("minimal.pdf"), "999999");
+    let doc = Document::open(&far).expect("open by scan");
+    assert!(doc.reconstructed().is_some());
+    assert_eq!(doc.relocated_startxref(), None);
+    // Right on target: nothing to relocate.
+    let minimal = fixture("minimal.pdf");
+    let doc = Document::open(&minimal).expect("open");
+    assert_eq!(doc.relocated_startxref(), None);
+    // A cross-reference stream is found the same way.
+    let off = with_startxref(&fixture("xrefstream.pdf"), "300");
+    let doc = Document::open(&off).expect("open");
+    assert_eq!(doc.reconstructed(), None);
+    assert!(doc.relocated_startxref().is_some());
+    assert_eq!(doc.page_count(), Ok(1));
+}
+
+#[test]
+fn direct_root_dictionary_is_accepted_and_written_as_an_object() {
+    let bytes = fixture("root-direct.pdf");
+    let doc = Document::open(&bytes).expect("open");
+    assert_eq!(doc.reconstructed(), None);
+    assert!(matches!(
+        doc.trailer().get(&Name::new("Root")),
+        Some(Object::Dict(_))
+    ));
+    assert_eq!(doc.page_count(), Ok(1));
+    let out = fyp_core::writer::Writer::new(doc.version())
+        .write(&doc)
+        .expect("write");
+    let again = Document::open(&out).expect("reopen");
+    assert_eq!(again.reconstructed(), None);
+    assert_eq!(
+        again.trailer().get(&Name::new("Root")),
+        Some(&Object::Reference(ObjRef { num: 4, gen: 0 }))
+    );
+    assert_eq!(again.page_count(), Ok(1));
+    // Also when the file is scanned: the direct catalog is kept.
+    let broken = with_startxref(&bytes, "999999");
+    let doc = Document::open(&broken).expect("open by scan");
+    assert!(doc.reconstructed().is_some());
+    assert_eq!(doc.page_count(), Ok(1));
+}

@@ -54,6 +54,35 @@ mineur (version 1.0) ; fichier sans `%PDF` mais commençant par un
 commentaire et contenant des objets, tenté avec la version supposée 1.4,
 `QuickInfo::header_present` valant alors `false`.
 
+Seconde série, issue du nettoyage du rapport (septembre 2026), chacune avec
+sa fixture et son test :
+
+- `no-header-junk.pdf` — aucun `%PDF` et une première ligne quelconque :
+  un fichier sans en-tête est tenté dès qu'il contient un en-tête d'objet
+  `N G obj` dans son premier kilo-octet, comme le font Poppler et qpdf
+  (« may not be a PDF file, continuing anyway »).
+- `object-zero.pdf` — un objet `0 0 obj` listé « en usage » dans la table :
+  l'objet 0 est la tête de la liste libre (7.5.4), jamais un objet ; l'entrée
+  est lue comme libre, l'objet ignoré, y compris par le scan (qpdf
+  `obj0.pdf`, `issue-99.pdf` dont le `/Root 0 0 R` cède la place au
+  catalogue trouvé).
+- `root-dangling.pdf` — table saine dont le `/Root` ne mène à rien : la
+  vérification de la table exige que `/Root` désigne une entrée existante
+  dont l'objet se parse en dictionnaire (un parsing complet, pour ce seul
+  objet) ; sinon la table est rejetée et le scan retrouve le catalogue par
+  son `/Type`.
+- `startxref-off.pdf` — `startxref` pointe à côté de la table : avant de
+  scanner, `Document` cherche la section à l'offset décalé de la position de
+  l'en-tête (déchets avant `%PDF`, qpdf `leading-junk.pdf`), puis le mot-clé
+  `xref` ou un flux `/Type /XRef` le plus proche dans une fenêtre de
+  512 octets. La section trouvée est vérifiée comme les autres ; un mauvais
+  choix mène au scan, pas à une lecture fausse. `Document::relocated_startxref()`
+  signale la correction, `fyp info` l'affiche, le rapport corpus la compte
+  (13 fichiers).
+- `root-direct.pdf` — catalogue écrit directement dans le trailer
+  (`/Root << … >>`, pdf.js `issue9105_other.pdf`) : accepté à la lecture,
+  conservé par le scan, promu en objet indirect par le writer.
+
 ### Filtres et limites
 
 `filters::decode_stream(dict, data, resolve)` applique la chaîne `/Filter`
@@ -85,12 +114,14 @@ objets compressés sont cachés aux lecteurs antérieurs à PDF 1.5.
 
 ### Reconstruction de la xref par scan
 
-`Document::open` lit d'abord la table déclarée par `startxref`, puis la
-vérifie : chaque entrée `n` doit avoir son en-tête `N G obj` à l'offset
-annoncé (trois jetons, pas de parsing complet), chaque objet compressé doit
-désigner un object stream stocké dans le fichier, et le trailer doit avoir
-un `/Root`. Si la lecture ou la vérification échoue (`startxref` absent,
-offset faux, table malformée, boucle `/Prev`), `recover::reconstruct`
+`Document::open` lit d'abord la table déclarée par `startxref` (ou trouvée
+à côté, voir `startxref-off.pdf` ci-dessus), puis la vérifie : chaque
+entrée `n` doit avoir son en-tête `N G obj` à l'offset annoncé (trois
+jetons, pas de parsing complet), chaque objet compressé doit désigner un
+object stream stocké dans le fichier, et le `/Root` du trailer doit mener à
+un dictionnaire lisible (ou être lui-même un dictionnaire). Si la lecture
+ou la vérification échoue (`startxref` absent, offset faux, table
+malformée, boucle `/Prev`, `/Root` pendant), `recover::reconstruct`
 reconstruit l'index en scannant le fichier. C'est un recours, jamais le
 chemin normal.
 
@@ -166,6 +197,9 @@ et `%%EOF`. La lecture est tolérante, l'écriture est stricte :
   portée à 1.5 au minimum.
 - Refus explicites : `/Root` qui ne mène à aucun objet écrit, offset
   au-delà des dix chiffres d'une entrée de table.
+- Catalogue direct dans le trailer de la source : écrit comme objet
+  indirect sous le numéro suivant le plus grand numéro écrit, et référencé
+  par le trailer (7.5.5 exige une référence).
 - Entrée chiffrée : la sortie est **en clair**. `Document` fournit les
   chaînes et les flux déchiffrés, le dictionnaire `/Encrypt` n'est pas
   recopié et le trailer n'a pas d'entrée `/Encrypt`. Le chiffrement à
@@ -252,6 +286,32 @@ normalisée (chiffres et chaînes citées effacés) et les classe : paniques et
 délais, refus à l'ouverture, échecs de round-trip par étape, tables
 reconstruites. C'est la liste de travail du jalon « round-trip sur 100 % du
 corpus » ; le test ne devient bloquant qu'avec `FYP_CORPUS_STRICT=1`.
+
+### État du corpus et limites assumées
+
+Relevé du 12 septembre 2026, corpus public de 4529 fichiers (pdf.js 982,
+qpdf 639, veraPDF 2908), build release : 4472 round-trips complets (4394
+sans reconstruction, 78 après reconstruction), 44 refus à l'ouverture,
+13 round-trips en échec, aucune panique ni délai. Chaque fichier restant a
+été classé, Poppler (`pdftotext`) servant d'arbitre : il n'extrait rien
+d'aucun d'eux sans mot de passe.
+
+| Limite | Fichiers | Nature |
+|---|---:|---|
+| Chiffrés avec un mot de passe utilisateur non vide : `Error::WrongPassword` tant que l'appelant ne le fournit pas | 35 | Comportement voulu ; Poppler exige aussi le mot de passe. Avec le bon mot de passe (`fyp info --password`), les fichiers qpdf `enc-R2`, `enc-R3`, `enc-XI-R6` s'ouvrent. |
+| Aucun objet lisible nulle part : `Error::BadHeader` (4 fichiers sans un seul `N G obj`), `Error::Unrecoverable` (5 fichiers : flux xref à `/W [0 0 0]`, fichiers fuzzés tronqués) ou `Error::BadEncryption` (1 fichier : `/Encrypt` à `/Length 160`, sans autre objet) | 10 | Fichiers réellement invalides (qpdf `bad1.pdf`, `issue-141b`, `issue-143`, `issue-147`, `issue-150`, `issue-263`, `issue-335a/b`, `bad-direct-root` ; pdf.js `bug1020226`). |
+| Ouverts par scan mais sans aucun catalogue lisible (`/Root` absent ou pendant, aucun objet `/Type /Catalog` qui se parse) : `Error::Unwritable` à l'écriture | 12 | Fichiers fuzzés (qpdf `issue-99b`, `issue-100`, `issue-101`, `issue-146`, `issue-148`, `issue-141a`, `issue-1503`, `inspect`, `bad-content`, `fuzz-16214` ; pdf.js `REDHAT-1531897-0`, `poppler-742-0-fuzzed`). Le catalogue de `issue-99b` est l'objet 0, numéro que 7.5.4 réserve ; renuméroter un objet serait inventer un document. |
+| Numérotation trop éparse pour une table classique (objet 2147483647) : `Error::Unwritable` en style table, écrit en style flux xref | 1 | pdf.js `bug1980958.pdf`. Limite de `MAX_TABLE_PADDING`, protection contre une sortie démesurée ; `fyp rewrite --xref-stream` fonctionne. |
+
+Fichier le plus lent, `pdfjs/bug1978317.pdf` (1,5 Mio, 65 563 objets dans
+deux object streams) : 2,0 s en release pour les huit passes du test
+(ouverture, deux écritures de 13 Mio chacune, relectures, comparaisons,
+secondes écritures), soit 2 à 5 µs par objet et par passe. Le temps est
+linéaire ; les 11,5 s observées venaient d'un build debug (même rapport,
+×6, sur le deuxième fichier le plus lent). La seule quadratique possible,
+la recherche d'un objet par numéro dans un object stream dont l'index de la
+table est faux, est désormais un `BTreeMap` construit au décodage
+(`ObjectStream::by_number`).
 
 ## Modules
 

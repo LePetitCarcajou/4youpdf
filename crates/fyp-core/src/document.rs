@@ -20,8 +20,9 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::encryption::{Crypt, Encryption};
 use crate::filters::{self, DecodeLimits};
-use crate::lexer::{Lexer, Token};
+use crate::lexer::{is_delimiter, is_whitespace, Lexer, Token};
 use crate::object::{Dict, Name, ObjRef, Object};
+use crate::parser::find;
 use crate::parser::Parser;
 use crate::recover;
 use crate::version::{self, PdfVersion};
@@ -39,6 +40,9 @@ pub struct Document<'a> {
     /// Why the declared cross-reference table was replaced by a scan of
     /// the file, if it was.
     reconstructed: Option<Error>,
+    /// Offset of the newest section when `startxref` pointed elsewhere
+    /// and the section was found nearby (see [`locate_section`]).
+    relocated_startxref: Option<usize>,
     /// The security handler, when the file is encrypted.
     crypt: Option<Crypt>,
     /// Object streams already decoded, by object number. Decoding one is
@@ -52,6 +56,10 @@ pub struct Document<'a> {
 pub(crate) struct ObjectStream {
     pub(crate) data: Vec<u8>,
     pub(crate) objects: Vec<(u32, usize)>,
+    /// First offset listed for each object number, for the lookup by
+    /// number when the index in the table is wrong. Keeps that fallback
+    /// logarithmic on streams holding tens of thousands of objects.
+    pub(crate) by_number: BTreeMap<u32, usize>,
 }
 
 impl ObjectStream {
@@ -92,9 +100,14 @@ impl ObjectStream {
                 .ok_or_else(|| bad(&format!("offset of object {num} lies beyond the data")))?;
             objects.push((num, offset));
         }
+        let mut by_number = BTreeMap::new();
+        for &(num, offset) in &objects {
+            by_number.entry(num).or_insert(offset);
+        }
         Ok(ObjectStream {
             data: decoded,
             objects,
+            by_number,
         })
     }
 }
@@ -107,6 +120,7 @@ impl Clone for Document<'_> {
             xref: self.xref.clone(),
             limits: self.limits,
             reconstructed: self.reconstructed.clone(),
+            relocated_startxref: self.relocated_startxref,
             crypt: self.crypt.clone(),
             object_streams: Mutex::new(self.cache().clone()),
         }
@@ -150,21 +164,31 @@ impl<'a> Document<'a> {
         password: &[u8],
     ) -> Result<Document<'a>> {
         let info = version::quick_info(input)?;
+        let mut relocated_startxref = None;
         let declared = match info.startxref {
             None => Err(Error::MissingStartxref),
-            Some(startxref) => Xref::parse_with_limits(input, startxref, limits)
-                .and_then(|xref| verify(input, &xref).map(|()| xref)),
+            Some(startxref) => {
+                let start = locate_section(input, startxref, info.header_offset);
+                if start != startxref {
+                    relocated_startxref = Some(start);
+                }
+                Xref::parse_with_limits(input, start, limits)
+                    .and_then(|xref| verify(input, &xref).map(|()| xref))
+            }
         };
         let (xref, reconstructed) = match declared {
             Ok(xref) => (xref, None),
-            Err(declared) => match recover::reconstruct(input, limits) {
-                Some(xref) => (xref, Some(declared)),
-                None => {
-                    return Err(Error::Unrecoverable {
-                        declared: Box::new(declared),
-                    })
+            Err(declared) => {
+                relocated_startxref = None;
+                match recover::reconstruct(input, limits) {
+                    Some(xref) => (xref, Some(declared)),
+                    None => {
+                        return Err(Error::Unrecoverable {
+                            declared: Box::new(declared),
+                        })
+                    }
                 }
-            },
+            }
         };
         let mut doc = Document {
             input,
@@ -172,6 +196,7 @@ impl<'a> Document<'a> {
             xref,
             limits,
             reconstructed,
+            relocated_startxref,
             crypt: None,
             object_streams: Mutex::new(BTreeMap::new()),
         };
@@ -180,6 +205,16 @@ impl<'a> Document<'a> {
         let crypt = Crypt::open(doc.trailer(), |o| doc.resolve(o), password)?;
         doc.crypt = crypt;
         Ok(doc)
+    }
+
+    /// Offset of the cross-reference section actually read when the
+    /// declared `startxref` pointed at something else and the section was
+    /// found nearby (offsets off by a few bytes, junk before the header).
+    /// `None` when `startxref` was right, or when the file was scanned
+    /// ([`Document::reconstructed`]). Such a file is not sound; callers
+    /// that report on a file should say so.
+    pub fn relocated_startxref(&self) -> Option<usize> {
+        self.relocated_startxref
     }
 
     /// How the file is encrypted, or `None` for a file stored in the
@@ -343,9 +378,9 @@ impl<'a> Document<'a> {
             .filter(|(n, _)| *n == num);
         // Tolerance: an index that does not match is a writer's slip; the
         // object number list is authoritative (7.5.7).
-        let (_, offset) = at_index
-            .or_else(|| stream.objects.iter().find(|(n, _)| *n == num))
-            .copied()
+        let offset = at_index
+            .map(|&(_, offset)| offset)
+            .or_else(|| stream.by_number.get(&num).copied())
             .ok_or_else(|| bad(format!("does not hold object {num}")))?;
         let obj = Parser::at(&stream.data, offset)
             .parse_object()
@@ -419,11 +454,66 @@ impl<'a> Document<'a> {
     }
 }
 
+/// How far from the declared `startxref` a section is looked for.
+const RELOCATION_WINDOW: usize = 512;
+
+/// Where the newest cross-reference section really starts. `declared` is
+/// what `startxref` says; when nothing starts there, the offset shifted by
+/// the header's position is tried (junk before `%PDF` moves everything,
+/// corpus: qpdf `leading-junk.pdf`), then the nearest `xref` keyword or
+/// cross-reference stream within [`RELOCATION_WINDOW`] bytes (offsets off
+/// by a few bytes, corpus: 16 files). A wrong pick is harmless: the
+/// section is verified like any other, and the file is scanned if that
+/// fails.
+fn locate_section(input: &[u8], declared: usize, header_offset: usize) -> usize {
+    if section_starts_at(input, declared) {
+        return declared;
+    }
+    let shifted = declared.saturating_add(header_offset);
+    if header_offset > 0 && section_starts_at(input, shifted) {
+        return shifted;
+    }
+    let low = declared.saturating_sub(RELOCATION_WINDOW);
+    let high = declared.saturating_add(RELOCATION_WINDOW).min(input.len());
+    (low..high)
+        .filter(|&at| section_starts_at(input, at))
+        .min_by_key(|&at| at.abs_diff(declared))
+        .unwrap_or(declared)
+}
+
+/// Does a cross-reference section start at `at`: the `xref` keyword as a
+/// whole token, or an `n g obj` header followed by a `/XRef` dictionary?
+fn section_starts_at(input: &[u8], at: usize) -> bool {
+    let Some(rest) = input.get(at..) else {
+        return false;
+    };
+    let before = at.checked_sub(1).and_then(|i| input.get(i)).copied();
+    if rest.starts_with(b"xref") {
+        let before_ok = before.map_or(true, |b| !b.is_ascii_alphanumeric());
+        let after_ok = rest
+            .get(4)
+            .map_or(true, |&b| is_whitespace(b) || is_delimiter(b));
+        return before_ok && after_ok;
+    }
+    if rest.first().is_some_and(u8::is_ascii_digit) && !before.is_some_and(|b| b.is_ascii_digit()) {
+        let mut parser = Parser::at(input, at);
+        if parser.parse_indirect_header().is_ok() {
+            let end = parser.pos();
+            let dict = input
+                .get(end..end.saturating_add(512).min(input.len()))
+                .unwrap_or_default();
+            return find(dict, b"/XRef").is_some();
+        }
+    }
+    false
+}
+
 /// Check that the declared table matches the file: every in-use entry has
 /// its `n g obj` header at the announced offset, every compressed object
-/// names an object stream stored at an offset, and the trailer has a
-/// `/Root`. Cheap (three tokens per object) and decisive: any failure means
-/// the table is wrong and the file must be scanned.
+/// names an object stream stored at an offset, and the trailer's `/Root`
+/// leads to a dictionary. Cheap (three tokens per object, one full parse
+/// for the catalog) and decisive: any failure means the table is wrong
+/// and the file must be scanned.
 fn verify(input: &[u8], xref: &Xref) -> Result<()> {
     for (num, entry) in xref.entries() {
         match entry {
@@ -455,10 +545,35 @@ fn verify(input: &[u8], xref: &Xref) -> Result<()> {
             }
         }
     }
-    if !xref.trailer().contains_key(&Name::new("Root")) {
-        return Err(structure("trailer has no /Root"));
+    // A table whose `/Root` leads nowhere is as wrong as one with a bad
+    // offset: the scan may find a catalog (corpus: qpdf `issue-99.pdf`,
+    // pdf.js `REDHAT-1531897-0.pdf`).
+    match xref.trailer().get(&Name::new("Root")) {
+        None => Err(structure("trailer has no /Root")),
+        // Tolerated: a catalog written directly in the trailer (corpus:
+        // pdf.js `issue9105_other.pdf`); the writer makes it indirect.
+        Some(Object::Dict(_)) => Ok(()),
+        Some(Object::Reference(r)) => match xref.get(r.num) {
+            Some(XrefEntry::InUse { offset, gen }) if gen == r.gen => {
+                match Parser::at(input, offset).parse_indirect() {
+                    Ok((_, Object::Dict(_))) => Ok(()),
+                    _ => Err(Error::BadXref {
+                        offset,
+                        message: format!(
+                            "/Root {} {} announced here is not a readable dictionary",
+                            r.num, r.gen
+                        ),
+                    }),
+                }
+            }
+            Some(XrefEntry::InStream { .. }) if r.gen == 0 => Ok(()),
+            _ => Err(Error::BadXref {
+                offset: 0,
+                message: format!("/Root {} {} is not listed in the table", r.num, r.gen),
+            }),
+        },
+        Some(_) => Err(structure("/Root is neither a reference nor a dictionary")),
     }
-    Ok(())
 }
 
 fn structure(message: impl Into<String>) -> Error {

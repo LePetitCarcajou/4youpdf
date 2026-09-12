@@ -142,7 +142,22 @@ impl Writer {
             write_indirect(&mut out, r, &obj)?;
         }
 
-        let trailer = build_trailer(source_trailer, &written, &out)?;
+        // A catalog written directly in the trailer (tolerated on reading)
+        // becomes an indirect object: the standard wants a reference (7.5.5).
+        let mut promoted_root = None;
+        if let Some(Object::Dict(root)) = source_trailer.get(&Name::new("Root")) {
+            let num = written
+                .keys()
+                .next_back()
+                .map_or(Some(1), |max| max.checked_add(1))
+                .ok_or_else(|| unwritable("no object number left for the catalog"))?;
+            let r = ObjRef { num, gen: 0 };
+            written.insert(num, (out.len(), 0));
+            write_indirect(&mut out, r, &Object::Dict(root.clone()))?;
+            promoted_root = Some(r);
+        }
+
+        let trailer = build_trailer(source_trailer, &written, &out, promoted_root)?;
         let startxref = match self.style {
             XrefStyle::Table => write_table(&mut out, &written, &free, trailer)?,
             XrefStyle::Stream => write_xref_stream(&mut out, &written, trailer)?,
@@ -153,12 +168,14 @@ impl Writer {
 }
 
 /// The trailer entries of table 15 that describe the document rather than
-/// the file: `/Root`, `/Info`, `/ID`. `/Size` is added by the section
-/// writer; `/Prev` and `/XRefStm` make no sense in a fresh file.
+/// the file: `/Root` (or `promoted_root`, the object made out of a direct
+/// catalog), `/Info`, `/ID`. `/Size` is added by the section writer;
+/// `/Prev` and `/XRefStm` make no sense in a fresh file.
 fn build_trailer(
     source: &Dict,
     written: &BTreeMap<u32, (usize, u16)>,
     body: &[u8],
+    promoted_root: Option<ObjRef>,
 ) -> Result<Dict> {
     let points_to_written = |obj: Option<&Object>| match obj {
         Some(Object::Reference(r)) => written
@@ -167,8 +184,11 @@ fn build_trailer(
             .then_some(*r),
         _ => None,
     };
-    let root = points_to_written(source.get(&Name::new("Root")))
-        .ok_or_else(|| unwritable("the trailer's /Root does not lead to a written object"))?;
+    let root = match promoted_root {
+        Some(r) => r,
+        None => points_to_written(source.get(&Name::new("Root")))
+            .ok_or_else(|| unwritable("the trailer's /Root does not lead to a written object"))?,
+    };
     let mut trailer = Dict::new();
     trailer.insert(Name::new("Root"), Object::Reference(root));
     if let Some(info) = points_to_written(source.get(&Name::new("Info"))) {
@@ -831,10 +851,16 @@ mod tests {
         assert_eq!(again.reconstructed(), None);
         assert_eq!(again.xref().object_count(), 3);
         assert_eq!(again.page_count(), Ok(0));
-        // /Root leading nowhere: the table is sound, so no scan fixes it.
+        // /Root leading nowhere sends the file to the scan, which finds the
+        // catalog by its /Type: written fine.
         let no_root = String::from_utf8_lossy(&source()).replace("/Root 1 0 R", "/Root 7 0 R");
         let doc = Document::open(no_root.as_bytes()).expect("open");
-        assert_eq!(doc.reconstructed(), None);
+        assert!(doc.reconstructed().is_some());
+        assert!(Writer::new(version(1, 4)).write(&doc).is_ok());
+        // Without a /Type /Catalog anywhere, nothing can serve as /Root.
+        let no_catalog = no_root.replace("/Type /Catalog", "/Type /Catalox");
+        let doc = Document::open(no_catalog.as_bytes()).expect("open");
+        assert!(doc.reconstructed().is_some());
         assert!(matches!(
             Writer::new(version(1, 4)).write(&doc),
             Err(Error::Unwritable { message }) if message.contains("/Root")

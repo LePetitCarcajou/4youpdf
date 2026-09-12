@@ -155,7 +155,8 @@ fn repaired_encrypted_file_is_still_deciphered() {
         .position(|w| w == marker)
         .expect("startxref in the fixture");
     let mut broken = bytes.clone();
-    broken[at + marker.len() - 3..at + marker.len()].copy_from_slice(b"600");
+    // Far from the table: nothing nearby to relocate to, so the file is scanned.
+    broken[at + marker.len() - 3..at + marker.len()].copy_from_slice(b"9  ");
     let doc = Document::open(&broken).expect("open by scan");
     assert!(doc.reconstructed().is_some());
     assert_eq!(doc.encryption().map(|e| e.revision), Some(Revision::R3));

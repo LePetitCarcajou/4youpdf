@@ -399,3 +399,49 @@ fn generate_encrypted_aes256() {
     let table = encrypted_trailer(&mut b);
     b.finish(table, "encrypted-aes256.pdf");
 }
+
+// ---------------------------------------------------------------------------
+// Tolerances found in the corpus survey
+// ---------------------------------------------------------------------------
+
+/// `object-zero.pdf`: `minimal.pdf` plus a junk `0 0 obj` that the table
+/// lists in use (corpus: qpdf `obj0.pdf`). Object 0 is the head of the
+/// free list (7.5.4): the reader takes the entry as free and ignores the
+/// object, without reconstruction.
+#[test]
+#[ignore = "rewrites tests/fixtures/object-zero.pdf"]
+fn generate_object_zero() {
+    let mut b = Builder::new("1.7");
+    b.object(0, b"<< /Junk (never an object) >>");
+    b.object(1, CATALOG.as_bytes());
+    b.object(2, PAGES.as_bytes());
+    b.object(3, PAGE.as_bytes());
+    let table = b.out.len();
+    let mut text = String::from("xref\n0 4\n");
+    for num in 0..=3 {
+        text.push_str(&format!("{:010} 00000 n \n", b.offset(num)));
+    }
+    text.push_str("trailer\n<< /Size 4 /Root 1 0 R >>\n");
+    b.out.extend_from_slice(text.as_bytes());
+    b.finish(table, "object-zero.pdf");
+}
+
+/// `root-direct.pdf`: the catalog is a direct dictionary in the trailer
+/// (`/Root << ... >>`) instead of an indirect object (corpus: pdf.js
+/// `issue9105_other.pdf`). Tolerated on reading; the writer makes it an
+/// indirect object.
+#[test]
+#[ignore = "rewrites tests/fixtures/root-direct.pdf"]
+fn generate_root_direct() {
+    let mut b = Builder::new("1.4");
+    b.object(2, PAGES.as_bytes());
+    b.object(3, PAGE.as_bytes());
+    let table = b.out.len();
+    let text = format!(
+        "xref\n0 4\n0000000000 65535 f \n0000000000 00001 f \n{:010} 00000 n \n{:010} 00000 n \ntrailer\n<< /Size 4 /Root {CATALOG} >>\n",
+        b.offset(2),
+        b.offset(3)
+    );
+    b.out.extend_from_slice(text.as_bytes());
+    b.finish(table, "root-direct.pdf");
+}

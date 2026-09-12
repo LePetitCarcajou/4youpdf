@@ -145,7 +145,9 @@ impl Scan<'_> {
         let Some((start, r)) = header_before(input, kw) else {
             return after;
         };
-        if on_comment_line(input, start) {
+        // Object 0 is the head of the free list, never an object (7.5.4):
+        // `0 0 obj` is junk (corpus: qpdf `obj0.pdf`, `issue-99.pdf`).
+        if r.num == 0 || on_comment_line(input, start) {
             return after;
         }
         // Tight cut first: `endobj` if one comes before the next header,
@@ -331,10 +333,13 @@ impl Scan<'_> {
             }
         }
         let root = Name::new("Root");
-        let root_ok = matches!(
-            trailer.get(&root),
-            Some(Object::Reference(r)) if self.found.contains_key(&r.num)
-        );
+        // A catalog written directly in the trailer is kept (corpus:
+        // pdf.js `issue9105_other.pdf`); the writer makes it indirect.
+        let root_ok = match trailer.get(&root) {
+            Some(Object::Reference(r)) => self.found.contains_key(&r.num),
+            Some(Object::Dict(_)) => true,
+            _ => false,
+        };
         if !root_ok {
             match self.catalog {
                 Some((_, r)) => {
