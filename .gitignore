@@ -8,3 +8,7 @@
 .DS_Store
 
 /tests/corpus-private/
+# Public test suites fetched by tools/fetch_corpus.py: one sub-directory per
+# lot, documented in tests/corpus/SOURCES.md. Only the Markdown files at the
+# top of tests/corpus/ are tracked.
+/tests/corpus/*/

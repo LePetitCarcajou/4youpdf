@@ -9,30 +9,14 @@
 
 #![allow(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
 
-use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+mod common;
 
+use common::{compare, content_objects, pdf_files, same_object, tests_dir};
 use fyp_core::document::Document;
-use fyp_core::object::{Name, ObjRef, Object};
+use fyp_core::object::{Name, ObjRef};
 use fyp_core::writer::{Writer, XrefStyle};
 use fyp_core::xref::{SectionKind, XrefEntry};
 use fyp_core::Error;
-
-fn tests_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests")
-}
-
-fn pdf_files(dir: &Path) -> Vec<PathBuf> {
-    let Ok(rd) = std::fs::read_dir(dir) else {
-        return Vec::new();
-    };
-    let mut v: Vec<PathBuf> = rd
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf")))
-        .collect();
-    v.sort();
-    v
-}
 
 #[test]
 fn fixtures_have_a_valid_header() {
@@ -69,53 +53,6 @@ fn minimal_fixture_objects_parse() {
     assert_eq!(count, 3);
 }
 
-/// Is `obj` an object stream or a cross-reference stream?
-fn describes_file_layout(obj: &Object) -> bool {
-    match obj {
-        Object::Stream { dict, .. } => matches!(
-            dict.get(&Name::new("Type")).and_then(Object::as_name),
-            Some(n) if n.0 == b"ObjStm" || n.0 == b"XRef"
-        ),
-        _ => false,
-    }
-}
-
-/// Every object the document can read, except those describing the file
-/// layout, by reference.
-fn content_objects(doc: &Document<'_>) -> BTreeMap<ObjRef, Object> {
-    let mut objects = BTreeMap::new();
-    for (num, entry) in doc.xref().entries() {
-        let r = match entry {
-            XrefEntry::InUse { gen, .. } => ObjRef { num, gen },
-            XrefEntry::InStream { .. } => ObjRef { num, gen: 0 },
-            XrefEntry::Free { .. } => continue,
-        };
-        if let Ok(Some(obj)) = doc.get(r) {
-            if !describes_file_layout(&obj) {
-                objects.insert(r, obj);
-            }
-        }
-    }
-    objects
-}
-
-/// Same object model. For streams, `/Length` is left out of the
-/// comparison: the writer replaces a wrong or indirect one by the exact
-/// direct value.
-fn same_object(a: &Object, b: &Object) -> bool {
-    match (a, b) {
-        (Object::Stream { dict: da, data: xa }, Object::Stream { dict: db, data: xb }) => {
-            let without_length = |d: &fyp_core::object::Dict| {
-                let mut d = d.clone();
-                d.remove(&Name::new("Length"));
-                d
-            };
-            xa == xb && without_length(da) == without_length(db)
-        }
-        _ => a == b,
-    }
-}
-
 /// Open `bytes`, write it in `style`, open the result, compare, and check
 /// that writing the result again gives the same bytes.
 fn round_trip(name: &str, bytes: &[u8], style: XrefStyle) {
@@ -137,11 +74,6 @@ fn round_trip(name: &str, bytes: &[u8], style: XrefStyle) {
     };
     assert_eq!(again.xref().kind(), expected_kind, "{name} ({style:?})");
     assert_eq!(again.version(), writer.version(), "{name} ({style:?})");
-    assert_eq!(
-        again.page_count().ok(),
-        doc.page_count().ok(),
-        "{name} ({style:?}): page count"
-    );
     assert!(
         !again
             .xref()
@@ -153,24 +85,10 @@ fn round_trip(name: &str, bytes: &[u8], style: XrefStyle) {
         !again.trailer().contains_key(&Name::new("Prev")),
         "{name} ({style:?}): /Prev in a single-section file"
     );
-
-    let before = content_objects(&doc);
-    let after = content_objects(&again);
-    // The cross-reference stream the writer adds is not content: it is
-    // filtered out on both sides.
-    assert_eq!(
-        before.keys().collect::<Vec<_>>(),
-        after.keys().collect::<Vec<_>>(),
-        "{name} ({style:?}): readable object numbers differ"
-    );
-    for (r, original) in &before {
-        let rewritten = &after[r];
-        assert!(
-            same_object(original, rewritten),
-            "{name} ({style:?}): object {} {} differs:\n{original:?}\n{rewritten:?}",
-            r.num,
-            r.gen
-        );
+    // The cross-reference stream the writer adds is not content: `compare`
+    // filters it out on both sides.
+    if let Err(difference) = compare(&doc, &again) {
+        panic!("{name} ({style:?}): {difference}");
     }
 
     let second = writer

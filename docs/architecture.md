@@ -20,6 +20,11 @@
 Les flèches de dépendance vont toujours vers le bas. `fyp-core` ne connaît ni
 les plugins, ni l'hôte, ni l'interface.
 
+Quatre diagrammes Mermaid complètent ce document dans `diagrams.md` : les
+couches et leurs dépendances, le parcours d'un fichier à l'ouverture, le
+modèle objet face à la structure logique d'un document, et le cycle de vie
+d'un module.
+
 ## Couches du noyau (`fyp-core`)
 
 | Couche | Module | Norme | État |
@@ -162,6 +167,21 @@ lisibles (object streams et flux xref exclus des deux côtés), et chaque
 objet est égal au modèle près (`/Length` mis à part pour les streams) ;
 une seconde écriture reproduit les mêmes octets. Le même parcours
 s'applique à `tests/corpus-private/` quand ce dossier local existe.
+
+### Corpus public et rapport
+
+`tools/fetch_corpus.py` télécharge les suites de test publiques (pdf.js,
+qpdf, veraPDF) dans `tests/corpus/<lot>/`, dossiers ignorés par Git, et
+consigne leur provenance dans `tests/corpus/SOURCES.md`. Le test
+`crates/fyp-core/tests/corpus.rs` parcourt tout ce qui s'y trouve : chaque
+fichier passe par ouverture, écriture dans les deux styles, relecture et
+comparaison, sur un thread à part avec délai, si bien qu'une panique ou un
+blocage du noyau devient une ligne du rapport au lieu d'arrêter le parcours.
+Le rapport `target/corpus-report.md` groupe les problèmes par cause
+normalisée (chiffres et chaînes citées effacés) et les classe : paniques et
+délais, refus à l'ouverture, échecs de round-trip par étape, tables
+reconstruites. C'est la liste de travail du jalon « round-trip sur 100 % du
+corpus » ; le test ne devient bloquant qu'avec `FYP_CORPUS_STRICT=1`.
 
 ## Modules
 
