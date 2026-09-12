@@ -112,14 +112,23 @@ fn main() -> anyhow::Result<()> {
                 Some(off) => println!("startxref    {off}"),
                 None => println!("startxref    absent (reconstruction nécessaire)"),
             }
-            println!(
-                "chiffré      {}",
-                if info.looks_encrypted {
-                    "probablement"
-                } else {
-                    "non"
-                }
-            );
+            // The quick facts stay useful when the structure cannot be read
+            // (broken table, unsupported filter): report instead of failing.
+            let opened = Document::open_with_password(&bytes, password.as_bytes());
+            // The guess of `quick_info` (an `/Encrypt` near the end) is only
+            // worth showing when the document itself could not answer.
+            match &opened {
+                Ok(doc) if doc.encryption().is_some() => {}
+                Ok(_) => println!("chiffré      non"),
+                Err(_) => println!(
+                    "chiffré      {}",
+                    if info.looks_encrypted {
+                        "probablement"
+                    } else {
+                        "non"
+                    }
+                ),
+            }
             println!(
                 "%%EOF        {}",
                 if info.has_eof_marker {
@@ -128,9 +137,7 @@ fn main() -> anyhow::Result<()> {
                     "absent"
                 }
             );
-            // The quick facts above stay useful when the structure cannot be
-            // read (broken table, unsupported filter): report instead of failing.
-            match Document::open_with_password(&bytes, password.as_bytes()) {
+            match opened {
                 Ok(doc) => {
                     if let Some(e) = doc.encryption() {
                         println!("chiffrement  {}", describe_encryption(&e));
