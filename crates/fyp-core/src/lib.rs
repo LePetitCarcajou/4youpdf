@@ -20,6 +20,7 @@ pub mod object;
 pub mod parser;
 pub mod recover;
 pub mod version;
+pub mod writer;
 pub mod xref;
 
 use std::fmt;
@@ -96,6 +97,13 @@ pub enum Error {
         /// Why the declared table could not be used.
         declared: Box<Error>,
     },
+    /// The object model cannot be written as a conformant file (see
+    /// [`writer`]): `/Root` leading nowhere, a real that is not finite,
+    /// object numbers too sparse for a classic table.
+    Unwritable {
+        /// Human-readable explanation.
+        message: String,
+    },
 }
 
 impl fmt::Display for Error {
@@ -130,6 +138,7 @@ impl fmt::Display for Error {
                 f,
                 "cross-reference table unusable ({declared}) and no object found to rebuild it"
             ),
+            Error::Unwritable { message } => write!(f, "cannot write a conformant file: {message}"),
         }
     }
 }

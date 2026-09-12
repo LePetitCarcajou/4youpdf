@@ -30,7 +30,7 @@ les plugins, ni l'hôte, ni l'interface.
 | 4. Filtres | `filters` | 7.4 | fait, testé (Flate + prédicteurs TIFF/PNG, ASCIIHex, ASCII85, RunLength) ; LZW, filtres image et `/Crypt` nommés à venir |
 | 5. Chiffrement | `fyp-crypto` | 7.6 | types |
 | 6. Document | `document`, `recover` | 7.7 | fait, testé (objets via la xref et les object streams, catalogue, nombre de pages, xref reconstruite par scan) |
-| 7. Écriture | `writer` (à venir) | 7.5.5, 7.5.8 | — |
+| 7. Écriture | `writer` | 7.5.5, 7.5.8 | fait, testé (table classique ou flux xref, round-trip sur toutes les fixtures, `fyp rewrite`) |
 
 Principe de tolérance : la lecture accepte ce que les lecteurs majeurs
 acceptent (xref reconstruite par scan, `/Length` faux, `endobj` manquant,
@@ -107,6 +107,61 @@ Un fichier réparé ne se fait jamais passer pour sain :
 `Document::reconstructed()` renvoie la cause, `Xref::kind()` vaut
 `SectionKind::Reconstructed`, et `fyp info` affiche « xref reconstruite par
 scan ».
+
+### Écriture
+
+`writer::Writer::new(version).xref_style(style).write(&document)` sérialise
+un document ouvert, sain ou réparé, en un fichier conforme à une seule
+section : en-tête `%PDF-x.y` suivi du commentaire binaire (quatre octets
+≥ 128), tous les objets indirects, la section xref, le trailer, `startxref`
+et `%%EOF`. La lecture est tolérante, l'écriture est stricte :
+
+- Chaque objet lisible est écrit au premier niveau sous son numéro et sa
+  génération d'origine. Les objets compressés sortent de leur object stream
+  (génération 0). Les object streams et les flux xref de la source ne sont
+  pas recopiés : ils décrivent la disposition de l'ancien fichier, pas le
+  document. Un objet illisible est omis ; une référence vers lui vaut
+  `null`, comme dans la source.
+- Chaînes littérales échappées (`\(`, `\)`, `\\`, `\n`, `\r`, `\t`), ou
+  hexadécimales dès qu'un octet n'est pas de l'ASCII imprimable. Noms avec
+  `#xx` pour tout octet hors `!`..`~`, les délimiteurs et `#`. Réels sans
+  notation scientifique (`Display` de `f64` n'en produit jamais), avec
+  `.0` pour garder réel un réel entier ; un réel infini ou NaN est
+  `Error::Unwritable`. Dictionnaires triés par clé (`BTreeMap`), donc
+  sortie déterministe.
+- Streams recopiés tels quels, données encodées et `/Filter` conservés,
+  `/Length` remplacé par la longueur exacte, directe.
+- Trailer réduit aux clés qui décrivent le document (table 15) : `/Root`,
+  `/Info` s'il mène à un objet écrit, `/ID`, plus `/Size`. Ni `/Prev` ni
+  `/XRefStm`. `/ID` : la première chaîne est conservée si la source en a
+  une, sinon dérivée du contenu ; la seconde est toujours recalculée
+  d'après le contenu (14.4), donc réécrire un fichier déjà réécrit donne
+  exactement les mêmes octets.
+- `XrefStyle::Table` : une seule sous-section à partir de 0 (7.5.4), une
+  entrée de 20 octets par numéro, liste des entrées libres chaînée
+  (0 → premier trou → … → 0), générations des entrées libres de la source
+  conservées. Les numéros trop épars (plus de `MAX_TABLE_PADDING`
+  entrées de remplissage, 1 Mi) sont refusés : c'est la protection contre
+  un numéro d'objet hostile qui ferait grossir la sortie sans limite.
+- `XrefStyle::Stream` : flux xref Flate, `/W [1 n 2]`, `/Index` par plages
+  de numéros contigus (pas de remplissage), qui se liste lui-même sous le
+  numéro suivant le plus grand numéro écrit. La version d'en-tête est
+  portée à 1.5 au minimum.
+- Refus explicites : fichier chiffré (`Error::Unsupported`, les objets
+  sortis d'un object stream seraient en clair, 7.6), `/Root` qui ne mène à
+  aucun objet écrit, offset au-delà des dix chiffres d'une entrée de table.
+
+`fyp rewrite entrée.pdf sortie.pdf [--xref-stream]` applique le writer avec
+la version de l'entrée, puis relit le fichier produit : la commande échoue
+si cette relecture a besoin d'une reconstruction.
+
+Test central (`crates/fyp-core/tests/roundtrip.rs`) : chaque fixture est
+ouverte, écrite dans les deux styles, rouverte. Le second document n'a pas
+été reconstruit, a le même nombre de pages, les mêmes numéros d'objets
+lisibles (object streams et flux xref exclus des deux côtés), et chaque
+objet est égal au modèle près (`/Length` mis à part pour les streams) ;
+une seconde écriture reproduit les mêmes octets. Le même parcours
+s'applique à `tests/corpus-private/` quand ce dossier local existe.
 
 ## Modules
 

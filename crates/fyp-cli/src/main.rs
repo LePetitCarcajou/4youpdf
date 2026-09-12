@@ -1,12 +1,14 @@
 //! `fyp` — the 4YouPDF command line.
 //!
-//! Milestone 0.1 commands: `info`, `modules`. `rewrite` and `merge` follow
-//! the document layer.
+//! Milestone 0.1 commands: `info`, `rewrite`, `modules`. `merge` follows
+//! the module host.
 
 #![forbid(unsafe_code)]
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
+use fyp_core::document::Document;
+use fyp_core::writer::{Writer, XrefStyle};
 use fyp_core::xref::SectionKind;
 use std::path::PathBuf;
 
@@ -23,6 +25,18 @@ enum Cmd {
     Info {
         /// Path to the PDF
         path: PathBuf,
+    },
+    /// Rewrite a PDF as a clean single-section file: objects unpacked from
+    /// object streams, exact stream lengths, regenerated cross-reference
+    /// table. Repairs a broken table on the way.
+    Rewrite {
+        /// PDF to read, sound or broken
+        input: PathBuf,
+        /// File to write
+        output: PathBuf,
+        /// Write a cross-reference stream (PDF 1.5) instead of a classic table
+        #[arg(long)]
+        xref_stream: bool,
     },
     /// List modules found in a directory and why some are refused
     Modules {
@@ -100,6 +114,54 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
                 Err(e) => println!("structure    illisible ({e})"),
+            }
+        }
+        Cmd::Rewrite {
+            input,
+            output,
+            xref_stream,
+        } => {
+            let bytes =
+                std::fs::read(&input).with_context(|| format!("reading {}", input.display()))?;
+            let doc =
+                Document::open(&bytes).map_err(|e| anyhow::anyhow!("{}: {e}", input.display()))?;
+            if let Some(reason) = doc.reconstructed() {
+                println!("xref d'entrée reconstruite par scan ({reason})");
+            }
+            let style = if xref_stream {
+                XrefStyle::Stream
+            } else {
+                XrefStyle::Table
+            };
+            let writer = Writer::new(doc.version()).xref_style(style);
+            let out = writer
+                .write(&doc)
+                .map_err(|e| anyhow::anyhow!("{}: {e}", input.display()))?;
+            std::fs::write(&output, &out)
+                .with_context(|| format!("writing {}", output.display()))?;
+            // Read the result back: the file must open without repair.
+            let check = Document::open(&out)
+                .map_err(|e| anyhow::anyhow!("{}: relecture impossible: {e}", output.display()))?;
+            if let Some(reason) = check.reconstructed() {
+                anyhow::bail!(
+                    "{}: le fichier écrit a dû être réparé à la relecture ({reason})",
+                    output.display()
+                );
+            }
+            println!(
+                "écrit        {} ({} octets, PDF {}, {})",
+                output.display(),
+                out.len(),
+                writer.version(),
+                match style {
+                    XrefStyle::Table => "table classique",
+                    XrefStyle::Stream => "flux xref",
+                }
+            );
+            println!("objets       {}", check.xref().object_count());
+            match check.page_count() {
+                Ok(n) => println!("pages        {n}"),
+                Err(e) => println!("pages        illisible ({e})"),
             }
         }
         Cmd::Modules { dir, trusted } => {
