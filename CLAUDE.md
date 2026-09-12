@@ -7,9 +7,13 @@ Lis d'abord : `README.md`, `docs/architecture.md`, `docs/diagrams.md`,
 - `unsafe` interdit partout (`[workspace.lints.rust] unsafe_code = "forbid"`).
 - `fyp-core` ne panique jamais sur une entrée. Pas de `unwrap`/`expect`/`panic`
   hors `#[cfg(test)]`. Toute erreur est un `fyp_core::Error`.
-- Dépendances : `fyp-core` ne dépend d'aucun plugin. Les plugins ne dépendent
-  que de `fyp-plugin-api`. Vérifie le sens des flèches avant d'ajouter une
-  dépendance.
+- Dépendances : `fyp-core` ne dépend d'aucun plugin. Un plugin ne dépend
+  jamais de l'hôte (`fyp-host`) ni d'une interface : il parle à l'hôte par le
+  seul contrat `fyp-plugin-api`. Il peut embarquer `fyp-core` à la
+  compilation, dans son propre binaire WebAssembly : cela ne lui donne aucune
+  autorité à l'exécution, le sandbox ne fait confiance à aucun code qu'il
+  exécute. Vérifie le sens des flèches avant d'ajouter une dépendance
+  (`docs/diagrams.md`, diagramme 1).
 - `crates/fyp-plugin-api` est versionné séparément. Un changement cassant y
   exige un bump de version et une mention dans la PR.
 - Un module tiers est WebAssembly, jamais natif.
