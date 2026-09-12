@@ -1364,6 +1364,7 @@ dependencies = [
  "clap",
  "fyp-core",
  "fyp-host",
+ "wat",
 ]
 
 [[package]]
@@ -1395,7 +1396,7 @@ dependencies = [
 
 [[package]]
 name = "fyp-host"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fyp-core",
  "fyp-plugin-api",

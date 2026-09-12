@@ -29,8 +29,14 @@
 
 use std::collections::BTreeSet;
 use std::ops::Range;
+use std::sync::Arc;
 
 use wasmtime::{Caller, Engine, Extern, ExternType, Linker, Memory, Module, ResourceLimiter};
+
+use crate::budget::{Held, Shared};
+
+#[cfg(any(test, feature = "fuzzing"))]
+pub mod fuzzing;
 
 /// Namespace of WASI preview 1 imports.
 pub(crate) const WASI: &str = "wasi_snapshot_preview1";
@@ -78,6 +84,8 @@ pub(crate) enum Stop {
     Timeout,
     #[error("memory limit reached")]
     Memory,
+    #[error("the host's memory budget is used up")]
+    HostMemory,
     #[error("output limit reached")]
     Output,
     #[error("capability not granted: {0}")]
@@ -101,10 +109,19 @@ pub(crate) struct Sandbox {
     pub(crate) stderr: Vec<u8>,
     memory_limit: usize,
     fixed_random: u64,
+    /// The host's budget taken by memories and tables: freed with the store.
+    in_store: Held,
+    /// The host's budget taken by the answer: follows it out of the store.
+    answer: Held,
 }
 
 impl Sandbox {
-    pub(crate) fn new(stdin: Vec<u8>, stdout_limit: usize, memory_limit: usize) -> Sandbox {
+    pub(crate) fn new(
+        stdin: Vec<u8>,
+        stdout_limit: usize,
+        memory_limit: usize,
+        budget: &Arc<Shared>,
+    ) -> Sandbox {
         Sandbox {
             stdin,
             stdin_pos: 0,
@@ -113,20 +130,44 @@ impl Sandbox {
             stderr: Vec::new(),
             memory_limit,
             fixed_random: 0,
+            in_store: Held::new(budget),
+            answer: Held::new(budget),
         }
     }
 
+    /// Standard output, standard error, and the budget the output holds.
+    /// The budget of memories and tables is given back here.
+    pub(crate) fn finish(self) -> (Vec<u8>, Vec<u8>, Held) {
+        (self.stdout, self.stderr, self.answer)
+    }
+
     /// Append to the answer, or stop the module past the limit. The buffer
-    /// grows with `try_reserve`: a host short of memory stops the module
-    /// instead of aborting.
+    /// doubles, but never past the limit (doubling 2 GiB for a 3 GiB limit
+    /// would reserve 4), and grows with `try_reserve_exact`: a host short
+    /// of memory stops the module instead of aborting.
     fn write_stdout(&mut self, bytes: &[u8]) -> wasmtime::Result<()> {
-        let total = self.stdout.len().checked_add(bytes.len());
-        if total.is_none_or(|n| n > self.stdout_limit) {
+        let Some(total) = self
+            .stdout
+            .len()
+            .checked_add(bytes.len())
+            .filter(|&n| n <= self.stdout_limit)
+        else {
             return Err(stop(Stop::Output));
+        };
+        if total > self.stdout.capacity() {
+            let capacity = self
+                .stdout
+                .capacity()
+                .saturating_mul(2)
+                .max(total)
+                .min(self.stdout_limit);
+            if !self.answer.grow(capacity - self.stdout.capacity()) {
+                return Err(stop(Stop::HostMemory));
+            }
+            self.stdout
+                .try_reserve_exact(capacity - self.stdout.len())
+                .map_err(|_| stop(Stop::Output))?;
         }
-        self.stdout
-            .try_reserve(bytes.len())
-            .map_err(|_| stop(Stop::Output))?;
         self.stdout.extend_from_slice(bytes);
         Ok(())
     }
@@ -153,24 +194,35 @@ impl Sandbox {
 impl ResourceLimiter for Sandbox {
     fn memory_growing(
         &mut self,
-        _current: usize,
+        current: usize,
         desired: usize,
         _maximum: Option<usize>,
     ) -> wasmtime::Result<bool> {
         if desired > self.memory_limit {
             return Err(stop(Stop::Memory));
         }
+        // A growth that then fails keeps its share until the run is over.
+        if !self.in_store.grow(desired.saturating_sub(current)) {
+            return Err(stop(Stop::HostMemory));
+        }
         Ok(true)
     }
 
     fn table_growing(
         &mut self,
-        _current: usize,
+        current: usize,
         desired: usize,
         _maximum: Option<usize>,
     ) -> wasmtime::Result<bool> {
         if desired > MAX_TABLE_ELEMENTS {
             return Err(stop(Stop::Memory));
+        }
+        // An element is a pointer.
+        let bytes = desired
+            .saturating_sub(current)
+            .saturating_mul(std::mem::size_of::<usize>());
+        if !self.in_store.grow(bytes) {
+            return Err(stop(Stop::HostMemory));
         }
         Ok(true)
     }
@@ -438,4 +490,52 @@ fn iovecs(data: &[u8], iovs: u32, count: u32) -> Option<Vec<(u32, usize)>> {
         buffers.push((ptr, len));
     }
     Some(buffers)
+}
+
+#[cfg(test)]
+#[allow(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    fn unlimited() -> Arc<Shared> {
+        Shared::new(1, usize::MAX)
+    }
+
+    #[test]
+    fn the_answer_takes_its_bytes_from_the_host_budget() {
+        let budget = Shared::new(1, 1000);
+        let mut sandbox = Sandbox::new(Vec::new(), 1 << 20, 0, &budget);
+        sandbox.write_stdout(&[1; 600]).unwrap();
+        // Growing to 1200 bytes of capacity would pass the budget.
+        let err = sandbox.write_stdout(&[2; 600]).unwrap_err();
+        assert!(matches!(err.downcast_ref::<Stop>(), Some(Stop::HostMemory)));
+        let (stdout, _, held) = sandbox.finish();
+        assert_eq!(stdout.len(), 600);
+        // The answer holds its share until dropped, then gives it back.
+        let mut other = Held::new(&budget);
+        assert!(!other.grow(401));
+        drop(held);
+        assert!(other.grow(1000));
+    }
+
+    #[test]
+    fn the_answer_buffer_never_reserves_past_its_limit() {
+        // Doubling from 600 bytes would reserve 1200 for a limit of 1000:
+        // with a limit of 4 GiB, twice that in host memory.
+        let mut sandbox = Sandbox::new(Vec::new(), 1000, 0, &unlimited());
+        sandbox.write_stdout(&[1; 600]).unwrap();
+        sandbox.write_stdout(&[2; 400]).unwrap();
+        assert!(
+            sandbox.stdout.capacity() <= 1000,
+            "{}",
+            sandbox.stdout.capacity()
+        );
+        assert!(sandbox.write_stdout(&[3]).is_err());
+        // Many small writes: still within the limit, still amortized.
+        let mut sandbox = Sandbox::new(Vec::new(), 100_000, 0, &unlimited());
+        for _ in 0..100_000 {
+            sandbox.write_stdout(&[0]).unwrap();
+        }
+        assert!(sandbox.stdout.capacity() <= 100_000);
+    }
 }

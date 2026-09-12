@@ -16,12 +16,16 @@
 //!
 //! The documents given to a run are borrowed read-only: whatever the
 //! module does, they are untouched.
+//!
+//! Every run of a host also shares its run slots and memory budget with
+//! the others ([`HostLimits`], `budget.rs`).
 
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::File;
 use std::io::Read;
 use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -31,8 +35,9 @@ use fyp_plugin_api::exchange::{self, ParamValue, Response};
 use fyp_plugin_api::{Action, Limits, Manifest, Permission, Runtime};
 use wasmtime::{Config, Engine, ExternType, InstancePre, Module, Store, Trap, UpdateDeadline};
 
+use crate::budget::{Held, Shared};
 use crate::wasi::{self, Sandbox, Stop};
-use crate::{DiscoveredModule, HostError};
+use crate::{inert, DiscoveredModule, HostError};
 
 /// File holding a module's code, next to its `manifest.toml`.
 pub const MODULE_FILE: &str = "module.wasm";
@@ -46,6 +51,10 @@ const ANSWER_OVERHEAD: usize = 64 << 10;
 /// Largest `module.wasm` the host compiles: compilation cannot be
 /// interrupted, so its input is bounded instead.
 const MAX_MODULE_BYTES: u64 = 64 << 20;
+/// Memory the core's re-validation takes, per byte of the answer, beyond
+/// the answer itself: parsing, rewriting, reopening the rewrite. Measured
+/// at 5.6 on a document of empty objects, the worst case found.
+const REVALIDATION_FACTOR: usize = 6;
 /// How often the epoch advances: the precision of the time limit.
 const EPOCH_TICK: Duration = Duration::from_millis(10);
 /// Stack for WebAssembly frames; deeper recursion is a trap.
@@ -54,23 +63,75 @@ const MAX_WASM_STACK: usize = 2 << 20;
 /// stack above plus the host frames around it.
 const RUN_THREAD_STACK: usize = 16 << 20;
 
-/// The WebAssembly engine, shared by the modules of a session.
+/// What a host allows, whatever manifests declare: ceilings on each
+/// module's limits, and what all its runs share.
+///
+/// A manifest's limits bound one run. Without these, a module could
+/// declare an endless time limit, and modules running together could take
+/// all the memory of the machine, each within its own limit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostLimits {
+    /// Largest `timeout_ms` a manifest may declare.
+    pub max_timeout_ms: u64,
+    /// Largest `memory_mib` a manifest may declare (and never more than
+    /// the memory budget).
+    pub max_memory_mib: u64,
+    /// Largest `max_output_mib` a manifest may declare.
+    pub max_output_mib: u64,
+    /// Runs executing at once, all modules of the host together. A run
+    /// past it waits for another to end; its time limit starts when it
+    /// runs.
+    pub max_concurrent_runs: usize,
+    /// Memory the running modules hold together: their WebAssembly
+    /// memories, their tables, the answers they write, and six times each
+    /// answer while the core re-validates it. A growth past it stops the
+    /// module that asked ([`HostError::HostMemoryExhausted`]). Not
+    /// counted: the documents given to a run and their encoding, which
+    /// the caller chose.
+    pub memory_budget_mib: u64,
+}
+
+impl Default for HostLimits {
+    /// Ten minutes and a wasm32 memory for one module; at most 8 runs at
+    /// once (fewer on a machine with fewer threads) sharing 4 GiB.
+    fn default() -> HostLimits {
+        HostLimits {
+            max_timeout_ms: 10 * 60 * 1000,
+            max_memory_mib: WASM32_MAX / MIB,
+            max_output_mib: WASM32_MAX / MIB,
+            max_concurrent_runs: thread::available_parallelism().map_or(1, |n| n.get().min(8)),
+            memory_budget_mib: 4096,
+        }
+    }
+}
+
+/// The WebAssembly engine, shared by the modules of a session, with the
+/// run slots and memory budget of [`HostLimits`]. Clones share them.
 #[derive(Clone)]
 pub struct Host {
     engine: Engine,
+    limits: HostLimits,
+    shared: Arc<Shared>,
 }
 
 impl fmt::Debug for Host {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Host").finish_non_exhaustive()
+        f.debug_struct("Host")
+            .field("limits", &self.limits)
+            .finish_non_exhaustive()
     }
 }
 
 impl Host {
+    /// A host with the default [`HostLimits`].
+    pub fn new() -> Result<Host, HostError> {
+        Host::with_limits(HostLimits::default())
+    }
+
     /// An engine configured for the sandbox: epoch interruption on, 32-bit
     /// memories only, bounded WebAssembly stack, deterministic floating
     /// point (NaN bits and relaxed SIMD would otherwise depend on the CPU).
-    pub fn new() -> Result<Host, HostError> {
+    pub fn with_limits(limits: HostLimits) -> Result<Host, HostError> {
         let mut config = Config::new();
         config.epoch_interruption(true);
         config.max_wasm_stack(MAX_WASM_STACK);
@@ -78,7 +139,24 @@ impl Host {
         config.cranelift_nan_canonicalization(true);
         config.relaxed_simd_deterministic(true);
         let engine = Engine::new(&config).map_err(|e| HostError::Engine(format!("{e:#}")))?;
-        Ok(Host { engine })
+        let budget =
+            usize::try_from(limits.memory_budget_mib.saturating_mul(MIB)).unwrap_or(usize::MAX);
+        Ok(Host {
+            engine,
+            shared: Shared::new(limits.max_concurrent_runs, budget),
+            limits,
+        })
+    }
+
+    /// What this host allows.
+    pub fn limits(&self) -> &HostLimits {
+        &self.limits
+    }
+
+    /// The engine, configured as above: the fuzz harness links against it.
+    #[cfg(any(test, feature = "fuzzing"))]
+    pub(crate) fn engine(&self) -> &Engine {
+        &self.engine
     }
 
     /// Compile the `module.wasm` of a discovered module.
@@ -104,13 +182,15 @@ impl Host {
     pub fn load_bytes(&self, manifest: Manifest, wasm: &[u8]) -> Result<LoadedModule, HostError> {
         manifest
             .validate(false)
+            .and_then(|()| inert::check_manifest(&manifest))
             .map_err(|source| HostError::Manifest {
                 path: "manifest.toml".into(),
-                source,
+                source: inert::manifest_error(source),
             })?;
+        // Wasmtime's messages quote the module: names of imports, exports.
         let refuse = |message: String| HostError::BadModule {
             module: manifest.id.clone(),
-            message,
+            message: inert::lines(&message, inert::MAX_MESSAGE),
         };
         if manifest.runtime != Runtime::Wasm {
             return Err(refuse(
@@ -130,6 +210,29 @@ impl Host {
                 permission: permission_name(permission),
             });
         }
+        let (declared, allowed) = (&manifest.limits, &self.limits);
+        for (limit, value, ceiling) in [
+            ("timeout_ms", declared.timeout_ms, allowed.max_timeout_ms),
+            (
+                "memory_mib",
+                declared.memory_mib,
+                allowed.max_memory_mib.min(allowed.memory_budget_mib),
+            ),
+            (
+                "max_output_mib",
+                declared.max_output_mib,
+                allowed.max_output_mib,
+            ),
+        ] {
+            if value > ceiling {
+                return Err(HostError::LimitAboveCeiling {
+                    module: manifest.id.clone(),
+                    limit,
+                    declared: value,
+                    ceiling,
+                });
+            }
+        }
         if u64::try_from(wasm.len()).map_or(true, |n| n > MAX_MODULE_BYTES) {
             return Err(refuse(format!(
                 "{MODULE_FILE} is larger than the {} MiB the host compiles",
@@ -147,6 +250,8 @@ impl Host {
             manifest,
             engine: self.engine.clone(),
             pre,
+            shared: Arc::clone(&self.shared),
+            budget_mib: self.limits.memory_budget_mib,
         })
     }
 }
@@ -156,6 +261,8 @@ pub struct LoadedModule {
     manifest: Manifest,
     engine: Engine,
     pre: InstancePre<Sandbox>,
+    shared: Arc<Shared>,
+    budget_mib: u64,
 }
 
 impl fmt::Debug for LoadedModule {
@@ -185,21 +292,23 @@ struct Finished {
     stdout: Vec<u8>,
     stderr: Vec<u8>,
     exit: Option<i32>,
+    /// The budget the answer holds, until the run is over.
+    answer: Held,
 }
 
 /// The manifest's limits in the units the runtime counts.
-struct Budget {
+struct RunLimits {
     timeout: Duration,
     memory: usize,
     output: usize,
 }
 
-impl Budget {
-    fn of(limits: &Limits) -> Budget {
+impl RunLimits {
+    fn of(limits: &Limits) -> RunLimits {
         let bytes = |mib: u64| {
             usize::try_from(mib.saturating_mul(MIB).min(WASM32_MAX)).unwrap_or(usize::MAX)
         };
-        Budget {
+        RunLimits {
             timeout: Duration::from_millis(limits.timeout_ms),
             memory: bytes(limits.memory_mib),
             output: bytes(limits.max_output_mib),
@@ -249,24 +358,36 @@ impl LoadedModule {
         if !documents.is_empty() {
             self.require(&Permission::ReadDocument)?;
         }
+        // Held until the answer is re-validated: that work is bounded by
+        // the number of runs, not by the budget.
+        let _slot = self.shared.enter();
         let request = exchange::encode_request(action, params, documents)
             .map_err(|e| HostError::Internal(format!("cannot encode the request: {e}")))?;
-        let budget = Budget::of(&self.manifest.limits);
-        let finished = self.execute(request, &budget)?;
-        let diagnostics = String::from_utf8_lossy(&finished.stderr).into_owned();
-        let answer = Response::decode(&finished.stdout);
-        match (answer, finished.exit.filter(|&code| code != 0)) {
+        let limits = RunLimits::of(&self.manifest.limits);
+        // `_answer` keeps the answer's share of the budget to the end.
+        let Finished {
+            stdout,
+            stderr,
+            exit,
+            answer: _answer,
+        } = self.execute(request, &limits)?;
+        let diagnostics = diagnostics(&stderr);
+        let wrote = !stdout.is_empty();
+        // Decoded in place: a copy would double the largest allocation a
+        // module controls.
+        let answer = Response::decode_owned(stdout);
+        match (answer, exit.filter(|&code| code != 0)) {
             (Ok(Response::Error(message)), _) => Err(HostError::ModuleFailed {
                 module: module(),
-                message,
+                message: inert::lines(&message, inert::MAX_MESSAGE),
             }),
-            (Ok(Response::Document(bytes)), None) => self.accept(&bytes, &budget, diagnostics),
+            (Ok(Response::Document(bytes)), None) => self.accept(&bytes, &limits, diagnostics),
             (_, Some(code)) => Err(HostError::Exited {
                 module: module(),
                 code,
                 diagnostics,
             }),
-            (Err(_), None) if finished.stdout.is_empty() => Err(HostError::BadResponse {
+            (Err(_), None) if !wrote => Err(HostError::BadResponse {
                 module: module(),
                 message: "ended without writing an answer".into(),
                 diagnostics,
@@ -293,14 +414,23 @@ impl LoadedModule {
     fn accept(
         &self,
         bytes: &[u8],
-        budget: &Budget,
+        limits: &RunLimits,
         diagnostics: String,
     ) -> Result<RunOutput, HostError> {
         self.require(&Permission::WriteDocument)?;
-        if bytes.len() > budget.output {
+        if bytes.len() > limits.output {
             return Err(HostError::OutputTooLarge {
                 module: self.manifest.id.clone(),
                 limit_mib: self.manifest.limits.max_output_mib,
+            });
+        }
+        // Re-validation cannot be interrupted: what it may take is taken
+        // from the budget before it starts.
+        let mut revalidation = Held::new(&self.shared);
+        if !revalidation.grow(bytes.len().saturating_mul(REVALIDATION_FACTOR)) {
+            return Err(HostError::HostMemoryExhausted {
+                module: self.manifest.id.clone(),
+                budget_mib: self.budget_mib,
             });
         }
         let (document, reconstructed) =
@@ -316,7 +446,7 @@ impl LoadedModule {
     }
 
     /// Run `_start` on its own thread, with the epoch ticker beside it.
-    fn execute(&self, stdin: Vec<u8>, budget: &Budget) -> Result<Finished, HostError> {
+    fn execute(&self, stdin: Vec<u8>, limits: &RunLimits) -> Result<Finished, HostError> {
         let (stop_ticker, ticks) = mpsc::channel::<()>();
         thread::scope(|scope| {
             let engine = self.engine.clone();
@@ -331,7 +461,7 @@ impl LoadedModule {
             let result = thread::Builder::new()
                 .name("fyp-module".into())
                 .stack_size(RUN_THREAD_STACK)
-                .spawn_scoped(scope, move || self.start(stdin, budget))
+                .spawn_scoped(scope, move || self.start(stdin, limits))
                 .map_err(|e| HostError::Internal(format!("cannot start the module thread: {e}")))
                 .and_then(|worker| {
                     worker.join().unwrap_or_else(|_| {
@@ -344,19 +474,20 @@ impl LoadedModule {
         })
     }
 
-    fn start(&self, stdin: Vec<u8>, budget: &Budget) -> Result<Finished, HostError> {
+    fn start(&self, stdin: Vec<u8>, limits: &RunLimits) -> Result<Finished, HostError> {
         let mut store = Store::new(
             &self.engine,
             Sandbox::new(
                 stdin,
-                budget.output.saturating_add(ANSWER_OVERHEAD),
-                budget.memory,
+                limits.output.saturating_add(ANSWER_OVERHEAD),
+                limits.memory,
+                &self.shared,
             ),
         );
         store.limiter(|sandbox| sandbox);
         // The deadline is checked at each tick rather than set as a number
         // of ticks: other runs on the same engine tick it too.
-        let (started, timeout) = (Instant::now(), budget.timeout);
+        let (started, timeout) = (Instant::now(), limits.timeout);
         store.set_epoch_deadline(1);
         store.epoch_deadline_callback(move |_| {
             if started.elapsed() >= timeout {
@@ -379,18 +510,21 @@ impl LoadedModule {
                 _ => return Err(self.classify(&error, &store.data().stderr)),
             },
         };
-        let sandbox = store.into_data();
+        // The store, and with it the module's memory, is gone here: only
+        // the answer keeps its share of the budget.
+        let (stdout, stderr, answer) = store.into_data().finish();
         Ok(Finished {
-            stdout: sandbox.stdout,
-            stderr: sandbox.stderr,
+            stdout,
+            stderr,
             exit,
+            answer,
         })
     }
 
     fn classify(&self, error: &wasmtime::Error, stderr: &[u8]) -> HostError {
         let module = self.manifest.id.clone();
         let limits = &self.manifest.limits;
-        let diagnostics = String::from_utf8_lossy(stderr).into_owned();
+        let diagnostics = diagnostics(stderr);
         match error.downcast_ref::<Stop>() {
             Some(Stop::Timeout) => HostError::Timeout {
                 module,
@@ -400,13 +534,17 @@ impl LoadedModule {
                 module,
                 limit_mib: limits.memory_mib,
             },
+            Some(Stop::HostMemory) => HostError::HostMemoryExhausted {
+                module,
+                budget_mib: self.budget_mib,
+            },
             Some(Stop::Output) => HostError::OutputTooLarge {
                 module,
                 limit_mib: limits.max_output_mib,
             },
             Some(Stop::Denied(import)) => HostError::CapabilityDenied {
                 module,
-                import: import.clone(),
+                import: inert::line(import),
             },
             Some(Stop::NoMemory) => HostError::BadModule {
                 module,
@@ -417,16 +555,25 @@ impl LoadedModule {
                 code: *code,
                 diagnostics,
             },
+            // A backtrace quotes the names of the module's functions.
             None => HostError::Trapped {
                 module,
-                message: match error.downcast_ref::<Trap>() {
-                    Some(trap) => trap.to_string(),
-                    None => format!("{error:#}"),
-                },
+                message: inert::lines(
+                    &match error.downcast_ref::<Trap>() {
+                        Some(trap) => trap.to_string(),
+                        None => format!("{error:#}"),
+                    },
+                    inert::MAX_DIAGNOSTICS,
+                ),
                 diagnostics,
             },
         }
     }
+}
+
+/// The module's standard error as a person may read it.
+fn diagnostics(stderr: &[u8]) -> String {
+    inert::lines(&String::from_utf8_lossy(stderr), inert::MAX_DIAGNOSTICS)
 }
 
 /// The host's gate on every document a module returns (ADR 0003, point 3).

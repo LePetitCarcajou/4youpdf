@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use fyp_core::document::Document;
 use fyp_core::object::ObjRef;
 use fyp_core::ops;
-use fyp_host::{discover, Host, HostError, LoadedModule, ParamValue, RunOutput};
+use fyp_host::{discover, Host, HostError, HostLimits, LoadedModule, ParamValue, RunOutput};
 use fyp_plugin_api::exchange::Response;
 use fyp_plugin_api::Manifest;
 
@@ -204,6 +204,232 @@ fn a_module_writing_past_its_output_limit_is_stopped() {
 }
 
 // ---------------------------------------------------------------------------
+// What all the runs of a host share
+// ---------------------------------------------------------------------------
+
+fn host_with(change: impl FnOnce(&mut HostLimits)) -> Host {
+    let mut limits = HostLimits::default();
+    change(&mut limits);
+    Host::with_limits(limits).unwrap()
+}
+
+const IDLE: &str = r#"(module (memory (export "memory") 1) (func (export "_start")))"#;
+
+#[test]
+fn limits_above_the_host_ceilings_are_refused_at_load() {
+    let idle = wat::parse_str(IDLE).unwrap();
+    // The largest time limit TOML can spell: 292 million years.
+    let endless = manifest(
+        DOCUMENTS,
+        &limits(u64::try_from(i64::MAX).unwrap(), 16, 4),
+        "",
+    );
+    assert!(matches!(
+        Host::new().unwrap().load_bytes(endless, &idle),
+        Err(HostError::LimitAboveCeiling {
+            limit: "timeout_ms",
+            ..
+        })
+    ));
+    let host = host_with(|l| {
+        l.memory_budget_mib = 64;
+        l.max_output_mib = 8;
+    });
+    // More memory than the whole budget could never be given.
+    assert!(matches!(
+        host.load_bytes(manifest(DOCUMENTS, &limits(1000, 65, 4), ""), &idle),
+        Err(HostError::LimitAboveCeiling {
+            limit: "memory_mib",
+            ceiling: 64,
+            ..
+        })
+    ));
+    assert!(matches!(
+        host.load_bytes(manifest(DOCUMENTS, &limits(1000, 16, 9), ""), &idle),
+        Err(HostError::LimitAboveCeiling {
+            limit: "max_output_mib",
+            ..
+        })
+    ));
+    assert!(host
+        .load_bytes(manifest(DOCUMENTS, &limits(1000, 64, 8), ""), &idle)
+        .is_ok());
+    // The merge module's own limits fit the default ceilings.
+    let merge =
+        Manifest::from_toml(&std::fs::read_to_string(root_path_of_merge_manifest()).unwrap())
+            .unwrap();
+    assert!(Host::new().unwrap().load_bytes(merge, &idle).is_ok());
+}
+
+#[test]
+fn the_memory_budget_is_shared_by_the_runs_of_a_host() {
+    let host = host_with(|l| {
+        l.memory_budget_mib = 64;
+        l.max_concurrent_runs = 4;
+    });
+    let run_limits = limits(2000, 48, 4);
+    // Grows to 641 pages (40 MiB), then spins until its time limit.
+    let holding = host
+        .load_bytes(
+            manifest(DOCUMENTS, &run_limits, ""),
+            &wat::parse_str(
+                r#"(module (memory (export "memory") 1)
+                     (func (export "_start") (drop (memory.grow (i32.const 640))) (loop $spin (br $spin))))"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    // Grows the same, then exits with 7. Loaded through a clone: clones
+    // share the budget.
+    let growing = host
+        .clone()
+        .load_bytes(
+            manifest(DOCUMENTS, &run_limits, ""),
+            &wat::parse_str(format!(
+                r#"(module {PROC_EXIT} (memory (export "memory") 1)
+                     (func (export "_start") (drop (memory.grow (i32.const 640))) (call $proc_exit (i32.const 7))))"#
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+    // Alone, each module gets its 40 MiB: 48 is within its limit.
+    assert!(matches!(
+        run(&growing, &[]),
+        Err(HostError::Exited { code: 7, .. })
+    ));
+    // Nothing tells the test when the first module has grown: the second
+    // tries until refused. On a loaded machine it may run before, and
+    // rarely at the very moment the first grows, which is then the one
+    // refused: the scenario starts over.
+    let refused = (0..3).any(|_| {
+        std::thread::scope(|s| {
+            let first = s.spawn(|| run(&holding, &[]));
+            let started = Instant::now();
+            let mut refused = false;
+            while started.elapsed() < Duration::from_millis(1500) {
+                match run(&growing, &[]) {
+                    Err(HostError::HostMemoryExhausted { budget_mib: 64, .. }) => {
+                        refused = true;
+                        break;
+                    }
+                    Err(HostError::Exited { code: 7, .. }) => {
+                        std::thread::sleep(Duration::from_millis(20));
+                    }
+                    other => panic!("{other:?}"),
+                }
+            }
+            match first.join().unwrap() {
+                Err(HostError::Timeout { .. }) => refused,
+                Err(HostError::HostMemoryExhausted { .. }) => false,
+                other => panic!("{other:?}"),
+            }
+        })
+    });
+    assert!(refused, "the second module was never refused");
+    // The first run gave its share back when it ended.
+    assert!(matches!(
+        run(&growing, &[]),
+        Err(HostError::Exited { code: 7, .. })
+    ));
+}
+
+#[test]
+fn the_answer_counts_in_the_memory_budget() {
+    let host = host_with(|l| {
+        l.memory_budget_mib = 8;
+        l.max_concurrent_runs = 1;
+    });
+    // 5 MiB of memory, written out almost whole: about 10 MiB for one run,
+    // each part within the module's own limits.
+    let wat = format!(
+        r#"(module {FD_WRITE} (memory (export "memory") 80)
+  (func (export "_start")
+    (i32.store (i32.const 0) (i32.const 16))
+    (i32.store (i32.const 4) (i32.const 5000000))
+    (drop (call $fd_write (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 8)))))"#
+    );
+    let module = host
+        .load_bytes(
+            manifest(DOCUMENTS, &limits(10_000, 8, 8), ""),
+            &wat::parse_str(wat).unwrap(),
+        )
+        .unwrap();
+    let err = run(&module, &[]).unwrap_err();
+    assert!(
+        matches!(err, HostError::HostMemoryExhausted { budget_mib: 8, .. }),
+        "{err}"
+    );
+}
+
+#[test]
+fn revalidation_takes_its_share_of_the_budget_before_it_starts() {
+    // A valid one-page document of about 1 MiB: the answer (1 MiB) and
+    // its re-validation (6 MiB) do not fit a budget of 4 MiB.
+    let pdf = build(&[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+        &format!("({})", "A".repeat(1 << 20)),
+    ]);
+    let wat = returning(&pdf);
+    let tight = host_with(|l| {
+        l.memory_budget_mib = 4;
+        l.max_concurrent_runs = 1;
+    });
+    let module = tight
+        .load_bytes(
+            manifest(DOCUMENTS, &limits(10_000, 4, 4), ""),
+            &wat::parse_str(&wat).unwrap(),
+        )
+        .unwrap();
+    let err = run(&module, &[]).unwrap_err();
+    assert!(
+        matches!(err, HostError::HostMemoryExhausted { budget_mib: 4, .. }),
+        "{err}"
+    );
+    // With room for it, the same answer is accepted.
+    let roomy = host_with(|l| l.memory_budget_mib = 16);
+    let module = roomy
+        .load_bytes(
+            manifest(DOCUMENTS, &limits(10_000, 4, 4), ""),
+            &wat::parse_str(&wat).unwrap(),
+        )
+        .unwrap();
+    assert!(run(&module, &[]).is_ok());
+}
+
+#[test]
+fn runs_past_the_concurrency_limit_wait_their_turn() {
+    let host = host_with(|l| l.max_concurrent_runs = 1);
+    let module = host
+        .load_bytes(
+            manifest(DOCUMENTS, &limits(400, 16, 4), ""),
+            &wat::parse_str(
+                r#"(module (memory (export "memory") 1) (func (export "_start") (loop $spin (br $spin))))"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let started = Instant::now();
+    let results: Vec<(Result<RunOutput, HostError>, Duration)> = std::thread::scope(|s| {
+        let runs: Vec<_> = (0..2)
+            .map(|_| s.spawn(|| (run(&module, &[]), started.elapsed())))
+            .collect();
+        runs.into_iter().map(|r| r.join().unwrap()).collect()
+    });
+    // Each had its whole time limit, one after the other: the time limit
+    // starts when a run starts, not when it is asked for.
+    for (result, _) in &results {
+        assert!(
+            matches!(result, Err(HostError::Timeout { limit_ms: 400, .. })),
+            "{result:?}"
+        );
+    }
+    let last = results.iter().map(|(_, t)| *t).max().unwrap();
+    assert!(last >= Duration::from_millis(790), "{last:?}");
+}
+
+// ---------------------------------------------------------------------------
 // Capabilities
 // ---------------------------------------------------------------------------
 
@@ -338,6 +564,110 @@ fn bad_pointers_are_errors_for_the_module_not_crashes_of_the_host() {
         let err = run(&module, &[b"%PDF"]).unwrap_err();
         assert!(
             matches!(err, HostError::Exited { code: 21, .. }),
+            "{err}\n{wat}"
+        );
+    }
+}
+
+/// Characters that act on a terminal or on the direction of text instead
+/// of being shown.
+fn hidden(c: char) -> bool {
+    c.is_control() && c != '\n' && c != '\t'
+        || matches!(c, '\u{200e}' | '\u{200f}' | '\u{061c}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+}
+
+#[test]
+fn text_from_a_module_is_bounded_and_inert() {
+    // Clears the screen, retitles the terminal, reverses what follows.
+    let escapes = "\u{1b}[2J\u{1b}]0;owned\u{7}\r\u{202e}fdp.exe";
+    let long = format!("{escapes}{}", "A".repeat(1 << 20));
+
+    // An error answer: the message a UI shows.
+    let module = load(
+        default_manifest(),
+        &writing(&Response::Error(long.clone()).encode().unwrap()),
+    )
+    .unwrap();
+    let err = run(&module, &[]).unwrap_err();
+    let HostError::ModuleFailed { message, .. } = &err else {
+        panic!("{err}")
+    };
+    assert!(message.len() <= 8 << 10, "{} bytes kept", message.len());
+    assert!(!message.chars().any(hidden), "{message:?}");
+    assert!(!err.to_string().chars().any(hidden));
+
+    // Standard error, kept as diagnostics.
+    let wat = format!(
+        r#"(module
+  {FD_WRITE}
+  (memory (export "memory") 1)
+  (data (i32.const 16) "{}")
+  (func (export "_start")
+    (i32.store (i32.const 0) (i32.const 16))
+    (i32.store (i32.const 4) (i32.const {}))
+    (drop (call $fd_write (i32.const 2) (i32.const 0) (i32.const 1) (i32.const 8)))
+    unreachable))"#,
+        escapes
+            .bytes()
+            .map(|b| format!("\\{b:02x}"))
+            .collect::<String>(),
+        escapes.len()
+    );
+    let err = run(&load(default_manifest(), &wat).unwrap(), &[]).unwrap_err();
+    let HostError::Trapped { diagnostics, .. } = &err else {
+        panic!("{err}")
+    };
+    assert!(diagnostics.contains("fdp.exe"), "{diagnostics:?}");
+    assert!(!diagnostics.chars().any(hidden), "{diagnostics:?}");
+    assert!(!err.to_string().chars().any(hidden));
+
+    // The name of an import the host denies.
+    let wat = r#"(module (import "env" "\1b[2Jsystem" (func $f))
+      (memory (export "memory") 1) (func (export "_start") (call $f)))"#;
+    let err = run(&load(default_manifest(), wat).unwrap(), &[]).unwrap_err();
+    let HostError::CapabilityDenied { import, .. } = &err else {
+        panic!("{err}")
+    };
+    assert!(!import.chars().any(hidden), "{import:?}");
+
+    // A manifest whose identity would carry the same: refused at load.
+    let idle = r#"(module (memory (export "memory") 1) (func (export "_start")))"#;
+    for field in ["id", "name", "version", "action", "label"] {
+        let mut m = default_manifest();
+        let evil = format!("org.example{escapes}");
+        match field {
+            "id" => m.id = evil,
+            "name" => m.name = evil,
+            "version" => m.version = evil,
+            "action" => m.actions[0].id = evil,
+            _ => m.actions[0].label = evil,
+        }
+        assert!(
+            matches!(load(m, idle), Err(HostError::Manifest { .. })),
+            "{field}"
+        );
+    }
+}
+
+#[test]
+fn tables_past_the_host_ceiling_are_refused() {
+    for wat in [
+        // One table of two million elements (the host allows 1 << 20).
+        r#"(module (table 2000000 funcref) (memory (export "memory") 1) (func (export "_start")))"#,
+        // Nine tables (the host allows 8).
+        r#"(module (table 1 funcref) (table 1 funcref) (table 1 funcref) (table 1 funcref)
+             (table 1 funcref) (table 1 funcref) (table 1 funcref) (table 1 funcref) (table 1 funcref)
+             (memory (export "memory") 1) (func (export "_start")))"#,
+        // Two memories: the limiter sees one only.
+        r#"(module (memory (export "memory") 1) (memory 1) (func (export "_start")))"#,
+    ] {
+        let module = load(default_manifest(), wat).unwrap();
+        let err = run(&module, &[]).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                HostError::MemoryExceeded { .. } | HostError::Trapped { .. }
+            ),
             "{err}\n{wat}"
         );
     }
@@ -511,6 +841,27 @@ fn a_corrupt_document_is_rejected_at_revalidation() {
 }
 
 #[test]
+fn revalidating_the_deepest_document_fits_the_smallest_caller_stack() {
+    // `run` re-validates on the caller's thread. A Windows main thread has
+    // 1 MiB of stack; a stack overflow aborts the process. The core
+    // parses and writes nesting up to parser::MAX_DEPTH (256).
+    let depth = fyp_core::parser::MAX_DEPTH;
+    let nested = format!("{}{}", "[".repeat(depth - 2), "]".repeat(depth - 2));
+    let pdf = build(&[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        &format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Deep {nested} >>"),
+    ]);
+    let out = std::thread::Builder::new()
+        .stack_size(1 << 20)
+        .spawn(move || fyp_host::revalidate(&pdf).map(|(doc, _)| doc.len()))
+        .unwrap()
+        .join()
+        .unwrap();
+    assert!(out.is_ok(), "{out:?}");
+}
+
+#[test]
 fn an_unreadable_object_never_reaches_the_caller() {
     // Object 4 is listed in a sound table but does not parse; the page
     // refers to it.
@@ -583,6 +934,107 @@ fn module_errors_and_missing_answers_are_reported() {
         matches!(&err, HostError::Trapped { diagnostics, .. } if diagnostics == "panicked at src/main.rs"),
         "{err}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Discovery and provenance
+// ---------------------------------------------------------------------------
+
+/// An empty directory of its own under the system's temporary directory.
+fn scratch_dir(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("fyp-host-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// `root/<name>/` holding `manifest` and a module answering `message` as
+/// its error.
+fn install(root: &Path, name: &str, manifest: &str, message: &str) {
+    let dir = root.join(name);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("manifest.toml"), manifest).unwrap();
+    let wat = writing(&Response::Error(message.into()).encode().unwrap());
+    std::fs::write(
+        dir.join(fyp_host::MODULE_FILE),
+        wat::parse_str(wat).unwrap(),
+    )
+    .unwrap();
+}
+
+#[test]
+fn known_gap_an_impostor_of_a_repository_module_is_not_told_apart() {
+    // ADR 0003, « Limites connues »: modules are not signed yet. A module
+    // reusing the merge module's identifier and manifest is discovered,
+    // loaded and run like the real one; only its code differs. When
+    // signatures exist, this test must fail and be turned around.
+    let root = scratch_dir("impostor");
+    let merge_manifest = std::fs::read_to_string(root_path_of_merge_manifest()).unwrap();
+    install(&root, "impostor", &merge_manifest, "impostor answering");
+    let one = fixture("minimal.pdf");
+    for trusted in [false, true] {
+        let (found, errors) = discover(&root, trusted);
+        assert!(errors.is_empty(), "{errors:?}");
+        let [impostor] = found.as_slice() else {
+            panic!("{found:?}")
+        };
+        assert_eq!(impostor.manifest.id, "org.4youpdf.merge");
+        // `trusted` is the caller's word for the directory, not a check.
+        assert_eq!(impostor.trusted, trusted);
+        let module = Host::new().unwrap().load(impostor).unwrap();
+        let err = module
+            .run("merge", &BTreeMap::new(), &[&one, &one])
+            .unwrap_err();
+        assert!(
+            matches!(&err, HostError::ModuleFailed { message, .. } if message == "impostor answering"),
+            "{err}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+fn root_path_of_merge_manifest() -> PathBuf {
+    root().join("plugins/merge/manifest.toml")
+}
+
+#[test]
+fn modules_sharing_an_identifier_are_all_refused() {
+    let root = scratch_dir("duplicate");
+    let text = std::fs::read_to_string(root_path_of_merge_manifest()).unwrap();
+    // "a-" sorts before "merge": first in a directory listing on most
+    // filesystems, the copy a careless lookup would pick.
+    install(&root, "a-shadow", &text, "shadow");
+    install(&root, "merge", &text, "real");
+    let other = text.replace("org.4youpdf.merge", "org.example.other");
+    install(&root, "other", &other, "other");
+    let (found, errors) = discover(&root, false);
+    let ids: Vec<&str> = found.iter().map(|m| m.manifest.id.as_str()).collect();
+    assert_eq!(ids, ["org.example.other"]);
+    assert!(
+        matches!(errors.as_slice(), [HostError::DuplicateId { id, dirs }]
+            if id == "org.4youpdf.merge" && dirs.len() == 2),
+        "{errors:?}"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn an_oversized_manifest_is_refused_without_reading_it_whole() {
+    let root = scratch_dir("oversized");
+    let text = std::fs::read_to_string(root_path_of_merge_manifest()).unwrap();
+    // A valid manifest followed by a comment past the limit.
+    let padded = format!(
+        "{text}\n#{}\n",
+        "x".repeat(usize::try_from(fyp_host::MAX_MANIFEST_BYTES).unwrap())
+    );
+    install(&root, "padded", &padded, "never runs");
+    let (found, errors) = discover(&root, false);
+    assert!(found.is_empty());
+    assert!(
+        matches!(errors.as_slice(), [HostError::Manifest { .. }]),
+        "{errors:?}"
+    );
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 // ---------------------------------------------------------------------------

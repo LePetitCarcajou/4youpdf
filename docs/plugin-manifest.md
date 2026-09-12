@@ -59,11 +59,20 @@ max = 10000
 | bornes sur un paramètre non entier, `min` au-dessus de `max` | refusé (`BadParam`) |
 | `source` absent | accepté localement, refusé au catalogue |
 
-Au chargement, `fyp-host` refuse en plus un `module.wasm` qui n'est pas une
-commande WASI (pas d'export `_start` ou `memory`, mémoire partagée,
-importation autre qu'une fonction) et, au jalon 0.2, toute permission autre
-que `read_document` et `write_document`, que l'hôte ne sait pas encore
-fournir.
+Au chargement, `fyp-host` refuse en plus :
+
+| Règle | Conséquence |
+|---|---|
+| `manifest.toml` de plus d'1 Mio | refusé avant lecture complète |
+| plusieurs modules d'un même dossier avec le même `id` | tous refusés (`DuplicateId`) |
+| caractère de contrôle ou de mise en forme bidirectionnelle (U+202E…) dans un champ texte | refusé |
+| limite au-dessus des plafonds de l'hôte (par défaut : 10 min, 4 Gio de mémoire et au plus le budget commun, 4 Gio de sortie) | refusé (`LimitAboveCeiling`) |
+| `module.wasm` qui n'est pas une commande WASI (pas d'export `_start` ou `memory`, mémoire partagée, importation autre qu'une fonction) | refusé (`BadModule`) |
+| au jalon 0.2, toute permission autre que `read_document` et `write_document` | refusé (`PermissionUnavailable`) |
+
+Un `id` n'est pas une preuve d'origine : tant que les modules ne sont pas
+signés, rien ne distingue un module qui reprend l'identifiant d'un module
+du dépôt (ADR 0003, « Limites connues »).
 
 ## Permissions sensibles
 
@@ -105,6 +114,15 @@ Le module ne dispose ni de fichiers, ni de réseau, ni d'horloge, ni d'aléa
 l'hôte fournit l'arrête. Les limites sont appliquées pendant l'exécution :
 dépasser `timeout_ms`, `memory_mib` ou `max_output_mib` arrête le module
 avec une erreur qui nomme la limite. Détails dans l'ADR 0003.
+
+Les limites d'un manifeste bornent une exécution, pas l'hôte : celui-ci
+exécute quelques modules à la fois (les autres attendent leur tour, leur
+délai ne court qu'au démarrage) et leur fait partager un budget mémoire.
+Un module peut donc être arrêté par `HostMemoryExhausted` en restant sous
+ses propres limites, quand d'autres occupent le budget ; le relancer plus
+tard peut réussir. Déclarer des limites proches du besoin réel laisse de la
+place aux autres. Le message d'erreur d'un module est tronqué à 4 Kio et
+ses caractères de contrôle sont remplacés.
 
 Les modules de ce dépôt se construisent avec
 `python tools/build_modules.py`, qui compile chaque crate de `plugins/` et

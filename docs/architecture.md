@@ -446,27 +446,39 @@ Un module = un dossier avec `manifest.toml` + `module.wasm`. Voir
 
 Détail et justification : ADR 0003, section « Mise en œuvre ».
 
-- **Découverte** (`discover`) : chaque sous-dossier qui a un manifeste,
-  validé avant toute lecture de code ; les refus sont rendus, pas tus.
+- **Découverte** (`discover`) : chaque sous-dossier qui a un manifeste
+  (1 Mio au plus), validé avant toute lecture de code ; les refus sont
+  rendus, pas tus. Des modules qui déclarent le même identifiant sont tous
+  refusés (`DuplicateId`). `trusted` est ce que l'appelant dit du dossier :
+  rien n'est signé ni vérifié (ADR 0003, « Limites connues »).
 - **Chargement** (`Host::load`) : `module.wasm` (64 Mio au plus) compilé par
   Wasmtime 48. Refus si ce n'est pas une commande WASI (`_start`, `memory`
   non partagée), si une importation n'est pas une fonction ou contredit la
-  signature WASI de son nom, ou si le manifeste demande une permission que
+  signature WASI de son nom, si le manifeste demande une permission que
   l'hôte ne fournit pas encore (toutes sauf `read_document` et
-  `write_document`). Chaque importation hors des quatorze fonctions WASI
-  que l'hôte implémente (`wasi.rs`, aucune ne touche au système) est liée à
-  un piège qui la nomme.
+  `write_document`), déclare une limite au-dessus des plafonds de l'hôte
+  (`HostLimits`, `LimitAboveCeiling`) ou porte un caractère de contrôle ou
+  de mise en forme bidirectionnelle dans un champ texte. Chaque importation
+  hors des quatorze fonctions WASI que l'hôte implémente (`wasi.rs`, aucune
+  ne touche au système) est liée à un piège qui la nomme.
 - **Exécution** (`LoadedModule::run`) : action, `min_inputs` et paramètres
-  vérifiés ; requête encodée sur l'entrée standard
-  (`fyp_plugin_api::exchange`) ; store neuf avec les limites du manifeste ;
-  `_start` sur un thread dédié, époque du moteur avancée toutes les 10 ms
-  par un second thread.
+  vérifiés ; attente d'une place parmi les `max_concurrent_runs` exécutions
+  simultanées de l'hôte (le délai court à partir du démarrage) ; requête
+  encodée sur l'entrée standard (`fyp_plugin_api::exchange`) ; store neuf
+  avec les limites du manifeste ; `_start` sur un thread dédié, époque du
+  moteur avancée toutes les 10 ms par un second thread. Les mémoires, tables
+  et réponses de toutes les exécutions en cours sont prises sur un budget
+  commun (`memory_budget_mib`, 4 Gio par défaut), ainsi que six fois la
+  réponse pendant sa re-validation.
 - **Arrêts**, tous des `HostError` : temps (`Timeout`), mémoire
-  (`MemoryExceeded`), sortie (`OutputTooLarge`), capacité non accordée
-  (`CapabilityDenied`), piège du module (`Trapped`, avec sa sortie
-  d'erreur), code de sortie non nul (`Exited`), réponse illisible
-  (`BadResponse`), erreur rendue par le module (`ModuleFailed`). Les
-  documents d'entrée sont empruntés en lecture seule.
+  (`MemoryExceeded`), budget commun épuisé (`HostMemoryExhausted`), sortie
+  (`OutputTooLarge`), capacité non accordée (`CapabilityDenied`), piège du
+  module (`Trapped`, avec sa sortie d'erreur), code de sortie non nul
+  (`Exited`), réponse illisible (`BadResponse`), erreur rendue par le module
+  (`ModuleFailed`). Tout texte venu du module (message, sortie d'erreur,
+  noms d'importation, messages de Wasmtime qui le citent) est borné et rendu
+  inerte : caractères de contrôle et bidirectionnels remplacés par U+FFFD.
+  Les documents d'entrée sont empruntés en lecture seule.
 - **Re-validation** (`revalidate`) : `Document::open` (reconstruction si
   besoin), au moins une page, réécriture par le writer (table classique, ou
   flux xref si la numérotation est trop éparse), relecture sans
@@ -496,7 +508,17 @@ mémoire (`EFAULT` pour le module, pas de panique) ; aucun dossier
 préouvert, environnement vide ; permissions non déclarées ou indisponibles ;
 paramètres refusés avant le démarrage ; modules malformés refusés au
 chargement ; documents corrompus rejetés à la re-validation, objet illisible
-absent de la réécriture. Avec `plugins/merge/module.wasm` : mêmes octets que
+absent de la réécriture ; plafonds de l'hôte, budget mémoire partagé entre
+exécutions et clones de `Host`, réponse et re-validation comptées dans ce
+budget, file d'attente des exécutions ; texte hostile (échappements de
+terminal, U+202E, message d'1 Mio) borné et inerte ; imposteur d'un
+identifiant du dépôt (limite connue, voir l'ADR), identifiants en double,
+manifeste surdimensionné ; re-validation du document le plus imbriqué sur
+une pile d'1 Mio. Les quatorze fonctions WASI sont confrontées à un modèle
+de référence écrit d'après la spécification (`wasi/fuzzing.rs`) : scripts
+aléatoires à graine fixe dans `cargo test`, cible `host_wasi` pour
+cargo-fuzz (sous Windows : `cargo +nightly fuzz run host_wasi --sanitizer
+address`, la cible ne se lie pas sans ASan). Avec `plugins/merge/module.wasm` : mêmes octets que
 `ops::merge` sur trois jeux de fixtures (dont un fichier chiffré et un
 hybride) et, quand le corpus est là, sur deux de ses fichiers ;
 `crates/fyp-cli/tests/run.rs` vérifie la même chose par la ligne de

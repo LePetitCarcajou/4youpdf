@@ -1,7 +1,8 @@
 [package]
 name = "fyp-host"
 description = "Loads 4YouPDF modules, enforces permissions and resource limits"
-version.workspace = true
+# Ahead of the workspace since HostLimits and the new HostError variants.
+version = "0.2.0"
 edition.workspace = true
 # Wasmtime 48 (LTS) needs Rust 1.95.
 rust-version = "1.95"
@@ -22,6 +23,14 @@ wasmtime = { version = "48.0.2", default-features = false, features = [
     "std",
     "parallel-compilation",
 ] }
+# Only for the `fuzzing` feature: the fuzz harness writes its trampoline
+# module in the text format.
+wat = { version = "1", optional = true }
+
+[features]
+# `fyp_host::fuzzing`: the harness behind `fuzz/fuzz_targets/host_wasi.rs`.
+# Never enabled by the application.
+fuzzing = ["dep:wat"]
 
 [dev-dependencies]
 # Hostile test modules are written in the text format.

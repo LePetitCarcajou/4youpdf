@@ -14,14 +14,26 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+mod budget;
+mod inert;
 mod sandbox;
 mod wasi;
 
+#[cfg(feature = "fuzzing")]
+#[doc(hidden)]
+pub use wasi::fuzzing;
+
 pub use fyp_plugin_api::exchange::ParamValue;
-pub use sandbox::{revalidate, Host, LoadedModule, RunOutput, MODULE_FILE};
+pub use sandbox::{revalidate, Host, HostLimits, LoadedModule, RunOutput, MODULE_FILE};
 
 use fyp_plugin_api::{Manifest, ManifestError};
+use std::fs::File;
+use std::io::Read;
 use std::path::{Path, PathBuf};
+
+/// Largest `manifest.toml` the host reads. It is read before anything
+/// else is checked: a real manifest is a few KiB.
+pub const MAX_MANIFEST_BYTES: u64 = 1 << 20;
 
 /// A module found on disk whose manifest passed static validation.
 #[derive(Debug, Clone)]
@@ -30,7 +42,9 @@ pub struct DiscoveredModule {
     pub dir: PathBuf,
     /// Parsed manifest.
     pub manifest: Manifest,
-    /// True if it comes from the trusted (in-repo, signed) location.
+    /// What the caller of [`discover`] said about the directory. Nothing
+    /// is verified: modules are not signed yet (ADR 0003, « Limites
+    /// connues »), and [`Host::load`] treats every module the same.
     pub trusted: bool,
 }
 
@@ -56,6 +70,16 @@ pub enum HostError {
         /// Why.
         #[source]
         source: ManifestError,
+    },
+    /// Several modules of one directory declare the same identifier. None
+    /// of them is loaded: picking one would let a directory listing decide
+    /// which code answers to that name.
+    #[error("{} modules declare the identifier {id}, none is loaded: {}", dirs.len(), display_dirs(dirs))]
+    DuplicateId {
+        /// The identifier.
+        id: String,
+        /// Directories of the modules declaring it.
+        dirs: Vec<PathBuf>,
     },
     /// The WebAssembly engine could not be configured.
     #[error("cannot start the WebAssembly engine: {0}")]
@@ -118,6 +142,29 @@ pub enum HostError {
         action: String,
         /// What is wrong.
         message: String,
+    },
+    /// The manifest declares a limit above what this host allows
+    /// ([`HostLimits`]). Refused at load.
+    #[error("module {module} declares {limit} = {declared}, above the {ceiling} this host allows")]
+    LimitAboveCeiling {
+        /// Module identifier.
+        module: String,
+        /// The limit, as manifests spell it.
+        limit: &'static str,
+        /// What the manifest declares.
+        declared: u64,
+        /// What the host allows.
+        ceiling: u64,
+    },
+    /// The modules running together used up the host's memory budget
+    /// ([`HostLimits::memory_budget_mib`]): the module was stopped when it
+    /// asked for more. Running it again later may succeed.
+    #[error("module {module} stopped: the modules running together used up the host's memory budget of {budget_mib} MiB")]
+    HostMemoryExhausted {
+        /// Module identifier.
+        module: String,
+        /// The budget.
+        budget_mib: u64,
     },
     /// The module ran past its `timeout_ms` and was stopped.
     #[error("module {module} stopped: over its time limit of {limit_ms} ms")]
@@ -206,6 +253,13 @@ pub enum HostError {
     Internal(String),
 }
 
+fn display_dirs(dirs: &[PathBuf]) -> String {
+    dirs.iter()
+        .map(|d| d.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 fn stderr_suffix(diagnostics: &str) -> String {
     let trimmed = diagnostics.trim();
     if trimmed.is_empty() {
@@ -218,6 +272,10 @@ fn stderr_suffix(diagnostics: &str) -> String {
 /// Scan `root` for `*/manifest.toml`, validate each, and return the accepted
 /// modules. Rejected modules are returned as errors so the UI can explain
 /// why they are not loaded — silently dropping them would hide problems.
+///
+/// Identifiers are unique in the result: modules sharing one are all
+/// refused ([`HostError::DuplicateId`]). A caller combining several roots
+/// must check the same across them.
 pub fn discover(root: &Path, trusted: bool) -> (Vec<DiscoveredModule>, Vec<HostError>) {
     let mut ok = Vec::new();
     let mut errors = Vec::new();
@@ -237,35 +295,76 @@ pub fn discover(root: &Path, trusted: bool) -> (Vec<DiscoveredModule>, Vec<HostE
         if !manifest_path.is_file() {
             continue;
         }
-        let text = match std::fs::read_to_string(&manifest_path) {
+        let text = match read_manifest(&manifest_path) {
             Ok(t) => t,
+            Err(e) => {
+                errors.push(e);
+                continue;
+            }
+        };
+        let manifest = match Manifest::from_toml(&text)
+            .and_then(|m| m.validate(trusted).map(|()| m))
+            .and_then(|m| inert::check_manifest(&m).map(|()| m))
+        {
+            Ok(m) => m,
             Err(source) => {
-                errors.push(HostError::Io {
+                errors.push(HostError::Manifest {
                     path: manifest_path,
-                    source,
+                    source: inert::manifest_error(source),
                 });
                 continue;
             }
         };
-        let manifest =
-            match Manifest::from_toml(&text).and_then(|m| m.validate(trusted).map(|()| m)) {
-                Ok(m) => m,
-                Err(source) => {
-                    errors.push(HostError::Manifest {
-                        path: manifest_path,
-                        source,
-                    });
-                    continue;
-                }
-            };
         ok.push(DiscoveredModule {
             dir,
             manifest,
             trusted,
         });
     }
-    ok.sort_by(|a, b| a.manifest.id.cmp(&b.manifest.id));
-    (ok, errors)
+    ok.sort_by(|a, b| a.manifest.id.cmp(&b.manifest.id).then(a.dir.cmp(&b.dir)));
+    let mut unique: Vec<DiscoveredModule> = Vec::with_capacity(ok.len());
+    let mut modules = ok.into_iter().peekable();
+    while let Some(first) = modules.next() {
+        let mut dirs = Vec::new();
+        while let Some(same) = modules.next_if(|m| m.manifest.id == first.manifest.id) {
+            dirs.push(same.dir);
+        }
+        if dirs.is_empty() {
+            unique.push(first);
+        } else {
+            dirs.insert(0, first.dir);
+            errors.push(HostError::DuplicateId {
+                id: first.manifest.id,
+                dirs,
+            });
+        }
+    }
+    (unique, errors)
+}
+
+/// `manifest.toml`, refused past [`MAX_MANIFEST_BYTES`] without reading on.
+fn read_manifest(path: &Path) -> Result<String, HostError> {
+    let io = |source| HostError::Io {
+        path: path.to_path_buf(),
+        source,
+    };
+    let invalid = |message: String| HostError::Manifest {
+        path: path.to_path_buf(),
+        source: ManifestError::Invalid(message),
+    };
+    let mut bytes = Vec::new();
+    File::open(path)
+        .map_err(io)?
+        .take(MAX_MANIFEST_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(io)?;
+    if u64::try_from(bytes.len()).map_or(true, |n| n > MAX_MANIFEST_BYTES) {
+        return Err(invalid(format!(
+            "larger than the {} KiB the host reads",
+            MAX_MANIFEST_BYTES >> 10
+        )));
+    }
+    String::from_utf8(bytes).map_err(|_| invalid("not UTF-8".into()))
 }
 
 #[cfg(test)]

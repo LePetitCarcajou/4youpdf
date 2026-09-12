@@ -1,0 +1,26 @@
+[package]
+name = "fyp-bench-host"
+description = "Measures the module loader: concurrent runs, re-validation, hostile compilation"
+version = "0.0.0"
+publish = false
+edition = "2021"
+license = "AGPL-3.0-or-later"
+
+# Outside the workspace, like fuzz/: its measuring dependencies stay out of
+# the application's dependency graph.
+
+[[bin]]
+name = "bench_host"
+path = "src/main.rs"
+
+[dependencies]
+fyp-host = { path = "../../crates/fyp-host" }
+fyp-plugin-api = { path = "../../crates/fyp-plugin-api" }
+wat = "1"
+# Wasmtime's version: `inspect` reads a module as the host's validator does.
+wasmparser = "=0.254.0"
+memory-stats = "1"
+cpu-time = "1"
+
+[profile.release]
+debug = false

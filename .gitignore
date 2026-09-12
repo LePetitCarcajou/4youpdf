@@ -2,6 +2,10 @@
 /fuzz/target
 /fuzz/artifacts
 /fuzz/corpus
+# Crates outside the workspace: their lockfiles and builds stay local
+/fuzz/Cargo.lock
+/tools/bench_host/Cargo.lock
+/tools/bench_host/target
 /app/node_modules
 /app/dist
 # Fetched by tools/fetch_ui_tools.py and tools/fetch_pdfium.py

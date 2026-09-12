@@ -254,6 +254,31 @@ impl Response {
         input.finish()?;
         Ok(response)
     }
+
+    /// [`Response::decode`] keeping the document in `bytes` instead of
+    /// copying it out: for a host holding an answer of several GiB.
+    pub fn decode_owned(mut bytes: Vec<u8>) -> Result<Response, ExchangeError> {
+        let mut input = In {
+            bytes: &bytes,
+            pos: 0,
+        };
+        input.header(RESPONSE_MAGIC)?;
+        match input.u8()? {
+            TAG_DOCUMENT => {
+                let len = input.bytes()?.len();
+                input.finish()?;
+                let start = input.pos - len;
+                bytes.drain(..start);
+                Ok(Response::Document(bytes))
+            }
+            TAG_ERROR => {
+                let message = input.string()?;
+                input.finish()?;
+                Ok(Response::Error(message))
+            }
+            other => Err(ExchangeError::BadTag(other)),
+        }
+    }
 }
 
 struct Out(Vec<u8>);
@@ -359,6 +384,35 @@ mod tests {
             Response::Error("pas de page".to_string()),
         ] {
             assert_eq!(Response::decode(&response.encode().unwrap()), Ok(response));
+        }
+    }
+
+    #[test]
+    fn decoding_in_place_agrees_with_decoding() {
+        let mut messages: Vec<Vec<u8>> = [
+            Response::Document(b"%PDF-1.7 doc".to_vec()),
+            Response::Document(Vec::new()),
+            Response::Error("pas de page".to_string()),
+        ]
+        .iter()
+        .map(|r| r.encode().unwrap())
+        .collect();
+        let valid = messages.clone();
+        for message in &valid {
+            for end in 0..message.len() {
+                messages.push(message[..end].to_vec());
+            }
+            let mut trailing = message.clone();
+            trailing.push(0);
+            messages.push(trailing);
+        }
+        messages.push(b"%PDF-1.7".to_vec());
+        for message in messages {
+            assert_eq!(
+                Response::decode_owned(message.clone()),
+                Response::decode(&message),
+                "{message:?}"
+            );
         }
     }
 

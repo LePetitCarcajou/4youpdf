@@ -19,5 +19,9 @@ fyp-host = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
 
+[dev-dependencies]
+# Idle test modules for the refusals of `fyp run`.
+wat = "1"
+
 [lints]
 workspace = true

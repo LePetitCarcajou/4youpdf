@@ -16,7 +16,7 @@ use fyp_core::encryption::{Cipher, Encryption};
 use fyp_core::ops;
 use fyp_core::writer::{Writer, XrefStyle};
 use fyp_core::xref::SectionKind;
-use fyp_host::ParamValue;
+use fyp_host::{HostError, ParamValue};
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
@@ -308,6 +308,27 @@ fn page_count(path: &Path, doc: &Document<'_>) -> anyhow::Result<usize> {
         .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))
 }
 
+/// A host error as the user reads it: the host's message and, for the
+/// refusals the user can act on, what to change.
+fn explain(e: &HostError) -> String {
+    let hint = match e {
+        HostError::LimitAboveCeiling { limit, ceiling, .. } => {
+            let unit = if *limit == "timeout_ms" { "ms" } else { "Mio" };
+            format!(
+                "ce module demande plus que ce que l'hôte accorde : `{limit}` doit valoir au plus {ceiling} {unit} dans son manifest.toml"
+            )
+        }
+        HostError::HostMemoryExhausted { budget_mib, .. } => format!(
+            "la mémoire du module, sa réponse et la re-validation de celle-ci ont dépassé les {budget_mib} Mio que l'hôte accorde à l'ensemble des modules"
+        ),
+        HostError::DuplicateId { id, .. } => format!(
+            "tant que plusieurs dossiers déclarent `{id}`, aucun n'est chargé : retirer les copies en trop, ou changer l'`id` de leur manifest.toml"
+        ),
+        _ => return e.to_string(),
+    };
+    format!("{e}\n({hint})")
+}
+
 /// `fyp run`: find the module declaring `action`, hand it the inputs in
 /// its sandbox, write the re-validated result.
 fn run_action(
@@ -329,7 +350,7 @@ fn run_action(
         [one] => *one,
         [] => {
             for e in &refused {
-                eprintln!("refusé: {e}");
+                eprintln!("refusé: {}", explain(e));
             }
             anyhow::bail!(
                 "aucun module accepté dans {} ne déclare l'action « {action} »",
@@ -386,10 +407,10 @@ fn run_action(
 
     let host = fyp_host::Host::new().map_err(|e| anyhow::anyhow!("{e}"))?;
     let loaded = host.load(chosen).map_err(|e| match e {
-        fyp_host::HostError::Io { .. } => anyhow::anyhow!(
+        HostError::Io { .. } => anyhow::anyhow!(
             "{e}\n(les modules du dépôt se construisent avec : python tools/build_modules.py)"
         ),
-        e => anyhow::anyhow!("{e}"),
+        e => anyhow::anyhow!("{}", explain(&e)),
     })?;
     let permissions: Vec<String> = chosen
         .manifest
@@ -406,7 +427,7 @@ fn run_action(
     let refs: Vec<&[u8]> = documents.iter().map(|d| d.as_ref()).collect();
     let result = loaded
         .run(action, &values, &refs)
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
+        .map_err(|e| anyhow::anyhow!("{}", explain(&e)))?;
     if !result.diagnostics.trim().is_empty() {
         eprintln!("module (stderr) : {}", result.diagnostics.trim_end());
     }
@@ -699,7 +720,7 @@ fn main() -> anyhow::Result<()> {
                 );
             }
             for e in &errors {
-                eprintln!("refusé: {e}");
+                eprintln!("refusé: {}", explain(e));
             }
             println!(
                 "{} module(s) accepté(s), {} refusé(s)",
@@ -709,4 +730,64 @@ fn main() -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+#[allow(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    /// Each refusal names the module, the numbers involved and what to
+    /// change. `HostMemoryExhausted` cannot be reached from `fyp run`
+    /// without committing about 4 GiB: its wording is checked here only;
+    /// `tests/run.rs` goes through the binary for the other two.
+    #[test]
+    fn host_refusals_say_what_is_wrong_and_what_to_change() {
+        let cases: [(HostError, &[&str]); 3] = [
+            (
+                HostError::LimitAboveCeiling {
+                    module: "org.example.greedy".into(),
+                    limit: "memory_mib",
+                    declared: 9000,
+                    ceiling: 4096,
+                },
+                &[
+                    "org.example.greedy",
+                    "memory_mib = 9000",
+                    "au plus 4096 Mio",
+                    "manifest.toml",
+                ],
+            ),
+            (
+                HostError::HostMemoryExhausted {
+                    module: "org.example.greedy".into(),
+                    budget_mib: 4096,
+                },
+                &[
+                    "org.example.greedy",
+                    "4096 MiB",
+                    "4096 Mio",
+                    "re-validation",
+                ],
+            ),
+            (
+                HostError::DuplicateId {
+                    id: "org.example.twin".into(),
+                    dirs: vec!["plugins/twin-a".into(), "plugins/twin-b".into()],
+                },
+                &[
+                    "org.example.twin",
+                    "plugins/twin-a",
+                    "plugins/twin-b",
+                    "aucun n'est chargé",
+                ],
+            ),
+        ];
+        for (error, expected) in cases {
+            let shown = explain(&error);
+            for part in expected {
+                assert!(shown.contains(part), "{part:?} missing from:\n{shown}");
+            }
+        }
+    }
 }

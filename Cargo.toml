@@ -10,7 +10,7 @@ members = [
     "plugins/merge",
     "app",
 ]
-exclude = ["fuzz"]
+exclude = ["fuzz", "tools/bench_host"]
 
 [workspace.package]
 version = "0.1.0"
@@ -25,7 +25,7 @@ fyp-core = { path = "crates/fyp-core", version = "0.1.0" }
 fyp-crypto = { path = "crates/fyp-crypto", version = "0.1.0" }
 fyp-conformance = { path = "crates/fyp-conformance", version = "0.1.0" }
 fyp-plugin-api = { path = "crates/fyp-plugin-api", version = "0.2.0" }
-fyp-host = { path = "crates/fyp-host", version = "0.1.0" }
+fyp-host = { path = "crates/fyp-host", version = "0.2.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
