@@ -22,6 +22,21 @@ fichier. Ils servent aux tests unitaires du noyau.
   flux xref désigné par `/XRefStm` référence. Ce flux est encodé en
   ASCIIHex pour rester lisible.
 
+Écarts à la norme fréquents dans le corpus, dérivés de `minimal.pdf` à
+longueur constante (les offsets restent justes), que le noyau doit accepter
+**sans** reconstruction :
+
+- `gen-65536.pdf` — l'entrée libre de tête de la table porte la génération
+  `65536` au lieu de `65535` (113 fichiers du corpus pdf.js).
+- `inuse-offset-zero.pdf` — `xrefstream.pdf` plus une ligne de type 1 à
+  l'offset 0 pour un objet 5 inexistant ; le lecteur la prend pour une entrée
+  libre (22 fichiers du corpus). Produit par `fixtures_gen.rs`.
+- `no-minor-version.pdf` — en-tête `%PDF-1.` sans chiffre mineur (suivi d'une
+  ligne vide pour garder la longueur) ; lu comme PDF 1.0.
+- `no-header.pdf` — aucun `%PDF` : la première ligne est un commentaire de
+  huit octets au-dessus de 127. Le noyau tente le fichier avec la version
+  supposée 1.4 et `quick_info` le signale (`header_present == false`).
+
 Fichiers cassés, dérivés de `minimal.pdf`, que le noyau doit ouvrir en
 reconstruisant la xref par scan (`Document::reconstructed()` non vide) :
 

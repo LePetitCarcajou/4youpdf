@@ -42,6 +42,14 @@ acceptent (xref reconstruite par scan, `/Length` faux, `endobj` manquant,
 en-tête décalé, données Flate tronquées ou sans en-tête zlib). L'écriture est
 stricte et produit toujours un fichier conforme.
 
+Tolérances issues du rapport corpus, chacune avec sa fixture dans
+`tests/fixtures/` : génération `65536` sur l'entrée libre de tête (bornée à
+65535 au lieu de rejeter la table) ; entrée « en usage » à l'offset 0, dans
+une table ou un flux xref, lue comme libre ; en-tête `%PDF-1.` sans chiffre
+mineur (version 1.0) ; fichier sans `%PDF` mais commençant par un
+commentaire et contenant des objets, tenté avec la version supposée 1.4,
+`QuickInfo::header_present` valant alors `false`.
+
 ### Filtres et limites
 
 `filters::decode_stream(dict, data, resolve)` applique la chaîne `/Filter`

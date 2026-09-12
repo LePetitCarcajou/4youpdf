@@ -275,13 +275,25 @@ fn parse_entry(lexer: &mut Lexer<'_>) -> Result<XrefEntry> {
     let (Token::Integer(field), Token::Integer(gen)) = (t1, t2) else {
         return Err(bad(at, "malformed cross-reference entry"));
     };
-    let gen = u16::try_from(gen).map_err(|_| bad(at, "generation out of range"))?;
     match kind {
+        // An `n` entry at offset 0 is a free entry written by a careless
+        // writer: the header sits at offset 0, no object can (same
+        // tolerance as in `decode_row`).
+        Token::Keyword(k) if k == b"n" && field == 0 => Ok(XrefEntry::Free {
+            gen: u16::try_from(gen).unwrap_or(u16::MAX),
+        }),
         Token::Keyword(k) if k == b"n" => {
+            let gen = u16::try_from(gen).map_err(|_| bad(at, "generation out of range"))?;
             let offset = usize::try_from(field).map_err(|_| bad(at, "negative object offset"))?;
             Ok(XrefEntry::InUse { offset, gen })
         }
-        Token::Keyword(k) if k == b"f" => Ok(XrefEntry::Free { gen }),
+        // Tolerance: many writers put `65536` on the head of the free list
+        // instead of the `65535` of 7.5.4. The generation of a free entry
+        // only says what the next reuse would get, so an out-of-range value
+        // is clamped to "never reused" rather than condemning the table.
+        Token::Keyword(k) if k == b"f" => Ok(XrefEntry::Free {
+            gen: u16::try_from(gen).unwrap_or(u16::MAX),
+        }),
         _ => Err(bad(at, "entry type must be `n` or `f`")),
     }
 }
@@ -404,6 +416,12 @@ fn decode_row(row: &[u8], widths: [usize; 3], offset: usize) -> Result<Option<Xr
         0 => Some(XrefEntry::Free {
             gen: u16::try_from(f3).unwrap_or(u16::MAX),
         }),
+        // Tolerance: some writers list unused numbers as "in use at offset
+        // 0" instead of type 0. No object can start at offset 0, where the
+        // header is, so readers treat such rows as free.
+        1 if f2 == 0 => Some(XrefEntry::Free {
+            gen: u16::try_from(f3).unwrap_or(u16::MAX),
+        }),
         1 => Some(XrefEntry::InUse {
             offset: usize::try_from(f2).map_err(|_| bad(offset, "object offset out of range"))?,
             gen: u16::try_from(f3).map_err(|_| bad(offset, "generation out of range"))?,
@@ -490,6 +508,42 @@ mod tests {
     }
 
     #[test]
+    fn free_entry_generation_out_of_range_is_clamped() {
+        // `65536 f` on the free-list head is a common writer slip: the
+        // table stays usable, the value reads as "never reused".
+        let file =
+            b"xref\n0 2\n0000000000 65536 f \n0000000009 00000 n \ntrailer\n<< /Root 1 0 R >>\n";
+        let xref = Xref::parse(file, 0).expect("parse");
+        assert_eq!(xref.get(0), Some(XrefEntry::Free { gen: 65535 }));
+        assert_eq!(xref.get(1), Some(XrefEntry::InUse { offset: 9, gen: 0 }));
+        // On an in-use entry the generation is meaningful: still refused.
+        let in_use = b"xref\n0 2\n0000000000 65535 f \n0000000009 65536 n \ntrailer\n<< >>\n";
+        assert!(is_bad_xref(Xref::parse(in_use, 0)));
+    }
+
+    #[test]
+    fn in_use_entry_at_offset_zero_is_free() {
+        // Classic table: `0000000000 00000 n` for an unused number.
+        let table = b"xref\n0 3\n0000000000 65535 f \n0000000009 00000 n \n0000000000 00000 n \ntrailer\n<< >>\n";
+        let xref = Xref::parse(table, 0).expect("parse");
+        assert_eq!(xref.get(1), Some(XrefEntry::InUse { offset: 9, gen: 0 }));
+        assert_eq!(xref.get(2), Some(XrefEntry::Free { gen: 0 }));
+        assert_eq!(xref.object_count(), 1);
+        // Cross-reference stream (`/W [1 2 1]`): a type 1 row with field 2
+        // at zero.
+        let rows = [
+            0, 0, 0, 0xFF, // 0: free
+            1, 0, 42, 0, // 1: at offset 42
+            1, 0, 0, 7, // 2: "in use" at offset 0, generation 7
+        ];
+        let stream = xref_stream("/Size 3", &rows);
+        let xref = Xref::parse(&stream, 0).expect("parse");
+        assert_eq!(xref.get(1), Some(XrefEntry::InUse { offset: 42, gen: 0 }));
+        assert_eq!(xref.get(2), Some(XrefEntry::Free { gen: 7 }));
+        assert_eq!(xref.object_count(), 1);
+    }
+
+    #[test]
     fn tolerates_one_byte_eol_in_entries() {
         let file = b"xref\n0 2\n0000000000 65535 f\n0000000009 00000 n\ntrailer\n<< >>\n";
         let xref = Xref::parse(file, 0).expect("xref");
@@ -572,7 +626,9 @@ mod tests {
     fn malformed_sections() {
         let bad_type = b"xref\n0 1\n0000000000 65535 x \ntrailer\n<< >>\n";
         assert!(is_bad_xref(Xref::parse(bad_type, 0)));
-        let bad_gen = b"xref\n0 1\n0000000000 70000 f \ntrailer\n<< >>\n";
+        // A free entry's generation is clamped (see
+        // `free_entry_generation_out_of_range_is_clamped`); an in-use one is not.
+        let bad_gen = b"xref\n0 1\n0000000009 70000 n \ntrailer\n<< >>\n";
         assert!(is_bad_xref(Xref::parse(bad_gen, 0)));
         let trailer_not_dict = b"xref\n0 1\n0000000000 65535 f \ntrailer\n[1 2]\n";
         assert!(is_bad_xref(Xref::parse(trailer_not_dict, 0)));

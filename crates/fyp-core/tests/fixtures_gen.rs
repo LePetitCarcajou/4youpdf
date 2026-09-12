@@ -148,6 +148,33 @@ fn generate_xrefstream() {
     b.finish(startxref, "xrefstream.pdf");
 }
 
+/// `inuse-offset-zero.pdf`: `xrefstream.pdf` plus a row for an object 5
+/// that does not exist, written as type 1 at offset 0 the way some
+/// writers mark unused numbers (corpus: 22 pdf.js files). The reader must
+/// take it as free instead of rejecting the table.
+#[test]
+#[ignore = "rewrites tests/fixtures/inuse-offset-zero.pdf"]
+fn generate_inuse_offset_zero() {
+    let mut b = Builder::new("1.5");
+    b.object(1, CATALOG.as_bytes());
+    b.object(2, PAGES.as_bytes());
+    b.object(3, PAGE.as_bytes());
+    let startxref = b.out.len();
+    let rows = xref_rows(&[
+        (0, 0, 65535),
+        (1, b.offset(1), 0),
+        (1, b.offset(2), 0),
+        (1, b.offset(3), 0),
+        (1, startxref, 0),
+        (1, 0, 0),
+    ]);
+    b.object(
+        4,
+        &stream("/Type /XRef /Size 6 /W [1 2 2] /Root 1 0 R", &rows),
+    );
+    b.finish(startxref, "inuse-offset-zero.pdf");
+}
+
 /// `objstm.pdf`: objects 1 and 2 in a Flate object stream (7.5.7), the
 /// page as a plain object, and a Flate cross-reference stream with the
 /// PNG Up predictor (`/Predictor 12`, `/Columns 5`).

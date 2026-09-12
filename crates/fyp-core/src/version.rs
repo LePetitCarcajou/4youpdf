@@ -2,8 +2,18 @@
 //! the whole document. Used by `fyp info` and as the first sanity check when
 //! opening a file.
 
+use crate::lexer::is_whitespace;
 use crate::parser::find;
 use crate::{Error, Result};
+
+/// Version assumed when a file has no `%PDF-x.y` header at all but is
+/// otherwise a PDF (see [`quick_info`]). 1.4 is what such files, produced
+/// by old or careless tools, turn out to be in practice.
+pub const ASSUMED_VERSION: PdfVersion = PdfVersion { major: 1, minor: 4 };
+
+/// Junk before the header is tolerated up to this many bytes, like the
+/// major readers do.
+const HEADER_WINDOW: usize = 1024;
 
 /// PDF version declared in the file header.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -26,8 +36,12 @@ pub struct QuickInfo {
     /// Header version.
     pub version: PdfVersion,
     /// Byte offset of the header (ISO 32000-2 allows junk before `%PDF`;
-    /// readers tolerate up to 1024 bytes).
+    /// readers tolerate up to 1024 bytes). 0 when the header is missing.
     pub header_offset: usize,
+    /// False when the file has no `%PDF-x.y` header and `version` is
+    /// [`ASSUMED_VERSION`]. Such a file is not sound; callers that report
+    /// on a file should say so.
+    pub header_present: bool,
     /// Offset announced by the last `startxref`, if found.
     pub startxref: Option<usize>,
     /// Whether the file has an `/Encrypt` entry somewhere in its trailer area.
@@ -36,17 +50,35 @@ pub struct QuickInfo {
     pub has_eof_marker: bool,
 }
 
-/// Locate and parse the `%PDF-x.y` header.
+/// Locate and parse the `%PDF-x.y` header. Tolerance: `%PDF-1.` without a
+/// minor digit, or `%PDF-1` alone, reads as minor 0 (corpus: pdf.js
+/// `issue9105_other.pdf`).
 pub fn detect_version(input: &[u8]) -> Result<(PdfVersion, usize)> {
-    let window = &input[..input.len().min(1024)];
+    let window = input.get(..HEADER_WINDOW).unwrap_or(input);
     let off = find(window, b"%PDF-").ok_or(Error::BadHeader)?;
-    let rest = &input[off + 5..];
+    let rest = input.get(off + 5..).unwrap_or_default();
     let major = rest.first().and_then(digit).ok_or(Error::BadHeader)?;
-    if rest.get(1) != Some(&b'.') {
-        return Err(Error::BadHeader);
-    }
-    let minor = rest.get(2).and_then(digit).ok_or(Error::BadHeader)?;
+    let minor = match rest.get(1) {
+        Some(b'.') => match rest.get(2) {
+            Some(d) if d.is_ascii_digit() => d - b'0',
+            Some(&b) if is_whitespace(b) => 0,
+            None => 0,
+            Some(_) => return Err(Error::BadHeader),
+        },
+        Some(&b) if is_whitespace(b) => 0,
+        None => 0,
+        Some(_) => return Err(Error::BadHeader),
+    };
     Ok((PdfVersion { major, minor }, off))
+}
+
+/// A file with no header that is still worth trying: it starts with a
+/// comment line, as `%PDF` files do (some writers emit only the binary
+/// comment), and holds an object header (corpus: pdf.js `bug1606566.pdf`).
+fn looks_like_headerless_pdf(input: &[u8]) -> bool {
+    let window = input.get(..HEADER_WINDOW).unwrap_or(input);
+    let first = window.iter().find(|&&b| !is_whitespace(b));
+    first == Some(&b'%') && find(window, b"obj").is_some()
 }
 
 fn digit(b: &u8) -> Option<u8> {
@@ -59,12 +91,16 @@ fn digit(b: &u8) -> Option<u8> {
 
 /// Scan a file for quick facts without building the object graph.
 pub fn quick_info(input: &[u8]) -> Result<QuickInfo> {
-    let (version, header_offset) = detect_version(input)?;
+    let (version, header_offset, header_present) = match detect_version(input) {
+        Ok((version, offset)) => (version, offset, true),
+        Err(Error::BadHeader) if looks_like_headerless_pdf(input) => (ASSUMED_VERSION, 0, false),
+        Err(e) => return Err(e),
+    };
     // Look at the tail of the file for startxref / trailer / %%EOF.
     let tail_start = input.len().saturating_sub(2048);
-    let tail = &input[tail_start..];
+    let tail = input.get(tail_start..).unwrap_or_default();
     let startxref = rfind(tail, b"startxref").and_then(|i| {
-        let after = &tail[i + b"startxref".len()..];
+        let after = tail.get(i + b"startxref".len()..).unwrap_or_default();
         let digits: Vec<u8> = after
             .iter()
             .copied()
@@ -78,6 +114,7 @@ pub fn quick_info(input: &[u8]) -> Result<QuickInfo> {
     Ok(QuickInfo {
         version,
         header_offset,
+        header_present,
         startxref,
         looks_encrypted,
         has_eof_marker,
@@ -111,6 +148,41 @@ mod tests {
         );
         assert_eq!(detect_version(b"not a pdf"), Err(Error::BadHeader));
         assert_eq!(detect_version(b"%PDF-x.y"), Err(Error::BadHeader));
+    }
+
+    #[test]
+    fn header_without_minor_digit_reads_as_minor_zero() {
+        for input in [&b"%PDF-1.\n1 0 obj"[..], b"%PDF-1\n", b"%PDF-1.", b"%PDF-1"] {
+            let (v, off) = detect_version(input).unwrap_or_else(|e| panic!("{input:?}: {e}"));
+            assert_eq!(v, PdfVersion { major: 1, minor: 0 }, "{input:?}");
+            assert_eq!(off, 0);
+        }
+        assert_eq!(detect_version(b"%PDF-1.x"), Err(Error::BadHeader));
+        assert_eq!(detect_version(b"%PDF-1x"), Err(Error::BadHeader));
+    }
+
+    #[test]
+    fn headerless_file_starting_with_a_comment_is_tried() {
+        let file =
+            b"%\xE2\xE3\xCF\xD3\n1 0 obj\n<< >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n";
+        let info = quick_info(file).expect("info");
+        assert!(!info.header_present);
+        assert_eq!(info.version, ASSUMED_VERSION);
+        assert_eq!(info.header_offset, 0);
+        assert!(info.has_eof_marker);
+        // A real header is still preferred and reported as present.
+        assert!(
+            quick_info(b"%PDF-1.7\n1 0 obj\n")
+                .expect("info")
+                .header_present
+        );
+        // Not PDFs: no comment first, or a comment with no object at all.
+        assert_eq!(quick_info(b"oops\n"), Err(Error::BadHeader));
+        assert_eq!(
+            quick_info(b"1/Catalogier\n]<\ntrailer"),
+            Err(Error::BadHeader)
+        );
+        assert_eq!(quick_info(b"% just a comment\n"), Err(Error::BadHeader));
     }
 
     #[test]

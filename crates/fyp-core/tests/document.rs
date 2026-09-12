@@ -151,6 +151,70 @@ fn truncated_file_opens_with_what_is_left() {
     assert_eq!(doc.page_count(), Ok(1));
 }
 
+/// Open a fixture that the reader must accept as is: no reconstruction,
+/// the page of `minimal.pdf` readable.
+fn open_sound(name: &str) -> Document<'static> {
+    let bytes: &'static [u8] = Box::leak(fixture(name).into_boxed_slice());
+    let doc = Document::open(bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
+    assert_eq!(doc.reconstructed(), None, "{name} was reconstructed");
+    assert_eq!(doc.page_count(), Ok(1), "{name}");
+    assert_eq!(media_box(&doc, PAGE), ints(&[0, 0, 595, 842]), "{name}");
+    doc
+}
+
+/// Tolerance 1 (corpus: 113 files): `0000000000 65536 f` on the head of
+/// the free list must not condemn the table.
+#[test]
+fn free_list_head_with_generation_65536_is_accepted() {
+    let doc = open_sound("gen-65536.pdf");
+    assert_eq!(doc.xref().kind(), fyp_core::xref::SectionKind::Table);
+    assert_eq!(doc.xref().object_count(), 3);
+    assert_eq!(doc.xref().get(0), Some(XrefEntry::Free { gen: 65535 }));
+}
+
+/// Tolerance 2 (corpus: 22 files): a cross-reference stream row of type 1
+/// at offset 0 denotes a free number, not an object at the header.
+#[test]
+fn in_use_row_at_offset_zero_is_taken_as_free() {
+    let doc = open_sound("inuse-offset-zero.pdf");
+    assert_eq!(doc.xref().kind(), fyp_core::xref::SectionKind::Stream);
+    assert_eq!(doc.xref().get(5), Some(XrefEntry::Free { gen: 0 }));
+    assert_eq!(doc.get(ObjRef { num: 5, gen: 0 }), Ok(None));
+    // The stream lists itself as object 4: three content objects plus it,
+    // and two free entries (0 and 5).
+    assert_eq!(doc.xref().object_count(), 4);
+    assert_eq!(doc.xref().entries().count(), 6);
+}
+
+/// Tolerance 3a (corpus: pdf.js `issue9105_other.pdf`): `%PDF-1.` with no
+/// minor digit is version 1.0, not a refusal.
+#[test]
+fn header_without_minor_digit_is_accepted() {
+    let doc = open_sound("no-minor-version.pdf");
+    assert_eq!(doc.version().to_string(), "1.0");
+    assert_eq!(doc.xref().object_count(), 3);
+    let bytes = fixture("no-minor-version.pdf");
+    assert!(
+        fyp_core::version::quick_info(&bytes)
+            .expect("info")
+            .header_present
+    );
+}
+
+/// Tolerance 3b (corpus: pdf.js `bug1606566.pdf`): no `%PDF` header at
+/// all, only the binary comment line; the file is tried with an assumed
+/// version, and reported as headerless.
+#[test]
+fn headerless_file_with_a_comment_line_is_accepted() {
+    let doc = open_sound("no-header.pdf");
+    assert_eq!(doc.version(), fyp_core::version::ASSUMED_VERSION);
+    assert_eq!(doc.xref().object_count(), 3);
+    let bytes = fixture("no-header.pdf");
+    let info = fyp_core::version::quick_info(&bytes).expect("info");
+    assert!(!info.header_present);
+    assert_eq!(info.startxref, Some(209));
+}
+
 /// Every entry of the table that denotes a stored object can be read, and
 /// the object found is a dictionary or a stream.
 fn all_listed_objects_are_readable(doc: &Document<'_>) {

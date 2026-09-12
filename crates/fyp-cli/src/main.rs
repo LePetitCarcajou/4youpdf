@@ -59,7 +59,14 @@ fn main() -> anyhow::Result<()> {
                 .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?;
             println!("fichier      {}", path.display());
             println!("taille       {} octets", bytes.len());
-            println!("version      PDF {}", info.version);
+            if info.header_present {
+                println!("version      PDF {}", info.version);
+            } else {
+                println!(
+                    "version      PDF {} (supposée : en-tête %PDF absent)",
+                    info.version
+                );
+            }
             if info.header_offset > 0 {
                 println!(
                     "en-tête      décalé de {} octets (toléré)",
