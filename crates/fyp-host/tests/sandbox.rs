@@ -261,77 +261,9 @@ fn limits_above_the_host_ceilings_are_refused_at_load() {
     assert!(Host::new().unwrap().load_bytes(merge, &idle).is_ok());
 }
 
-#[test]
-fn the_memory_budget_is_shared_by_the_runs_of_a_host() {
-    let host = host_with(|l| {
-        l.memory_budget_mib = 64;
-        l.max_concurrent_runs = 4;
-    });
-    let run_limits = limits(2000, 48, 4);
-    // Grows to 641 pages (40 MiB), then spins until its time limit.
-    let holding = host
-        .load_bytes(
-            manifest(DOCUMENTS, &run_limits, ""),
-            &wat::parse_str(
-                r#"(module (memory (export "memory") 1)
-                     (func (export "_start") (drop (memory.grow (i32.const 640))) (loop $spin (br $spin))))"#,
-            )
-            .unwrap(),
-        )
-        .unwrap();
-    // Grows the same, then exits with 7. Loaded through a clone: clones
-    // share the budget.
-    let growing = host
-        .clone()
-        .load_bytes(
-            manifest(DOCUMENTS, &run_limits, ""),
-            &wat::parse_str(format!(
-                r#"(module {PROC_EXIT} (memory (export "memory") 1)
-                     (func (export "_start") (drop (memory.grow (i32.const 640))) (call $proc_exit (i32.const 7))))"#
-            ))
-            .unwrap(),
-        )
-        .unwrap();
-    // Alone, each module gets its 40 MiB: 48 is within its limit.
-    assert!(matches!(
-        run(&growing, &[]),
-        Err(HostError::Exited { code: 7, .. })
-    ));
-    // Nothing tells the test when the first module has grown: the second
-    // tries until refused. On a loaded machine it may run before, and
-    // rarely at the very moment the first grows, which is then the one
-    // refused: the scenario starts over.
-    let refused = (0..3).any(|_| {
-        std::thread::scope(|s| {
-            let first = s.spawn(|| run(&holding, &[]));
-            let started = Instant::now();
-            let mut refused = false;
-            while started.elapsed() < Duration::from_millis(1500) {
-                match run(&growing, &[]) {
-                    Err(HostError::HostMemoryExhausted { budget_mib: 64, .. }) => {
-                        refused = true;
-                        break;
-                    }
-                    Err(HostError::Exited { code: 7, .. }) => {
-                        std::thread::sleep(Duration::from_millis(20));
-                    }
-                    other => panic!("{other:?}"),
-                }
-            }
-            match first.join().unwrap() {
-                Err(HostError::Timeout { .. }) => refused,
-                Err(HostError::HostMemoryExhausted { .. }) => false,
-                other => panic!("{other:?}"),
-            }
-        })
-    });
-    assert!(refused, "the second module was never refused");
-    // The first run gave its share back when it ended.
-    assert!(matches!(
-        run(&growing, &[]),
-        Err(HostError::Exited { code: 7, .. })
-    ));
-}
+// The budget shared by two modules running at once is tested in
+// `src/sandbox.rs`, where the test can wait on the budget itself instead
+// of on a delay.
 
 #[test]
 fn the_answer_counts_in_the_memory_budget() {

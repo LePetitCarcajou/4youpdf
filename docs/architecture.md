@@ -509,7 +509,8 @@ préouvert, environnement vide ; permissions non déclarées ou indisponibles ;
 paramètres refusés avant le démarrage ; modules malformés refusés au
 chargement ; documents corrompus rejetés à la re-validation, objet illisible
 absent de la réécriture ; plafonds de l'hôte, budget mémoire partagé entre
-exécutions et clones de `Host`, réponse et re-validation comptées dans ce
+exécutions et clones de `Host` (test unitaire de `sandbox.rs`, qui attend
+sur le budget lui-même plutôt que sur un délai), réponse et re-validation comptées dans ce
 budget, file d'attente des exécutions ; texte hostile (échappements de
 terminal, U+202E, message d'1 Mio) borné et inerte ; imposteur d'un
 identifiant du dépôt (limite connue, voir l'ADR), identifiants en double,

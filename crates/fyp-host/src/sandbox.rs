@@ -685,3 +685,142 @@ fn permission_name(permission: &Permission) -> String {
         Permission::Subprocess { program } => format!("subprocess ({program})"),
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    const PAGE: usize = 65536;
+
+    /// Grows to 641 pages (about 40 MiB), then spins until its time limit.
+    const HOLDING: &str = r#"(module (memory (export "memory") 1)
+      (func (export "_start") (drop (memory.grow (i32.const 640))) (loop $spin (br $spin))))"#;
+
+    /// Grows the same, then exits with 7.
+    const GROWING: &str = r#"(module
+      (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
+      (memory (export "memory") 1)
+      (func (export "_start") (drop (memory.grow (i32.const 640))) (call $exit (i32.const 7))))"#;
+
+    fn module(host: &Host, timeout_ms: u64, wat: &str) -> LoadedModule {
+        let manifest = Manifest::from_toml(&format!(
+            r#"
+id = "org.example.budget"
+name = "Budget"
+version = "0.0.1"
+api_version = "{}"
+license = "AGPL-3.0-or-later"
+source = ""
+runtime = "wasm"
+permissions = [{{ kind = "read_document" }}, {{ kind = "write_document" }}]
+
+[limits]
+timeout_ms = {timeout_ms}
+memory_mib = 48
+max_output_mib = 4
+
+[[actions]]
+id = "run"
+label = "Run"
+category = "process"
+min_inputs = 0
+"#,
+            fyp_plugin_api::API_VERSION
+        ))
+        .unwrap();
+        host.load_bytes(manifest, &wat::parse_str(wat).unwrap())
+            .unwrap()
+    }
+
+    fn run(module: &LoadedModule) -> Result<RunOutput, HostError> {
+        module.run("run", &BTreeMap::new(), &[])
+    }
+
+    /// Two modules of one host, the second loaded through a clone, each
+    /// within the budget alone (40 of 64 MiB) but not together.
+    ///
+    /// Nothing here depends on how fast the machine is. The test waits
+    /// until the budget shows the first module's growth, then runs the
+    /// second. Its refusal is required only when the first module's share
+    /// is still held once the second has ended: taken before it started,
+    /// held after it ended, and a module grows only once, so it was held
+    /// throughout. When the first module's time limit ran out in between,
+    /// the attempt proves nothing and starts over with a longer limit. A
+    /// slow machine costs attempts, never a false failure.
+    #[test]
+    fn the_memory_budget_is_shared_by_the_runs_of_a_host() {
+        let host = Host::with_limits(HostLimits {
+            memory_budget_mib: 64,
+            max_concurrent_runs: 4,
+            ..HostLimits::default()
+        })
+        .unwrap();
+        let growing = module(&host.clone(), 60_000, GROWING);
+        let grown = 641 * PAGE;
+
+        // Alone, the second module gets its 40 MiB, and gives them back.
+        assert!(matches!(
+            run(&growing),
+            Err(HostError::Exited { code: 7, .. })
+        ));
+        assert_eq!(growing.shared.held(), 0);
+
+        let mut proven = false;
+        for timeout_ms in [2_000, 4_000, 8_000, 16_000] {
+            let holding = module(&host, timeout_ms, HOLDING);
+            let budget = Arc::clone(&holding.shared);
+            thread::scope(|s| {
+                let first = s.spawn(|| run(&holding));
+                while budget.held() < grown && !first.is_finished() {
+                    thread::sleep(Duration::from_millis(1));
+                }
+                if budget.held() < grown {
+                    // Its time ran out before it could even grow: a slow
+                    // start proves nothing. Any other end is a failure.
+                    match first.join().unwrap() {
+                        Err(HostError::Timeout { .. }) => {
+                            eprintln!(
+                                "{timeout_ms} ms ran out before the first module grew: again"
+                            );
+                            return;
+                        }
+                        other => panic!("the first module ended without growing: {other:?}"),
+                    }
+                }
+                let second = run(&growing);
+                let held_throughout = budget.held() >= grown;
+                let first = first.join().unwrap();
+                assert!(matches!(first, Err(HostError::Timeout { .. })), "{first:?}");
+                if held_throughout {
+                    assert!(
+                        matches!(
+                            second,
+                            Err(HostError::HostMemoryExhausted { budget_mib: 64, .. })
+                        ),
+                        "the second module ran while the first held its share: {second:?}"
+                    );
+                    proven = true;
+                    eprintln!("shared budget proven with a first module of {timeout_ms} ms");
+                } else {
+                    eprintln!(
+                        "{timeout_ms} ms ran out during the second run: nothing proven, again"
+                    );
+                }
+            });
+            // Given back when the first run ended, whatever it proved.
+            assert_eq!(budget.held(), 0);
+            if proven {
+                break;
+            }
+        }
+        assert!(
+            proven,
+            "the first module never held its share throughout a run of the second"
+        );
+        assert!(matches!(
+            run(&growing),
+            Err(HostError::Exited { code: 7, .. })
+        ));
+    }
+}

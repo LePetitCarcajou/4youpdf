@@ -54,6 +54,13 @@ impl Shared {
         state.runs += 1;
         Slot(Arc::clone(self))
     }
+
+    /// Bytes held right now, all runs together: what a test waits on
+    /// instead of guessing how long a module takes to grow.
+    #[cfg(test)]
+    pub(crate) fn held(&self) -> usize {
+        self.lock().held
+    }
 }
 
 /// A run slot, freed when dropped.
