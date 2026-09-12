@@ -23,11 +23,26 @@ Tauri embarque `app/dist/` dans le binaire à la compilation : après une
 modification de l'interface, relancer `build_ui.py` puis `cargo run`.
 Sans `build_ui.py`, la crate compile quand même (le script de build écrit
 une page d'attente dans `dist/`), donc `cargo test --workspace` marche sur
-un dépôt fraîchement cloné. Sans PDFium, l'application fonctionne avec des
-vignettes vides et dit pourquoi dans sa barre d'état.
+un dépôt fraîchement cloné, pourvu que les prérequis système ci-dessous
+soient installés. Sans PDFium, l'application fonctionne avec des vignettes
+vides et dit pourquoi dans sa barre d'état.
 
-Prérequis système : WebView2 (présent sur Windows 11), WebKitGTK sur Linux
-(voir la documentation de Tauri 2).
+### Prérequis système
+
+- **Windows** : WebView2, présent sur Windows 11.
+- **Linux** : WebKitGTK 4.1 et les bibliothèques de développement qui
+  l'accompagnent. Sous Debian ou Ubuntu (la CI tourne sur Ubuntu 24.04) :
+
+  ```
+  sudo apt-get update
+  sudo apt-get install libwebkit2gtk-4.1-dev libgtk-3-dev \
+    libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev pkg-config
+  ```
+
+  Sans eux, la compilation de la crate s'arrête sur une erreur de
+  `pkg-config` (`glib-2.0`, `gobject-2.0`, `webkit2gtk-4.1`…). Pour les
+  autres distributions, voir les
+  [prérequis de Tauri 2](https://v2.tauri.app/start/prerequisites/).
 
 ## Structure
 

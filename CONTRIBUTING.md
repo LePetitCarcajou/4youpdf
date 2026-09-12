@@ -12,6 +12,28 @@ peut ensuite changer la licence. Avec le DCO, chaque contributeur garde ses
 droits ; relicencier exigerait l'accord de tous. C'est la garantie que le
 projet reste libre.
 
+## Compiler sous Linux
+
+Le workspace contient l'application desktop (`app/`, crate `fyp-app`),
+construite sur Tauri 2 et liée à WebKitGTK. `cargo clippy --workspace` et
+`cargo test --workspace` la compilent, donc il faut d'abord installer ses
+bibliothèques système. Sous Debian ou Ubuntu (la CI tourne sur Ubuntu 24.04) :
+
+```
+sudo apt-get update
+sudo apt-get install libwebkit2gtk-4.1-dev libgtk-3-dev \
+  libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev pkg-config
+```
+
+Sans ces paquets, la compilation s'arrête sur une erreur de `pkg-config`
+(`glib-2.0`, `gobject-2.0`…). Pour les autres distributions, voir les
+[prérequis de Tauri 2](https://v2.tauri.app/start/prerequisites/) et
+`app/README.md`. Pour travailler sur le noyau ou la CLI sans les installer,
+`cargo test --workspace --exclude fyp-app` suffit localement ; la CI, elle,
+compile tout.
+
+Windows (WebView2, présent sur Windows 11) et macOS ne demandent rien de plus.
+
 ## Flux de travail
 
 1. Ouvrez une issue avant tout changement non trivial.
