@@ -54,6 +54,9 @@ pub enum SectionKind {
     /// Classic table whose trailer points to a cross-reference stream
     /// through `/XRefStm` (ISO 32000-2, 7.5.8.4).
     Hybrid,
+    /// No usable section in the file: the table was rebuilt by scanning
+    /// for `n g obj` headers (see [`crate::recover`]).
+    Reconstructed,
 }
 
 /// Cross-reference table merged across incremental updates, with the
@@ -101,6 +104,16 @@ impl Xref {
             trailer: newest.trailer,
             kind,
         })
+    }
+
+    /// A table rebuilt by [`crate::recover`], kind
+    /// [`SectionKind::Reconstructed`].
+    pub(crate) fn reconstructed(entries: BTreeMap<u32, XrefEntry>, trailer: Dict) -> Xref {
+        Xref {
+            entries,
+            trailer,
+            kind: SectionKind::Reconstructed,
+        }
     }
 
     /// Trailer of the newest section (ISO 32000-2, 7.5.5). For a

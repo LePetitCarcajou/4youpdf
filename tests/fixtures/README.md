@@ -22,6 +22,17 @@ fichier. Ils servent aux tests unitaires du noyau.
   flux xref désigné par `/XRefStm` référence. Ce flux est encodé en
   ASCIIHex pour rester lisible.
 
+Fichiers cassés, dérivés de `minimal.pdf`, que le noyau doit ouvrir en
+reconstruisant la xref par scan (`Document::reconstructed()` non vide) :
+
+- `bad-offsets.pdf` — les trois offsets de la table sont permutés : chaque
+  entrée pointe sur le mauvais objet.
+- `no-startxref.pdf` — les lignes `startxref` / `209` ont été supprimées.
+- `garbage-xref.pdf` — la table et le trailer sont remplacés par du texte
+  quelconque de même longueur ; `startxref` pointe toujours dessus.
+- `prev-loop.pdf` — voir ci-dessus : la boucle `/Prev` est une table
+  inutilisable, donc un cas de reconstruction.
+
 `xrefstream.pdf`, `objstm.pdf` et `hybrid.pdf` sont produits par les tests
 `#[ignore]` de `crates/fyp-core/tests/fixtures_gen.rs`, qui calculent les
 offsets et écrivent des fichiers identiques à chaque exécution :
@@ -30,5 +41,5 @@ offsets et écrivent des fichiers identiques à chaque exécution :
 cargo test -p fyp-core --test fixtures_gen -- --ignored
 ```
 
-À ajouter au fil du développement : fichier chiffré RC4/AES, xref cassée
-(offsets faux), `startxref` manquant, `/Length` indirect, LZWDecode.
+À ajouter au fil du développement : fichier chiffré RC4/AES, `/Length`
+indirect, LZWDecode.

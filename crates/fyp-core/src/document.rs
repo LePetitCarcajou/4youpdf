@@ -2,8 +2,11 @@
 //! objects on demand (ISO 32000-2, 7.5 and 7.7), including objects stored
 //! in object streams (7.5.7).
 //!
-//! A table that points to the wrong place is an error: rebuilding it by
-//! scanning the file is milestone 0.1, step 3.
+//! Opening tries the declared table first and checks that every object it
+//! lists is really where it says. When the table is missing, unreadable or
+//! wrong, the index is rebuilt by scanning the file ([`crate::recover`]);
+//! [`Document::reconstructed`] then tells why. A repaired file never passes
+//! for a sound one.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -12,6 +15,7 @@ use crate::filters::{self, DecodeLimits};
 use crate::lexer::{Lexer, Token};
 use crate::object::{Dict, Name, ObjRef, Object};
 use crate::parser::Parser;
+use crate::recover;
 use crate::version::{self, PdfVersion};
 use crate::xref::{Xref, XrefEntry};
 use crate::{Error, Result};
@@ -24,6 +28,9 @@ pub struct Document<'a> {
     version: PdfVersion,
     xref: Xref,
     limits: DecodeLimits,
+    /// Why the declared cross-reference table was replaced by a scan of
+    /// the file, if it was.
+    reconstructed: Option<Error>,
     /// Object streams already decoded, by object number. Decoding one is
     /// the expensive part; parsing an object out of it is cheap.
     object_streams: Mutex<BTreeMap<u32, Arc<ObjectStream>>>,
@@ -32,9 +39,54 @@ pub struct Document<'a> {
 /// A decoded object stream (ISO 32000-2, 7.5.7): its data and, for each
 /// object it holds, the object number and the absolute offset in `data`.
 #[derive(Debug)]
-struct ObjectStream {
-    data: Vec<u8>,
-    objects: Vec<(u32, usize)>,
+pub(crate) struct ObjectStream {
+    pub(crate) data: Vec<u8>,
+    pub(crate) objects: Vec<(u32, usize)>,
+}
+
+impl ObjectStream {
+    /// Read the header of decoded object-stream data: `count` pairs
+    /// `objnum offset`, offsets relative to `first` (ISO 32000-2, 7.5.7).
+    pub(crate) fn from_decoded(
+        stream_num: u32,
+        decoded: Vec<u8>,
+        count: usize,
+        first: usize,
+    ) -> Result<ObjectStream> {
+        let bad = |message: &str| Error::BadObjectStream {
+            stream_num,
+            message: message.into(),
+        };
+        if first > decoded.len() {
+            return Err(bad("/First lies beyond the decoded data"));
+        }
+        // `count` comes from the file: never allocate from it. Each pair
+        // consumes input, and the loop stops at the first token that is not
+        // a pair, so it is bounded by the header's size.
+        let mut lexer = Lexer::new(decoded.get(..first).unwrap_or_default());
+        let mut objects = Vec::new();
+        for _ in 0..count {
+            lexer.skip_whitespace_and_comments();
+            let Token::Integer(num) = lexer.next_token()? else {
+                break;
+            };
+            lexer.skip_whitespace_and_comments();
+            let Token::Integer(rel) = lexer.next_token()? else {
+                return Err(bad("object number without offset in the header"));
+            };
+            let num = u32::try_from(num).map_err(|_| bad("object number out of range"))?;
+            let offset = usize::try_from(rel)
+                .ok()
+                .and_then(|rel| first.checked_add(rel))
+                .filter(|&o| o <= decoded.len())
+                .ok_or_else(|| bad(&format!("offset of object {num} lies beyond the data")))?;
+            objects.push((num, offset));
+        }
+        Ok(ObjectStream {
+            data: decoded,
+            objects,
+        })
+    }
 }
 
 impl Clone for Document<'_> {
@@ -44,6 +96,7 @@ impl Clone for Document<'_> {
             version: self.version,
             xref: self.xref.clone(),
             limits: self.limits,
+            reconstructed: self.reconstructed.clone(),
             object_streams: Mutex::new(self.cache().clone()),
         }
     }
@@ -51,7 +104,8 @@ impl Clone for Document<'_> {
 
 impl<'a> Document<'a> {
     /// Check the header, then load the cross-reference chain announced by
-    /// the last `startxref`, under the default [`DecodeLimits`].
+    /// the last `startxref`, under the default [`DecodeLimits`]. Falls back
+    /// to scanning the file when that chain cannot be used.
     pub fn open(input: &'a [u8]) -> Result<Document<'a>> {
         Document::open_with_limits(input, DecodeLimits::default())
     }
@@ -59,17 +113,44 @@ impl<'a> Document<'a> {
     /// Same as [`Document::open`] with explicit limits, applied to every
     /// stream decoded on behalf of the document (cross-reference streams,
     /// object streams, [`Document::decoded`]).
+    ///
+    /// Fails with [`Error::BadHeader`] when the input is not a PDF at all,
+    /// and with [`Error::Unrecoverable`] when the declared table is unusable
+    /// and the file holds no object to rebuild one from.
     pub fn open_with_limits(input: &'a [u8], limits: DecodeLimits) -> Result<Document<'a>> {
         let info = version::quick_info(input)?;
-        let startxref = info.startxref.ok_or(Error::MissingStartxref)?;
-        let xref = Xref::parse_with_limits(input, startxref, limits)?;
+        let declared = match info.startxref {
+            None => Err(Error::MissingStartxref),
+            Some(startxref) => Xref::parse_with_limits(input, startxref, limits)
+                .and_then(|xref| verify(input, &xref).map(|()| xref)),
+        };
+        let (xref, reconstructed) = match declared {
+            Ok(xref) => (xref, None),
+            Err(declared) => match recover::reconstruct(input, limits) {
+                Some(xref) => (xref, Some(declared)),
+                None => {
+                    return Err(Error::Unrecoverable {
+                        declared: Box::new(declared),
+                    })
+                }
+            },
+        };
         Ok(Document {
             input,
             version: info.version,
             xref,
             limits,
+            reconstructed,
             object_streams: Mutex::new(BTreeMap::new()),
         })
+    }
+
+    /// Why the cross-reference table was rebuilt by scanning the file
+    /// ([`crate::recover`]), or `None` when the declared table was used as
+    /// found. A repaired file must never pass for a sound one: callers that
+    /// report on a file should show this.
+    pub fn reconstructed(&self) -> Option<&Error> {
+        self.reconstructed.as_ref()
     }
 
     /// Version declared in the header.
@@ -286,36 +367,50 @@ impl<'a> Document<'a> {
         let first = int("First")?.ok_or_else(|| bad("no /First"))?;
         let decoded =
             filters::decode_stream_with(&dict, &data, |o| self.resolve_top_level(o), self.limits)?;
-        if first > decoded.len() {
-            return Err(bad("/First lies beyond the decoded data"));
-        }
-        // `/N` comes from the file: never allocate from it. Each pair
-        // consumes input, and the loop stops at the first token that is not
-        // a pair, so it is bounded by the header's size.
-        let mut lexer = Lexer::new(decoded.get(..first).unwrap_or_default());
-        let mut objects = Vec::new();
-        for _ in 0..count {
-            lexer.skip_whitespace_and_comments();
-            let Token::Integer(num) = lexer.next_token()? else {
-                break;
-            };
-            lexer.skip_whitespace_and_comments();
-            let Token::Integer(rel) = lexer.next_token()? else {
-                return Err(bad("object number without offset in the header"));
-            };
-            let num = u32::try_from(num).map_err(|_| bad("object number out of range"))?;
-            let offset = usize::try_from(rel)
-                .ok()
-                .and_then(|rel| first.checked_add(rel))
-                .filter(|&o| o <= decoded.len())
-                .ok_or_else(|| bad(&format!("offset of object {num} lies beyond the data")))?;
-            objects.push((num, offset));
-        }
-        Ok(ObjectStream {
-            data: decoded,
-            objects,
-        })
+        ObjectStream::from_decoded(stream_num, decoded, count, first)
     }
+}
+
+/// Check that the declared table matches the file: every in-use entry has
+/// its `n g obj` header at the announced offset, every compressed object
+/// names an object stream stored at an offset, and the trailer has a
+/// `/Root`. Cheap (three tokens per object) and decisive: any failure means
+/// the table is wrong and the file must be scanned.
+fn verify(input: &[u8], xref: &Xref) -> Result<()> {
+    for (num, entry) in xref.entries() {
+        match entry {
+            XrefEntry::Free { .. } => {}
+            XrefEntry::InUse { offset, gen } => {
+                let found = Parser::at(input, offset).parse_indirect_header().ok();
+                if found != Some(ObjRef { num, gen }) {
+                    return Err(Error::BadXref {
+                        offset,
+                        message: match found {
+                            Some(f) => format!(
+                                "object {num} {gen} announced here, found {} {}",
+                                f.num, f.gen
+                            ),
+                            None => format!("object {num} {gen} announced here, none found"),
+                        },
+                    });
+                }
+            }
+            XrefEntry::InStream { stream_num, .. } => {
+                if !matches!(xref.get(stream_num), Some(XrefEntry::InUse { .. })) {
+                    return Err(Error::BadXref {
+                        offset: 0,
+                        message: format!(
+                            "object {num} lies in object stream {stream_num}, which is not stored in the file"
+                        ),
+                    });
+                }
+            }
+        }
+    }
+    if !xref.trailer().contains_key(&Name::new("Root")) {
+        return Err(structure("trailer has no /Root"));
+    }
+    Ok(())
 }
 
 fn structure(message: impl Into<String>) -> Error {
@@ -391,12 +486,12 @@ mod tests {
         let mut data = vec![0, 0, 0, 0, 0, 0xff, 0xff];
         for (i, row) in rows.iter().enumerate() {
             let num = u32::try_from(i + 1).unwrap();
-            let (t, f2, f3) = row.unwrap_or_else(|| {
-                (
-                    1,
-                    u64::try_from(*offsets.get(&num).unwrap_or(&0)).unwrap(),
-                    0,
-                )
+            // `None`: type 1 at the object's real offset, or free when the
+            // object was not written (a bogus offset would send the file
+            // to the scan).
+            let (t, f2, f3) = row.unwrap_or_else(|| match offsets.get(&num) {
+                Some(&off) => (1, u64::try_from(off).unwrap(), 0),
+                None => (0, 0, 0),
             });
             data.push(t);
             data.extend_from_slice(&u32::try_from(f2).unwrap().to_be_bytes());
@@ -454,31 +549,39 @@ mod tests {
     }
 
     #[test]
-    fn object_header_must_match_reference() {
+    fn sound_table_is_used_as_is() {
+        let file = build(&[CATALOG, "<< /Type /Pages /Kids [] /Count 0 >>"], |_| {});
+        let doc = Document::open(&file).expect("open");
+        assert_eq!(doc.reconstructed(), None);
+        assert_eq!(doc.xref().kind(), crate::xref::SectionKind::Table);
+    }
+
+    #[test]
+    fn wrong_offsets_trigger_reconstruction() {
         let file = build(&[CATALOG, "<< /Type /Pages /Kids [] /Count 0 >>"], |o| {
             o.swap(0, 1)
         });
         let doc = Document::open(&file).expect("open");
+        assert!(
+            matches!(doc.reconstructed(), Some(Error::BadXref { .. })),
+            "{:?}",
+            doc.reconstructed()
+        );
+        assert_eq!(doc.xref().kind(), crate::xref::SectionKind::Reconstructed);
         assert!(matches!(
             doc.get(ObjRef { num: 1, gen: 0 }),
-            Err(Error::Syntax { .. })
+            Ok(Some(Object::Dict(_)))
         ));
-        assert!(matches!(doc.page_count(), Err(Error::Syntax { .. })));
-    }
-
-    #[test]
-    fn object_offset_beyond_end_of_file() {
-        let file = build(&[CATALOG, "<< /Type /Pages /Kids [] /Count 0 >>"], |o| {
+        assert_eq!(doc.page_count(), Ok(0));
+        // Offset off by a few bytes, and offset beyond the end of file.
+        for patch in [(|o: &mut [usize]| o[1] += 3) as fn(&mut [usize]), |o| {
             o[1] = 999_999_999
-        });
-        let doc = Document::open(&file).expect("open");
-        assert!(matches!(
-            doc.get(ObjRef { num: 2, gen: 0 }),
-            Err(Error::BadXref {
-                offset: 999_999_999,
-                ..
-            })
-        ));
+        }] {
+            let file = build(&[CATALOG, "<< /Type /Pages /Kids [] /Count 0 >>"], patch);
+            let doc = Document::open(&file).expect("open");
+            assert!(matches!(doc.reconstructed(), Some(Error::BadXref { .. })));
+            assert_eq!(doc.page_count(), Ok(0));
+        }
     }
 
     #[test]
@@ -508,17 +611,37 @@ mod tests {
                 "{count:?}"
             );
         }
+        // A trailer without /Root sends the file to the scan; with no
+        // object in it, there is nothing to rebuild from.
         let no_root = b"%PDF-1.7\nxref\n0 1\n0000000000 65535 f \ntrailer\n<< /Size 1 >>\nstartxref\n9\n%%EOF\n";
-        let doc = Document::open(no_root).expect("open");
-        assert!(matches!(doc.catalog(), Err(Error::BadStructure { .. })));
+        let err = Document::open(no_root).map(|_| ()).unwrap_err();
+        assert!(
+            matches!(&err, Error::Unrecoverable { declared }
+                if matches!(**declared, Error::BadStructure { .. })),
+            "{err:?}"
+        );
     }
 
     #[test]
-    fn missing_startxref() {
+    fn missing_startxref_is_repaired_when_objects_exist() {
         let file = b"%PDF-1.7\n1 0 obj << >> endobj\n";
+        let doc = Document::open(file).expect("open");
+        assert_eq!(doc.reconstructed(), Some(&Error::MissingStartxref));
+        assert!(matches!(doc.catalog(), Err(Error::BadStructure { .. })));
+        assert!(matches!(
+            doc.get(ObjRef { num: 1, gen: 0 }),
+            Ok(Some(Object::Dict(_)))
+        ));
+        let empty = b"%PDF-1.7\nnothing here\n";
         assert_eq!(
-            Document::open(file).map(|_| ()),
-            Err(Error::MissingStartxref)
+            Document::open(empty).map(|_| ()),
+            Err(Error::Unrecoverable {
+                declared: Box::new(Error::MissingStartxref)
+            })
+        );
+        assert_eq!(
+            Document::open(b"not a pdf").map(|_| ()),
+            Err(Error::BadHeader)
         );
     }
 
@@ -610,20 +733,42 @@ mod tests {
 
     #[test]
     fn object_stream_cannot_be_nested_or_hold_a_stream() {
-        // Object 4 (the object stream) is itself declared inside object 9.
+        // Object 4 (the object stream holding 1 and 2) is itself declared
+        // inside object stream 9, a real object stream holding object 8.
         let objstm = object_stream(&[(1, CATALOG), (2, PAGES)], true);
+        let outer = object_stream(&[(8, "<< >>")], false);
+        let free = Some((0, 0, 0));
         let file = build_with_xref_stream(
-            &[(3, PAGE.into()), (4, objstm.clone())],
-            &[Some((2, 4, 0)), Some((2, 4, 1)), None, Some((2, 9, 0))],
-            6,
+            &[(3, PAGE.into()), (4, objstm.clone()), (9, outer)],
+            &[
+                Some((2, 4, 0)),
+                Some((2, 4, 1)),
+                None,
+                Some((2, 9, 0)),
+                free,
+                free,
+                free,
+                Some((2, 9, 0)),
+                None,
+            ],
+            11,
         );
+        // The table is wrong (7.5.7 forbids nesting), so the file is
+        // scanned: object stream 4 is found at its real offset and object 1
+        // is read from it.
         let doc = Document::open(&file).expect("open");
-        let err = doc.get(ObjRef { num: 1, gen: 0 });
         assert!(
-            matches!(err, Err(Error::BadObjectStream { stream_num: 4, .. })),
-            "{err:?}"
+            matches!(doc.reconstructed(), Some(Error::BadXref { message, .. })
+                if message.contains("object stream 4")),
+            "{:?}",
+            doc.reconstructed()
         );
-        assert_eq!(doc.cache().len(), 0);
+        assert!(matches!(doc.xref().get(4), Some(XrefEntry::InUse { .. })));
+        assert!(matches!(
+            doc.get(ObjRef { num: 1, gen: 0 }),
+            Ok(Some(Object::Dict(_)))
+        ));
+        assert_eq!(doc.page_count(), Ok(1));
         // Object 1 inside the object stream is a stream.
         let inner = String::from_utf8_lossy(&stream("/Length 1", b"x")).into_owned();
         let objstm = object_stream(&[(1, &inner), (2, PAGES)], false);
@@ -704,17 +849,16 @@ mod tests {
             doc.get(ObjRef { num: 1, gen: 0 }),
             Ok(Some(Object::Dict(_)))
         ));
-        // Stream number not in the table, or listed as free.
+        // Stream number not in the table: the table is wrong, the file is
+        // scanned instead, and object 1 is simply not found.
         let file = build_with_xref_stream(
             &[(3, PAGE.into())],
-            &[Some((2, 40, 0)), None, None, Some((0, 0, 0))],
+            &[Some((2, 40, 0)), Some((0, 0, 0)), None, Some((0, 0, 0))],
             6,
         );
         let doc = Document::open(&file).expect("open");
-        assert!(matches!(
-            doc.get(ObjRef { num: 1, gen: 0 }),
-            Err(Error::BadObjectStream { stream_num: 40, .. })
-        ));
+        assert!(matches!(doc.reconstructed(), Some(Error::BadXref { .. })));
+        assert_eq!(doc.get(ObjRef { num: 1, gen: 0 }), Ok(None));
     }
 
     #[test]

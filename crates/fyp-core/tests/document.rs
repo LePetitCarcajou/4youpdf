@@ -78,17 +78,77 @@ fn incremental_update_replaces_object_3() {
     );
 }
 
-#[test]
-fn prev_loop_is_an_error_not_a_hang() {
-    let bytes = fixture("prev-loop.pdf");
+/// Open `name` on another thread so that a hang fails the test instead of
+/// blocking it; return the outcome as `(reconstruction reason, page count)`.
+fn open_with_timeout(name: &str) -> Result<(Option<Error>, usize), Error> {
+    let bytes = fixture(name);
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
-        let _ = tx.send(Document::open(&bytes).map(|_| ()));
+        let outcome = Document::open(&bytes).and_then(|doc| {
+            all_listed_objects_are_readable(&doc);
+            assert_eq!(media_box(&doc, PAGE), ints(&[0, 0, 595, 842]));
+            assert_eq!(doc.xref().object_count(), 3);
+            assert_eq!(
+                doc.xref().kind(),
+                fyp_core::xref::SectionKind::Reconstructed
+            );
+            Ok((doc.reconstructed().cloned(), doc.page_count()?))
+        });
+        let _ = tx.send(outcome);
     });
-    let result = rx
-        .recv_timeout(Duration::from_secs(10))
-        .expect("Document::open did not return on a /Prev loop");
-    assert_eq!(result, Err(Error::XrefLoop { offset: 209 }));
+    rx.recv_timeout(Duration::from_secs(10))
+        .unwrap_or_else(|_| panic!("Document::open did not return on {name}"))
+}
+
+#[test]
+fn prev_loop_is_repaired_not_a_hang() {
+    assert_eq!(
+        open_with_timeout("prev-loop.pdf"),
+        Ok((Some(Error::XrefLoop { offset: 209 }), 1))
+    );
+}
+
+#[test]
+fn sabotaged_offsets_are_repaired() {
+    let (reason, pages) = open_with_timeout("bad-offsets.pdf").expect("open");
+    assert!(
+        matches!(reason, Some(Error::BadXref { offset: 64, .. })),
+        "{reason:?}"
+    );
+    assert_eq!(pages, 1);
+}
+
+#[test]
+fn missing_startxref_is_repaired() {
+    assert_eq!(
+        open_with_timeout("no-startxref.pdf"),
+        Ok((Some(Error::MissingStartxref), 1))
+    );
+}
+
+#[test]
+fn garbage_in_place_of_the_table_is_repaired() {
+    let (reason, pages) = open_with_timeout("garbage-xref.pdf").expect("open");
+    assert!(
+        matches!(reason, Some(Error::BadXref { offset: 209, .. })),
+        "{reason:?}"
+    );
+    assert_eq!(pages, 1);
+}
+
+#[test]
+fn truncated_file_opens_with_what_is_left() {
+    let bytes = fixture("minimal.pdf");
+    let cut = bytes
+        .windows(4)
+        .position(|w| w == b"/Med")
+        .expect("object 3");
+    let doc = Document::open(&bytes[..cut]).expect("open");
+    assert_eq!(doc.reconstructed(), Some(&Error::MissingStartxref));
+    assert_eq!(doc.xref().object_count(), 2);
+    assert_eq!(doc.get(PAGE), Ok(None));
+    // The page tree still says one page; the page itself is gone.
+    assert_eq!(doc.page_count(), Ok(1));
 }
 
 /// Every entry of the table that denotes a stored object can be read, and
@@ -240,5 +300,6 @@ fn newest_section_kind_of_each_fixture() {
         let bytes = fixture(name);
         let doc = Document::open(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
         assert_eq!(doc.xref().kind(), kind, "{name}");
+        assert_eq!(doc.reconstructed(), None, "{name}");
     }
 }

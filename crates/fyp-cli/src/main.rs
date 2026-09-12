@@ -76,13 +76,23 @@ fn main() -> anyhow::Result<()> {
             // read (broken table, unsupported filter): report instead of failing.
             match fyp_core::document::Document::open(&bytes) {
                 Ok(doc) => {
-                    // Kind of the newest section, the one `startxref` points to.
-                    let kind = match doc.xref().kind() {
-                        SectionKind::Table => "table classique",
-                        SectionKind::Stream => "flux xref",
-                        SectionKind::Hybrid => "hybride (table + /XRefStm)",
-                    };
-                    println!("section xref {kind}");
+                    // A repaired file must never pass for a sound one: say
+                    // why the declared table was dropped.
+                    match doc.reconstructed() {
+                        Some(reason) => println!(
+                            "xref         reconstruite par scan (table déclarée inutilisable : {reason})"
+                        ),
+                        None => {
+                            // Kind of the newest section, the one `startxref` points to.
+                            let kind = match doc.xref().kind() {
+                                SectionKind::Table => "table classique",
+                                SectionKind::Stream => "flux xref",
+                                SectionKind::Hybrid => "hybride (table + /XRefStm)",
+                                SectionKind::Reconstructed => "reconstruite par scan",
+                            };
+                            println!("section xref {kind}");
+                        }
+                    }
                     println!("objets       {} dans la xref", doc.xref().object_count());
                     match doc.page_count() {
                         Ok(n) => println!("pages        {n}"),

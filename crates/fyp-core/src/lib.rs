@@ -18,6 +18,7 @@ pub mod filters;
 pub mod lexer;
 pub mod object;
 pub mod parser;
+pub mod recover;
 pub mod version;
 pub mod xref;
 
@@ -89,6 +90,12 @@ pub enum Error {
         /// Human-readable explanation.
         message: String,
     },
+    /// The declared cross-reference table is unusable and scanning the
+    /// file found no `n g obj` to rebuild one from (see [`recover`]).
+    Unrecoverable {
+        /// Why the declared table could not be used.
+        declared: Box<Error>,
+    },
 }
 
 impl fmt::Display for Error {
@@ -119,6 +126,10 @@ impl fmt::Display for Error {
                 stream_num,
                 message,
             } => write!(f, "object stream {stream_num}: {message}"),
+            Error::Unrecoverable { declared } => write!(
+                f,
+                "cross-reference table unusable ({declared}) and no object found to rebuild it"
+            ),
         }
     }
 }

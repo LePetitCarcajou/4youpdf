@@ -29,7 +29,7 @@ les plugins, ni l'hôte, ni l'interface.
 | 3. Fichier | `version`, `xref` | 7.5 | fait, testé (table classique, flux xref, chaîne `/Prev`, `/XRefStm` des fichiers hybrides) |
 | 4. Filtres | `filters` | 7.4 | fait, testé (Flate + prédicteurs TIFF/PNG, ASCIIHex, ASCII85, RunLength) ; LZW, filtres image et `/Crypt` nommés à venir |
 | 5. Chiffrement | `fyp-crypto` | 7.6 | types |
-| 6. Document | `document` | 7.7 | fait, testé (objets via la xref et les object streams, catalogue, nombre de pages) |
+| 6. Document | `document`, `recover` | 7.7 | fait, testé (objets via la xref et les object streams, catalogue, nombre de pages, xref reconstruite par scan) |
 | 7. Écriture | `writer` (à venir) | 7.5.5, 7.5.8 | — |
 
 Principe de tolérance : la lecture accepte ce que les lecteurs majeurs
@@ -65,6 +65,48 @@ Fichiers hybrides (7.5.8.4) : les entrées de la table classique priment,
 puis celles du flux `/XRefStm`, puis `/Prev`. Une entrée libre de la table
 n'occulte pas le flux `/XRefStm` de la même section, car c'est ainsi que les
 objets compressés sont cachés aux lecteurs antérieurs à PDF 1.5.
+
+### Reconstruction de la xref par scan
+
+`Document::open` lit d'abord la table déclarée par `startxref`, puis la
+vérifie : chaque entrée `n` doit avoir son en-tête `N G obj` à l'offset
+annoncé (trois jetons, pas de parsing complet), chaque objet compressé doit
+désigner un object stream stocké dans le fichier, et le trailer doit avoir
+un `/Root`. Si la lecture ou la vérification échoue (`startxref` absent,
+offset faux, table malformée, boucle `/Prev`), `recover::reconstruct`
+reconstruit l'index en scannant le fichier. C'est un recours, jamais le
+chemin normal.
+
+Règles du scan :
+
+- Il cherche les mots-clés `obj` et `trailer` du début à la fin. Un `obj`
+  est un en-tête s'il est précédé de `N G` et suivi d'une frontière de
+  jeton ; les lignes de commentaire `%` sont ignorées.
+- Un candidat n'est retenu que si l'objet se parse. Le parsing se fait sur
+  une tranche coupée à son `endobj` (ou au prochain en-tête si `endobj`
+  manque), puis une seconde fois jusqu'au vrai `endobj` si la première
+  coupe échoue. Cette seconde passe gère `N G obj` dans une chaîne ou dans
+  les données d'un stream : le scan reprend après l'objet accepté, donc ces
+  faux en-têtes ne sont jamais examinés.
+- Plusieurs définitions d'un même numéro : la dernière du fichier gagne.
+- Les object streams trouvés sont ouverts et leur contenu indexé ; ils
+  comptent à la position du stream qui les contient pour la règle
+  précédente. Un object stream indécodable est ignoré.
+- Le trailer est la fusion, dans l'ordre du fichier, des dictionnaires
+  `trailer` et des dictionnaires de flux xref (`/Root`, `/Info`, `/ID`,
+  `/Encrypt`), sans `/Prev` ni `/XRefStm`, `/Size` recalculé. Si `/Root` ne
+  désigne aucun objet trouvé, le dernier objet `/Type /Catalog` (au premier
+  niveau ou dans un object stream) le remplace.
+- Le travail est linéaire : les positions des prochains mots-clés sont
+  mises en cache, et un budget global d'octets parsés (huit fois la taille
+  du fichier) arrête le scan sur les fichiers construits pour rendre chaque
+  candidat coûteux. Un fichier sans aucun objet valide donne
+  `Error::Unrecoverable`, qui porte l'erreur de la table déclarée.
+
+Un fichier réparé ne se fait jamais passer pour sain :
+`Document::reconstructed()` renvoie la cause, `Xref::kind()` vaut
+`SectionKind::Reconstructed`, et `fyp info` affiche « xref reconstruite par
+scan ».
 
 ## Modules
 

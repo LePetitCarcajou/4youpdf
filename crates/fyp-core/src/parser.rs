@@ -229,6 +229,19 @@ impl<'a> Parser<'a> {
     /// Parse an indirect object definition `n g obj ... endobj` at the
     /// current position. Returns the reference and the object.
     pub fn parse_indirect(&mut self) -> Result<(ObjRef, Object)> {
+        let r = self.parse_indirect_header()?;
+        let obj = self.parse_object()?;
+        // `endobj` is expected but missing ones are common; tolerate.
+        let (t, o) = self.next_tok()?;
+        if !matches!(t, Token::Keyword(ref k) if k == b"endobj") {
+            self.push_back((t, o));
+        }
+        Ok((r, obj))
+    }
+
+    /// Parse just the `n g obj` header at the current position, leaving
+    /// the parser on the object that follows. Cheap: three tokens.
+    pub fn parse_indirect_header(&mut self) -> Result<ObjRef> {
         let (t1, o1) = self.next_tok()?;
         let (t2, _) = self.next_tok()?;
         let (t3, _) = self.next_tok()?;
@@ -249,13 +262,15 @@ impl<'a> Parser<'a> {
             offset: o1,
             message: "bad generation".into(),
         })?;
-        let obj = self.parse_object()?;
-        // `endobj` is expected but missing ones are common; tolerate.
-        let (t, o) = self.next_tok()?;
-        if !matches!(t, Token::Keyword(ref k) if k == b"endobj") {
-            self.push_back((t, o));
-        }
-        Ok((ObjRef { num, gen }, obj))
+        Ok(ObjRef { num, gen })
+    }
+
+    /// Byte offset of the next token to be read: after the last consumed
+    /// token, or at a token that was peeked and pushed back.
+    pub fn pos(&self) -> usize {
+        self.peeked
+            .last()
+            .map_or_else(|| self.lexer.pos(), |(_, offset)| *offset)
     }
 }
 
