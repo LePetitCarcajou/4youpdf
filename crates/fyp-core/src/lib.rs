@@ -18,6 +18,7 @@ pub mod encryption;
 pub mod filters;
 pub mod lexer;
 pub mod object;
+pub mod ops;
 pub mod parser;
 pub mod recover;
 pub mod version;
@@ -116,6 +117,19 @@ pub enum Error {
     /// The file is encrypted and the password given (empty by default)
     /// is neither its user nor its owner password (ISO 32000-2, 7.6.4).
     WrongPassword,
+    /// A page operation ([`ops`]) names a page the document does not have.
+    NoSuchPage {
+        /// The 0-based index asked for.
+        index: usize,
+        /// How many pages the document has.
+        count: usize,
+    },
+    /// A page operation ([`ops`]) that makes no sense: a page selected
+    /// twice, no page selected, a rotation that is not a multiple of 90.
+    BadOperation {
+        /// Human-readable explanation.
+        message: String,
+    },
 }
 
 impl fmt::Display for Error {
@@ -155,6 +169,11 @@ impl fmt::Display for Error {
                 write!(f, "unusable /Encrypt dictionary: {message}")
             }
             Error::WrongPassword => write!(f, "encrypted file: the password does not open it"),
+            Error::NoSuchPage { index, count } => write!(
+                f,
+                "no page at index {index}: the document has {count} page(s)"
+            ),
+            Error::BadOperation { message } => write!(f, "invalid page operation: {message}"),
         }
     }
 }

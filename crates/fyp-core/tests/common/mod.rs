@@ -184,3 +184,144 @@ fn describe(obj: &Object) -> String {
         text
     }
 }
+
+/// Same object model across two documents, references followed on both
+/// sides (so renumbering does not matter). Page graphs are cyclic
+/// (`/Annots` → `/P` → page): a pair of references already under
+/// comparison is taken as equal, which keeps the walk linear in the size
+/// of the graph; `depth` is a second safety net.
+pub fn deep_equal(
+    a_doc: &Document<'_>,
+    a: &Object,
+    b_doc: &Document<'_>,
+    b: &Object,
+    depth: usize,
+) -> bool {
+    let mut seen = std::collections::HashSet::new();
+    deep_equal_seen(a_doc, a, b_doc, b, depth, &mut seen)
+}
+
+fn deep_equal_seen(
+    a_doc: &Document<'_>,
+    a: &Object,
+    b_doc: &Document<'_>,
+    b: &Object,
+    depth: usize,
+    seen: &mut std::collections::HashSet<(ObjRef, ObjRef)>,
+) -> bool {
+    if depth == 0 {
+        return true;
+    }
+    if let (Object::Reference(ra), Object::Reference(rb)) = (a, b) {
+        if !seen.insert((*ra, *rb)) {
+            return true;
+        }
+    }
+    let (a, b) = match (a_doc.resolve(a), b_doc.resolve(b)) {
+        (Ok(a), Ok(b)) => (a, b),
+        _ => return false,
+    };
+    match (&a, &b) {
+        (Object::Array(xa), Object::Array(xb)) => {
+            xa.len() == xb.len()
+                && xa
+                    .iter()
+                    .zip(xb)
+                    .all(|(x, y)| deep_equal_seen(a_doc, x, b_doc, y, depth - 1, seen))
+        }
+        (Object::Dict(da), Object::Dict(db)) => dicts_deep_equal(a_doc, da, b_doc, db, depth, seen),
+        (Object::Stream { dict: da, data: xa }, Object::Stream { dict: db, data: xb }) => {
+            let strip = |d: &Dict| {
+                let mut d = d.clone();
+                d.remove(&Name::new("Length"));
+                d
+            };
+            xa == xb && dicts_deep_equal(a_doc, &strip(da), b_doc, &strip(db), depth, seen)
+        }
+        _ => a == b,
+    }
+}
+
+fn dicts_deep_equal(
+    a_doc: &Document<'_>,
+    da: &Dict,
+    b_doc: &Document<'_>,
+    db: &Dict,
+    depth: usize,
+    seen: &mut std::collections::HashSet<(ObjRef, ObjRef)>,
+) -> bool {
+    // A page's /Parent describes the tree it sits in, not the page: the
+    // operations rebuild that tree.
+    let is_page =
+        |d: &Dict| matches!(d.get(&Name::new("Type")), Some(Object::Name(n)) if n.0 == b"Page");
+    let skip = |k: &Name| is_page(da) && is_page(db) && k.0 == b"Parent";
+    da.len() == db.len()
+        && da.iter().all(|(k, va)| {
+            skip(k)
+                || db
+                    .get(k)
+                    .is_some_and(|vb| deep_equal_seen(a_doc, va, b_doc, vb, depth - 1, seen))
+        })
+}
+
+/// Every reference in every object of `doc` (and in its trailer) that
+/// leads to no object, as `"num gen"` strings. Empty for a sound file.
+pub fn dangling_references(doc: &Document<'_>) -> Vec<String> {
+    fn walk(doc: &Document<'_>, obj: &Object, out: &mut Vec<String>) {
+        match obj {
+            Object::Reference(r) => {
+                if !matches!(doc.get(*r), Ok(Some(_))) {
+                    out.push(format!("{} {}", r.num, r.gen));
+                }
+            }
+            Object::Array(items) => items.iter().for_each(|i| walk(doc, i, out)),
+            Object::Dict(d) | Object::Stream { dict: d, .. } => {
+                d.values().for_each(|v| walk(doc, v, out));
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    for value in doc.trailer().values() {
+        walk(doc, value, &mut out);
+    }
+    for (_, obj) in content_objects(doc) {
+        walk(doc, &obj, &mut out);
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Destination arrays (`[page /Fit ...]`, 12.3.2.2) whose page is `null`
+/// or does not resolve to a dictionary, anywhere in `doc`. Empty when
+/// every destination leads to a page.
+pub fn dead_destinations(doc: &Document<'_>) -> Vec<String> {
+    const KINDS: [&[u8]; 8] = [
+        b"XYZ", b"Fit", b"FitH", b"FitV", b"FitR", b"FitB", b"FitBH", b"FitBV",
+    ];
+    fn walk(doc: &Document<'_>, obj: &Object, out: &mut Vec<String>) {
+        match obj {
+            Object::Array(items) => {
+                if let [target, Object::Name(kind), ..] = items.as_slice() {
+                    if KINDS.contains(&kind.0.as_slice()) {
+                        let page = doc.resolve(target).ok();
+                        if !matches!(page, Some(Object::Dict(_))) {
+                            out.push(format!("{items:?}"));
+                        }
+                    }
+                }
+                items.iter().for_each(|i| walk(doc, i, out));
+            }
+            Object::Dict(d) | Object::Stream { dict: d, .. } => {
+                d.values().for_each(|v| walk(doc, v, out));
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    for (_, obj) in content_objects(doc) {
+        walk(doc, &obj, &mut out);
+    }
+    out
+}

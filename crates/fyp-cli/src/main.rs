@@ -1,7 +1,7 @@
 //! `fyp` — the 4YouPDF command line.
 //!
-//! Milestone 0.1 commands: `info`, `rewrite`, `modules`. `merge` follows
-//! the module host.
+//! Milestone 0.1 commands: `info`, `rewrite`, `modules`. Milestone 0.2:
+//! `merge`, `pages extract|delete|rotate`, `split`, on `fyp_core::ops`.
 
 #![forbid(unsafe_code)]
 
@@ -9,9 +9,10 @@ use anyhow::Context;
 use clap::{Parser, Subcommand};
 use fyp_core::document::Document;
 use fyp_core::encryption::{Cipher, Encryption};
+use fyp_core::ops;
 use fyp_core::writer::{Writer, XrefStyle};
 use fyp_core::xref::SectionKind;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
 #[command(name = "fyp", version, about = "4YouPDF — le VLC du PDF")]
@@ -43,6 +44,40 @@ enum Cmd {
         xref_stream: bool,
         /// User or owner password of an encrypted input (empty by default).
         /// The output is always written in the clear.
+        #[arg(long, default_value = "")]
+        password: String,
+    },
+    /// Concatenate several PDFs into one: `fyp merge a.pdf b.pdf -o c.pdf`
+    Merge {
+        /// PDFs to concatenate, in order
+        #[arg(required = true)]
+        inputs: Vec<PathBuf>,
+        /// File to write
+        #[arg(short, long)]
+        output: PathBuf,
+        /// Password of the encrypted inputs, if any (the output is in the clear)
+        #[arg(long, default_value = "")]
+        password: String,
+    },
+    /// Keep, remove or turn pages: `fyp pages extract in.pdf 1,3,5-8 -o out.pdf`
+    Pages {
+        #[command(subcommand)]
+        op: PagesCmd,
+    },
+    /// Cut a PDF into several files: `fyp split in.pdf --every 10 -o dir/`
+    Split {
+        /// PDF to cut
+        input: PathBuf,
+        /// Pages per part (the last part may be shorter)
+        #[arg(long, conflicts_with = "ranges")]
+        every: Option<usize>,
+        /// Explicit parts, e.g. `1-3,4-6,7`; parts may overlap
+        #[arg(long)]
+        ranges: Option<String>,
+        /// Directory to write the parts into (created if missing)
+        #[arg(short, long)]
+        output: PathBuf,
+        /// Password of an encrypted input (the parts are in the clear)
         #[arg(long, default_value = "")]
         password: String,
     },
@@ -84,9 +119,257 @@ fn describe_encryption(e: &Encryption) -> String {
     text
 }
 
+#[derive(Subcommand)]
+enum PagesCmd {
+    /// Keep only these pages, in the order given (reordering allowed)
+    Extract {
+        /// PDF to read
+        input: PathBuf,
+        /// Pages to keep, 1-based, e.g. `1,3,5-8` or `8-5` for reverse order
+        pages: String,
+        /// File to write
+        #[arg(short, long)]
+        output: PathBuf,
+        /// Password of an encrypted input (the output is in the clear)
+        #[arg(long, default_value = "")]
+        password: String,
+    },
+    /// Remove these pages
+    Delete {
+        /// PDF to read
+        input: PathBuf,
+        /// Pages to remove, 1-based, e.g. `2,4-6`
+        pages: String,
+        /// File to write
+        #[arg(short, long)]
+        output: PathBuf,
+        /// Password of an encrypted input (the output is in the clear)
+        #[arg(long, default_value = "")]
+        password: String,
+    },
+    /// Turn these pages clockwise, relative to their current rotation
+    Rotate {
+        /// PDF to read
+        input: PathBuf,
+        /// Pages to turn, 1-based, e.g. `2,4`
+        pages: String,
+        /// Degrees, a multiple of 90 (negative turns counter-clockwise)
+        #[arg(long)]
+        degrees: i32,
+        /// File to write
+        #[arg(short, long)]
+        output: PathBuf,
+        /// Password of an encrypted input (the output is in the clear)
+        #[arg(long, default_value = "")]
+        password: String,
+    },
+}
+
+/// Read a file for an operation; the bytes outlive the document.
+fn read_input(path: &Path) -> anyhow::Result<Vec<u8>> {
+    std::fs::read(path).with_context(|| format!("lecture de {}", path.display()))
+}
+
+/// Open an input for an operation and say when it is encrypted: the
+/// output of every operation is in the clear.
+fn open_input<'a>(path: &Path, bytes: &'a [u8], password: &str) -> anyhow::Result<Document<'a>> {
+    let doc = Document::open_with_password(bytes, password.as_bytes()).map_err(|e| match e {
+        fyp_core::Error::WrongPassword => anyhow::anyhow!(
+            "{}: fichier chiffré, le mot de passe donné ne l'ouvre pas (--password)",
+            path.display()
+        ),
+        e => anyhow::anyhow!("{}: {e}", path.display()),
+    })?;
+    if let Some(reason) = doc.reconstructed() {
+        println!("{}: xref reconstruite par scan ({reason})", path.display());
+    }
+    if let Some(e) = doc.encryption() {
+        println!(
+            "{}: entrée chiffrée ({}) : la sortie est écrite EN CLAIR, sans aucune protection",
+            path.display(),
+            describe_encryption(&e)
+        );
+    }
+    Ok(doc)
+}
+
+/// Parse a 1-based page list such as `1,3,5-8` or `8-5` into 0-based
+/// indices, in the order written. Every number must be within `count`.
+fn parse_pages(spec: &str, count: usize) -> anyhow::Result<Vec<usize>> {
+    let number = |text: &str| -> anyhow::Result<usize> {
+        let n: usize = text
+            .trim()
+            .parse()
+            .map_err(|_| anyhow::anyhow!("numéro de page invalide : « {} »", text.trim()))?;
+        if n == 0 || n > count {
+            anyhow::bail!(
+                "page {n} hors limites : le document a {count} page{}, numérotées de 1 à {count}",
+                if count > 1 { "s" } else { "" }
+            );
+        }
+        Ok(n - 1)
+    };
+    let mut pages = Vec::new();
+    for part in spec.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+        match part.split_once('-') {
+            Some((from, to)) => {
+                let (from, to) = (number(from)?, number(to)?);
+                if from <= to {
+                    pages.extend(from..=to);
+                } else {
+                    pages.extend((to..=from).rev());
+                }
+            }
+            None => pages.push(number(part)?),
+        }
+    }
+    if pages.is_empty() {
+        anyhow::bail!("aucune page indiquée (exemple : 1,3,5-8)");
+    }
+    Ok(pages)
+}
+
+/// Parse `1-3,4-6,7` into 0-based ranges, end excluded.
+fn parse_ranges(spec: &str, count: usize) -> anyhow::Result<Vec<std::ops::Range<usize>>> {
+    let mut ranges = Vec::new();
+    for part in spec.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+        let pages = parse_pages(part, count)?;
+        let (first, last) = (pages[0], pages[pages.len() - 1]);
+        if first > last {
+            anyhow::bail!("plage à l'envers : « {part} »");
+        }
+        ranges.push(first..last + 1);
+    }
+    if ranges.is_empty() {
+        anyhow::bail!("aucune plage indiquée (exemple : 1-3,4-6)");
+    }
+    Ok(ranges)
+}
+
+/// Write an operation's result, read it back, and report.
+fn write_result(output: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+    std::fs::write(output, bytes).with_context(|| format!("écriture de {}", output.display()))?;
+    let check = Document::open(bytes)
+        .map_err(|e| anyhow::anyhow!("{}: relecture impossible: {e}", output.display()))?;
+    if let Some(reason) = check.reconstructed() {
+        anyhow::bail!(
+            "{}: le fichier écrit a dû être réparé à la relecture ({reason})",
+            output.display()
+        );
+    }
+    println!(
+        "écrit        {} ({} octets, PDF {}, {} page{})",
+        output.display(),
+        bytes.len(),
+        check.version(),
+        check.page_count().unwrap_or(0),
+        if check.page_count().unwrap_or(0) > 1 {
+            "s"
+        } else {
+            ""
+        }
+    );
+    Ok(())
+}
+
+fn page_count(path: &Path, doc: &Document<'_>) -> anyhow::Result<usize> {
+    ops::pages(doc)
+        .map(|p| p.len())
+        .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))
+}
+
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
+        Cmd::Merge {
+            inputs,
+            output,
+            password,
+        } => {
+            let files: Vec<Vec<u8>> = inputs
+                .iter()
+                .map(|p| read_input(p))
+                .collect::<anyhow::Result<_>>()?;
+            let docs: Vec<Document<'_>> = inputs
+                .iter()
+                .zip(&files)
+                .map(|(path, bytes)| open_input(path, bytes, &password))
+                .collect::<anyhow::Result<_>>()?;
+            let out = ops::merge(&docs).map_err(|e| anyhow::anyhow!("fusion : {e}"))?;
+            write_result(&output, &out)?;
+        }
+        Cmd::Pages { op } => match op {
+            PagesCmd::Extract {
+                input,
+                pages,
+                output,
+                password,
+            } => {
+                let bytes = read_input(&input)?;
+                let doc = open_input(&input, &bytes, &password)?;
+                let indices = parse_pages(&pages, page_count(&input, &doc)?)?;
+                let out = ops::extract_pages(&doc, &indices)
+                    .map_err(|e| anyhow::anyhow!("{}: {e}", input.display()))?;
+                write_result(&output, &out)?;
+            }
+            PagesCmd::Delete {
+                input,
+                pages,
+                output,
+                password,
+            } => {
+                let bytes = read_input(&input)?;
+                let doc = open_input(&input, &bytes, &password)?;
+                let indices = parse_pages(&pages, page_count(&input, &doc)?)?;
+                let out = ops::delete_pages(&doc, &indices)
+                    .map_err(|e| anyhow::anyhow!("{}: {e}", input.display()))?;
+                write_result(&output, &out)?;
+            }
+            PagesCmd::Rotate {
+                input,
+                pages,
+                degrees,
+                output,
+                password,
+            } => {
+                let bytes = read_input(&input)?;
+                let doc = open_input(&input, &bytes, &password)?;
+                let indices = parse_pages(&pages, page_count(&input, &doc)?)?;
+                let out = ops::rotate(&doc, &indices, degrees)
+                    .map_err(|e| anyhow::anyhow!("{}: {e}", input.display()))?;
+                write_result(&output, &out)?;
+            }
+        },
+        Cmd::Split {
+            input,
+            every,
+            ranges,
+            output,
+            password,
+        } => {
+            let bytes = read_input(&input)?;
+            let doc = open_input(&input, &bytes, &password)?;
+            let count = page_count(&input, &doc)?;
+            let ranges = match (every, ranges) {
+                (Some(n), _) if n > 0 => ops::ranges_every(count, n),
+                (Some(_), _) => anyhow::bail!("--every doit être au moins 1"),
+                (None, Some(spec)) => parse_ranges(&spec, count)?,
+                (None, None) => anyhow::bail!("indiquer --every N ou --ranges 1-3,4-6"),
+            };
+            std::fs::create_dir_all(&output)
+                .with_context(|| format!("création de {}", output.display()))?;
+            let parts = ops::split(&doc, &ranges)
+                .map_err(|e| anyhow::anyhow!("{}: {e}", input.display()))?;
+            let stem = input
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "partie".into());
+            for (part, range) in parts.iter().zip(&ranges) {
+                let name = format!("{stem}-{:03}-{:03}.pdf", range.start + 1, range.end);
+                write_result(&output.join(name), part)?;
+            }
+            println!("{} fichier(s) dans {}", parts.len(), output.display());
+        }
         Cmd::Info { path, password } => {
             let bytes =
                 std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;

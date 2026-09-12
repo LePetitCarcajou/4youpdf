@@ -25,6 +25,7 @@
 //! output is a later milestone; callers that report on a rewrite must say
 //! that the protection is gone.
 
+use std::borrow::Borrow;
 use std::collections::BTreeMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::Write as _;
@@ -111,35 +112,65 @@ impl Writer {
             Some(Object::Reference(r)) => Some(*r),
             _ => None,
         };
+        let free: BTreeMap<u32, u16> = doc
+            .xref()
+            .entries()
+            .filter_map(|(num, entry)| match entry {
+                XrefEntry::Free { gen } => Some((num, gen)),
+                _ => None,
+            })
+            .collect();
+        let objects = doc.xref().entries().filter_map(|(num, entry)| {
+            let r = match entry {
+                XrefEntry::Free { .. } => return None,
+                XrefEntry::InUse { gen, .. } => ObjRef { num, gen },
+                // Compressed objects always have generation 0 (7.5.8.3).
+                XrefEntry::InStream { .. } => ObjRef { num, gen: 0 },
+            };
+            let obj = doc.get(r).ok().flatten()?;
+            if describes_file_layout(&obj) || Some(r) == encrypt_ref {
+                return None;
+            }
+            Some((r, obj))
+        });
+        self.emit(objects, &free, source_trailer)
+    }
 
+    /// Serialise objects built by the caller (see [`crate::ops`]): each
+    /// entry is written as `num 0 obj`; `trailer` supplies `/Root` and,
+    /// optionally, `/Info` and `/ID`, as a source trailer would.
+    pub fn write_objects(
+        &self,
+        objects: &BTreeMap<u32, Object>,
+        trailer: &Dict,
+    ) -> Result<Vec<u8>> {
+        let free = BTreeMap::new();
+        let objects = objects
+            .iter()
+            .map(|(&num, obj)| (ObjRef { num, gen: 0 }, obj));
+        self.emit(objects, &free, trailer)
+    }
+
+    /// Header, every object of `objects` in the order given, the
+    /// cross-reference section and the trailer. Object 0 is the head of
+    /// the free list, never a stored object: it is skipped.
+    fn emit<B: Borrow<Object>>(
+        &self,
+        objects: impl IntoIterator<Item = (ObjRef, B)>,
+        free: &BTreeMap<u32, u16>,
+        source_trailer: &Dict,
+    ) -> Result<Vec<u8>> {
         let mut out = Vec::new();
         let _ = writeln!(out, "%PDF-{}", self.version());
         out.extend_from_slice(BINARY_COMMENT);
 
         let mut written: BTreeMap<u32, (usize, u16)> = BTreeMap::new();
-        let mut free: BTreeMap<u32, u16> = BTreeMap::new();
-        for (num, entry) in doc.xref().entries() {
-            let r = match entry {
-                XrefEntry::Free { gen } => {
-                    free.insert(num, gen);
-                    continue;
-                }
-                XrefEntry::InUse { gen, .. } => ObjRef { num, gen },
-                // Compressed objects always have generation 0 (7.5.8.3).
-                XrefEntry::InStream { .. } => ObjRef { num, gen: 0 },
-            };
-            // Object 0 is the head of the free list, never a stored object.
-            if num == 0 {
+        for (r, obj) in objects {
+            if r.num == 0 {
                 continue;
             }
-            let Ok(Some(obj)) = doc.get(r) else {
-                continue;
-            };
-            if describes_file_layout(&obj) || Some(r) == encrypt_ref {
-                continue;
-            }
-            written.insert(num, (out.len(), r.gen));
-            write_indirect(&mut out, r, &obj)?;
+            written.insert(r.num, (out.len(), r.gen));
+            write_indirect(&mut out, r, obj.borrow())?;
         }
 
         // A catalog written directly in the trailer (tolerated on reading)
@@ -159,7 +190,7 @@ impl Writer {
 
         let trailer = build_trailer(source_trailer, &written, &out, promoted_root)?;
         let startxref = match self.style {
-            XrefStyle::Table => write_table(&mut out, &written, &free, trailer)?,
+            XrefStyle::Table => write_table(&mut out, &written, free, trailer)?,
             XrefStyle::Stream => write_xref_stream(&mut out, &written, trailer)?,
         };
         let _ = writeln!(out, "startxref\n{startxref}\n%%EOF");
