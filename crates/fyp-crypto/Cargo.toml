@@ -9,7 +9,11 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
-fyp-core = { workspace = true }
+aes = "0.8"
+cbc = "0.1"
+md-5 = "0.10"
+rc4 = "0.1"
+sha2 = "0.10"
 
 [lints]
 workspace = true

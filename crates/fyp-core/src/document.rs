@@ -7,10 +7,18 @@
 //! wrong, the index is rebuilt by scanning the file ([`crate::recover`]);
 //! [`Document::reconstructed`] then tells why. A repaired file never passes
 //! for a sound one.
+//!
+//! An encrypted file (ISO 32000-2, 7.6) is deciphered transparently: the
+//! `/Encrypt` dictionary is read when the document opens, with the empty
+//! password unless [`Document::open_with_password`] gives another, and
+//! every string and stream handed out by [`Document::get`] is in the
+//! clear. [`Document::encryption`] says whether that happened and how the
+//! file was protected.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use crate::encryption::{Crypt, Encryption};
 use crate::filters::{self, DecodeLimits};
 use crate::lexer::{Lexer, Token};
 use crate::object::{Dict, Name, ObjRef, Object};
@@ -31,6 +39,8 @@ pub struct Document<'a> {
     /// Why the declared cross-reference table was replaced by a scan of
     /// the file, if it was.
     reconstructed: Option<Error>,
+    /// The security handler, when the file is encrypted.
+    crypt: Option<Crypt>,
     /// Object streams already decoded, by object number. Decoding one is
     /// the expensive part; parsing an object out of it is cheap.
     object_streams: Mutex<BTreeMap<u32, Arc<ObjectStream>>>,
@@ -97,6 +107,7 @@ impl Clone for Document<'_> {
             xref: self.xref.clone(),
             limits: self.limits,
             reconstructed: self.reconstructed.clone(),
+            crypt: self.crypt.clone(),
             object_streams: Mutex::new(self.cache().clone()),
         }
     }
@@ -113,11 +124,31 @@ impl<'a> Document<'a> {
     /// Same as [`Document::open`] with explicit limits, applied to every
     /// stream decoded on behalf of the document (cross-reference streams,
     /// object streams, [`Document::decoded`]).
+    pub fn open_with_limits(input: &'a [u8], limits: DecodeLimits) -> Result<Document<'a>> {
+        Document::open_with(input, limits, b"")
+    }
+
+    /// Same as [`Document::open`] for an encrypted file whose user or
+    /// owner password is not empty. The password is taken as bytes: for
+    /// revisions 2 to 4 they are used as is (PDFDocEncoding, 7.6.4.3.2),
+    /// for revisions 5 and 6 they must be UTF-8 (7.6.4.3.3).
+    pub fn open_with_password(input: &'a [u8], password: &[u8]) -> Result<Document<'a>> {
+        Document::open_with(input, DecodeLimits::default(), password)
+    }
+
+    /// The general form of [`Document::open`]: explicit limits and password.
     ///
     /// Fails with [`Error::BadHeader`] when the input is not a PDF at all,
-    /// and with [`Error::Unrecoverable`] when the declared table is unusable
-    /// and the file holds no object to rebuild one from.
-    pub fn open_with_limits(input: &'a [u8], limits: DecodeLimits) -> Result<Document<'a>> {
+    /// with [`Error::Unrecoverable`] when the declared table is unusable
+    /// and the file holds no object to rebuild one from, with
+    /// [`Error::BadEncryption`] when the file says it is encrypted but its
+    /// `/Encrypt` dictionary cannot be used, and with
+    /// [`Error::WrongPassword`] when `password` opens nothing.
+    pub fn open_with(
+        input: &'a [u8],
+        limits: DecodeLimits,
+        password: &[u8],
+    ) -> Result<Document<'a>> {
         let info = version::quick_info(input)?;
         let declared = match info.startxref {
             None => Err(Error::MissingStartxref),
@@ -135,14 +166,27 @@ impl<'a> Document<'a> {
                 }
             },
         };
-        Ok(Document {
+        let mut doc = Document {
             input,
             version: info.version,
             xref,
             limits,
             reconstructed,
+            crypt: None,
             object_streams: Mutex::new(BTreeMap::new()),
-        })
+        };
+        // With `crypt` still unset, `resolve` returns the `/Encrypt`
+        // dictionary as stored, which is what the handler needs (7.6.3).
+        let crypt = Crypt::open(doc.trailer(), |o| doc.resolve(o), password)?;
+        doc.crypt = crypt;
+        Ok(doc)
+    }
+
+    /// How the file is encrypted, or `None` for a file stored in the
+    /// clear. When `Some`, every object [`Document::get`] returns has
+    /// already been deciphered.
+    pub fn encryption(&self) -> Option<Encryption> {
+        self.crypt.as_ref().map(Crypt::info)
     }
 
     /// Why the cross-reference table was rebuilt by scanning the file
@@ -247,7 +291,8 @@ impl<'a> Document<'a> {
         }
     }
 
-    /// Parse the indirect object at `offset` and check it is `r`.
+    /// Parse the indirect object at `offset`, check it is `r`, and
+    /// decipher it when the file is encrypted.
     fn parse_at(&self, offset: usize, r: ObjRef) -> Result<Object> {
         if offset >= self.input.len() {
             return Err(Error::BadXref {
@@ -265,7 +310,10 @@ impl<'a> Document<'a> {
                 ),
             });
         }
-        Ok(obj)
+        Ok(match &self.crypt {
+            Some(crypt) => crypt.decrypt_object(r, obj),
+            None => obj,
+        })
     }
 
     /// Like [`Document::resolve`], but only for objects stored at a byte

@@ -8,6 +8,7 @@
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use fyp_core::document::Document;
+use fyp_core::encryption::{Cipher, Encryption};
 use fyp_core::writer::{Writer, XrefStyle};
 use fyp_core::xref::SectionKind;
 use std::path::PathBuf;
@@ -25,6 +26,9 @@ enum Cmd {
     Info {
         /// Path to the PDF
         path: PathBuf,
+        /// User or owner password of an encrypted file (empty by default)
+        #[arg(long, default_value = "")]
+        password: String,
     },
     /// Rewrite a PDF as a clean single-section file: objects unpacked from
     /// object streams, exact stream lengths, regenerated cross-reference
@@ -37,6 +41,10 @@ enum Cmd {
         /// Write a cross-reference stream (PDF 1.5) instead of a classic table
         #[arg(long)]
         xref_stream: bool,
+        /// User or owner password of an encrypted input (empty by default).
+        /// The output is always written in the clear.
+        #[arg(long, default_value = "")]
+        password: String,
     },
     /// List modules found in a directory and why some are refused
     Modules {
@@ -49,10 +57,37 @@ enum Cmd {
     },
 }
 
+/// One line about how a file is protected, e.g. `révision 4, AES-128, clé 128 bits`.
+fn describe_encryption(e: &Encryption) -> String {
+    let cipher = |c: Cipher| match c {
+        Cipher::Identity => "en clair",
+        Cipher::Rc4 => "RC4",
+        Cipher::Aes128 => "AES-128",
+        Cipher::Aes256 => "AES-256",
+    };
+    let ciphers = if e.streams == e.strings {
+        cipher(e.streams).to_string()
+    } else {
+        format!("flux {}, chaînes {}", cipher(e.streams), cipher(e.strings))
+    };
+    let mut text = format!(
+        "révision {}, {ciphers}, clé {} bits",
+        e.revision.number(),
+        e.key_bits
+    );
+    if !e.encrypt_metadata {
+        text.push_str(", métadonnées en clair");
+    }
+    if e.owner {
+        text.push_str(", ouvert avec le mot de passe propriétaire");
+    }
+    text
+}
+
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Cmd::Info { path } => {
+        Cmd::Info { path, password } => {
             let bytes =
                 std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
             let info = fyp_core::version::quick_info(&bytes)
@@ -95,8 +130,11 @@ fn main() -> anyhow::Result<()> {
             );
             // The quick facts above stay useful when the structure cannot be
             // read (broken table, unsupported filter): report instead of failing.
-            match fyp_core::document::Document::open(&bytes) {
+            match Document::open_with_password(&bytes, password.as_bytes()) {
                 Ok(doc) => {
+                    if let Some(e) = doc.encryption() {
+                        println!("chiffrement  {}", describe_encryption(&e));
+                    }
                     // A repaired file must never pass for a sound one: say
                     // why the declared table was dropped.
                     match doc.reconstructed() {
@@ -120,6 +158,9 @@ fn main() -> anyhow::Result<()> {
                         Err(e) => println!("pages        illisible ({e})"),
                     }
                 }
+                Err(fyp_core::Error::WrongPassword) => {
+                    println!("structure    chiffrée, mot de passe requis (--password)")
+                }
                 Err(e) => println!("structure    illisible ({e})"),
             }
         }
@@ -127,13 +168,28 @@ fn main() -> anyhow::Result<()> {
             input,
             output,
             xref_stream,
+            password,
         } => {
             let bytes =
                 std::fs::read(&input).with_context(|| format!("reading {}", input.display()))?;
             let doc =
-                Document::open(&bytes).map_err(|e| anyhow::anyhow!("{}: {e}", input.display()))?;
+                Document::open_with_password(&bytes, password.as_bytes()).map_err(|e| match e {
+                    fyp_core::Error::WrongPassword => anyhow::anyhow!(
+                        "{}: fichier chiffré, le mot de passe donné ne l'ouvre pas (--password)",
+                        input.display()
+                    ),
+                    e => anyhow::anyhow!("{}: {e}", input.display()),
+                })?;
             if let Some(reason) = doc.reconstructed() {
                 println!("xref d'entrée reconstruite par scan ({reason})");
+            }
+            // The writer does not encrypt yet: say so, every time, before
+            // the file lands on disk.
+            if let Some(e) = doc.encryption() {
+                println!(
+                    "chiffrement  entrée chiffrée ({}) : la sortie est écrite EN CLAIR, sans aucune protection",
+                    describe_encryption(&e)
+                );
             }
             let style = if xref_stream {
                 XrefStyle::Stream

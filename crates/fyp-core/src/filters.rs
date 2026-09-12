@@ -173,7 +173,7 @@ where
         b"ASCIIHexDecode" | b"AHx" => Ok(ascii_hex_decode(data)),
         b"ASCII85Decode" | b"A85" => ascii85_decode(data),
         b"RunLengthDecode" | b"RL" => run_length_decode(data, limits),
-        b"Crypt" => crypt_identity(parms, resolve, data),
+        b"Crypt" => Ok(data.to_vec()),
         b"CCITTFaxDecode" | b"CCF" => Err(Error::Unsupported {
             feature: "CCITTFaxDecode filter (ISO 32000-2, 7.4.6)",
         }),
@@ -189,26 +189,6 @@ where
         _ => Err(Error::Filter {
             filter: name.as_str_lossy(),
             message: "unknown filter".into(),
-        }),
-    }
-}
-
-/// `/Crypt` with `/Name /Identity` (or no name) leaves data unchanged
-/// (ISO 32000-2, 7.4.10). Any other crypt filter needs the encryption
-/// layer, which is not there yet.
-fn crypt_identity<R>(parms: Option<&Dict>, resolve: &R, data: &[u8]) -> Result<Vec<u8>>
-where
-    R: Fn(&Object) -> Result<Object>,
-{
-    let name = parms
-        .and_then(|p| p.get(&Name::new("Name")))
-        .map(resolve)
-        .transpose()?;
-    match name {
-        None | Some(Object::Null) => Ok(data.to_vec()),
-        Some(Object::Name(n)) if n == Name::new("Identity") => Ok(data.to_vec()),
-        Some(_) => Err(Error::Unsupported {
-            feature: "named Crypt filters (ISO 32000-2, 7.4.10)",
         }),
     }
 }
@@ -1008,11 +988,10 @@ mod tests {
             decode_stream(&d, b"", direct),
             Err(Error::Unsupported { .. })
         ));
+        // A named crypt filter is applied by `Document` when the object is
+        // read (see `encryption`); here it is the identity (7.4.10).
         let d = dict("<< /Filter /Crypt /DecodeParms << /Name /StdCF >> >>");
-        assert!(matches!(
-            decode_stream(&d, b"", direct),
-            Err(Error::Unsupported { .. })
-        ));
+        assert_eq!(decode_stream(&d, b"raw", direct).unwrap(), b"raw");
         let d = dict("<< /Filter /Bogus >>");
         assert!(matches!(
             decode_stream(&d, b"", direct),

@@ -19,9 +19,11 @@
 //! - an object that cannot be read from the source is left out: readers
 //!   treat a reference to it as `null`, as they did in the source.
 //!
-//! Encrypted files are refused ([`Error::Unsupported`]): strings and
-//! streams are ciphered per object, and moving objects out of object
-//! streams would leave them in the clear (7.6).
+//! An encrypted source is written in the clear: [`Document`] hands over
+//! deciphered strings and streams, the `/Encrypt` dictionary is not
+//! copied and the trailer has no `/Encrypt` entry (7.6). Encrypting on
+//! output is a later milestone; callers that report on a rewrite must say
+//! that the protection is gone.
 
 use std::collections::BTreeMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -103,11 +105,12 @@ impl Writer {
     /// Every object the document can read is written at top level.
     pub fn write(&self, doc: &Document<'_>) -> Result<Vec<u8>> {
         let source_trailer = doc.trailer();
-        if source_trailer.contains_key(&Name::new("Encrypt")) {
-            return Err(Error::Unsupported {
-                feature: "rewriting an encrypted file (ISO 32000-2, 7.6)",
-            });
-        }
+        // The security handler's dictionary describes the source file's
+        // protection, which the output does not have.
+        let encrypt_ref = match source_trailer.get(&Name::new("Encrypt")) {
+            Some(Object::Reference(r)) => Some(*r),
+            _ => None,
+        };
 
         let mut out = Vec::new();
         let _ = writeln!(out, "%PDF-{}", self.version());
@@ -132,7 +135,7 @@ impl Writer {
             let Ok(Some(obj)) = doc.get(r) else {
                 continue;
             };
-            if describes_file_layout(&obj) {
+            if describes_file_layout(&obj) || Some(r) == encrypt_ref {
                 continue;
             }
             written.insert(num, (out.len(), r.gen));
@@ -813,16 +816,6 @@ mod tests {
 
     #[test]
     fn refusals() {
-        // Encrypted.
-        let enc =
-            String::from_utf8_lossy(&source()).replace("/Root 1 0 R", "/Root 1 0 R /Encrypt 8 0 R");
-        let doc = Document::open(enc.as_bytes()).expect("open");
-        assert_eq!(
-            Writer::new(version(1, 4)).write(&doc),
-            Err(Error::Unsupported {
-                feature: "rewriting an encrypted file (ISO 32000-2, 7.6)"
-            })
-        );
         // Sparse numbering: object 5000000 forces five million filler entries.
         let sparse = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 5000000 0 R >>\nendobj\n5000000 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n";
         let doc = Document::open(sparse).expect("open by scan");

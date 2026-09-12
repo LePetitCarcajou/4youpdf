@@ -14,6 +14,7 @@
 #![warn(missing_docs)]
 
 pub mod document;
+pub mod encryption;
 pub mod filters;
 pub mod lexer;
 pub mod object;
@@ -104,6 +105,17 @@ pub enum Error {
         /// Human-readable explanation.
         message: String,
     },
+    /// The `/Encrypt` dictionary (ISO 32000-2, 7.6.2) is malformed or
+    /// contradicts the standard: unknown revision, missing `/O`, `/U` or
+    /// `/P`, a `/Length` that is not a key size, a crypt filter that
+    /// `/CF` does not define.
+    BadEncryption {
+        /// Human-readable explanation.
+        message: String,
+    },
+    /// The file is encrypted and the password given (empty by default)
+    /// is neither its user nor its owner password (ISO 32000-2, 7.6.4).
+    WrongPassword,
 }
 
 impl fmt::Display for Error {
@@ -139,6 +151,10 @@ impl fmt::Display for Error {
                 "cross-reference table unusable ({declared}) and no object found to rebuild it"
             ),
             Error::Unwritable { message } => write!(f, "cannot write a conformant file: {message}"),
+            Error::BadEncryption { message } => {
+                write!(f, "unusable /Encrypt dictionary: {message}")
+            }
+            Error::WrongPassword => write!(f, "encrypted file: the password does not open it"),
         }
     }
 }

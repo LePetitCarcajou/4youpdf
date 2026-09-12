@@ -68,15 +68,23 @@ pub fn describes_file_layout(obj: &Object) -> bool {
 }
 
 /// Every object the document can read, except those describing the file
-/// layout, by reference.
+/// layout and the `/Encrypt` dictionary of an encrypted source (the
+/// writer drops it: the output is in the clear), by reference.
 pub fn content_objects(doc: &Document<'_>) -> BTreeMap<ObjRef, Object> {
     let mut objects = BTreeMap::new();
+    let encrypt_ref = match doc.trailer().get(&Name::new("Encrypt")) {
+        Some(Object::Reference(r)) => Some(*r),
+        _ => None,
+    };
     for (num, entry) in doc.xref().entries() {
         let r = match entry {
             XrefEntry::InUse { gen, .. } => ObjRef { num, gen },
             XrefEntry::InStream { .. } => ObjRef { num, gen: 0 },
             XrefEntry::Free { .. } => continue,
         };
+        if Some(r) == encrypt_ref {
+            continue;
+        }
         if let Ok(Some(obj)) = doc.get(r) {
             if !describes_file_layout(&obj) {
                 objects.insert(r, obj);

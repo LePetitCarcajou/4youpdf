@@ -15,6 +15,8 @@ use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::PathBuf;
 
+use fyp_crypto::{Cipher, Decryptor, Params, Revision};
+
 const CATALOG: &str = "<< /Type /Catalog /Pages 2 0 R >>";
 const PAGES: &str = "<< /Type /Pages /Kids [3 0 R] /Count 1 >>";
 const PAGE: &str = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << >> >>";
@@ -250,4 +252,150 @@ fn generate_hybrid() {
         .as_bytes(),
     );
     b.finish(table, "hybrid.pdf");
+}
+
+// ---------------------------------------------------------------------------
+// Encrypted fixtures (ISO 32000-2, 7.6)
+// ---------------------------------------------------------------------------
+
+/// Content stream of the encrypted fixtures, before Flate and encryption.
+const CONTENT: &[u8] = b"BT /F1 24 Tf 72 720 Td (Hello) Tj ET";
+/// Page of the encrypted fixtures: `PAGE` plus a `/Contents` reference.
+const PAGE_WITH_CONTENTS: &str =
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << >> /Contents 4 0 R >>";
+/// First `/ID` string of the encrypted fixtures, part of the key material
+/// for revisions 2 to 4.
+const FILE_ID: [u8; 16] = [
+    0x4f, 0x59, 0x50, 0x44, 0x46, 0x2d, 0x66, 0x69, 0x78, 0x74, 0x75, 0x72, 0x65, 0x2d, 0x69, 0x64,
+];
+/// Permissions: everything but the deprecated bits, the usual `-3904`.
+const PERMISSIONS: u32 = 0xffff_f0c0;
+
+fn hex(bytes: &[u8]) -> String {
+    let digits: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    format!("<{digits}>")
+}
+
+/// Objects 1 to 5 of an encrypted fixture: catalogue, pages, page, the
+/// Flate content stream ciphered with `cipher`, and an `/Info` dictionary
+/// whose `/Title` is ciphered. IVs are fixed so the output is stable.
+fn encrypted_objects(b: &mut Builder, d: &Decryptor, cipher: Cipher, title: &str) {
+    b.object(1, CATALOG.as_bytes());
+    b.object(2, PAGES.as_bytes());
+    b.object(3, PAGE_WITH_CONTENTS.as_bytes());
+    let iv = |num: u32| [u8::try_from(num).expect("small"); 16];
+    let data = d.encrypt_with(cipher, 4, 0, &iv(4), &zlib(CONTENT));
+    b.object(4, &stream("/Filter /FlateDecode", &data));
+    let title = d.encrypt_with(cipher, 5, 0, &iv(5), title.as_bytes());
+    let producer = d.encrypt_with(cipher, 5, 0, &iv(5), b"4YouPDF fixtures");
+    b.object(
+        5,
+        format!("<< /Title {} /Producer {} >>", hex(&title), hex(&producer)).as_bytes(),
+    );
+}
+
+/// Classic table for objects 1..=6 and the trailer of an encrypted fixture.
+fn encrypted_trailer(b: &mut Builder) -> usize {
+    let table = b.out.len();
+    let mut text = String::from("xref\n0 7\n0000000000 65535 f \n");
+    for num in 1..=6 {
+        text.push_str(&format!("{:010} 00000 n \n", b.offset(num)));
+    }
+    let id = hex(&FILE_ID);
+    text.push_str(&format!(
+        "trailer\n<< /Size 7 /Root 1 0 R /Info 5 0 R /Encrypt 6 0 R /ID [{id} {id}] >>\n"
+    ));
+    b.out.extend_from_slice(text.as_bytes());
+    table
+}
+
+/// `encrypted-rc4.pdf`: revision 3, RC4 128-bit, empty user password,
+/// owner password `owner` (7.6.4.3.2).
+#[test]
+#[ignore = "rewrites tests/fixtures/encrypted-rc4.pdf"]
+fn generate_encrypted_rc4() {
+    let base = Params {
+        revision: Revision::R3,
+        key_bits: 128,
+        owner: Vec::new(),
+        user: Vec::new(),
+        owner_key: Vec::new(),
+        user_key: Vec::new(),
+        permissions: PERMISSIONS,
+        encrypt_metadata: true,
+        streams: Cipher::Rc4,
+        strings: Cipher::Rc4,
+        file_id: FILE_ID.to_vec(),
+    };
+    let (owner, user) = fyp_crypto::legacy_owner_user(&base, b"owner", b"").expect("values");
+    let params = Params {
+        owner: owner.clone(),
+        user: user.clone(),
+        ..base
+    };
+    let d = Decryptor::open(&params, b"").expect("empty user password");
+    let mut b = Builder::new("1.4");
+    encrypted_objects(&mut b, &d, Cipher::Rc4, "Encrypted RC4 128-bit");
+    b.object(
+        6,
+        format!(
+            "<< /Filter /Standard /V 2 /R 3 /Length 128 /P -3904 /O {} /U {} >>",
+            hex(&owner),
+            hex(&user)
+        )
+        .as_bytes(),
+    );
+    let table = encrypted_trailer(&mut b);
+    b.finish(table, "encrypted-rc4.pdf");
+}
+
+/// `encrypted-aes256.pdf`: revision 6 (PDF 2.0), AES-256 through the
+/// `/StdCF` crypt filter, empty user password, owner password `owner`
+/// (7.6.4.3.3).
+#[test]
+#[ignore = "rewrites tests/fixtures/encrypted-aes256.pdf"]
+fn generate_encrypted_aes256() {
+    let file_key: [u8; 32] = *b"4YouPDF fixture file key, 32 B..";
+    let salts = [[0x11; 8], [0x22; 8], [0x33; 8], [0x44; 8]];
+    let e = fyp_crypto::aes256_entries(
+        Revision::R6,
+        &file_key,
+        b"",
+        b"owner",
+        &salts,
+        PERMISSIONS,
+        true,
+    );
+    let params = Params {
+        revision: Revision::R6,
+        key_bits: 256,
+        owner: e.owner.clone(),
+        user: e.user.clone(),
+        owner_key: e.owner_key.clone(),
+        user_key: e.user_key.clone(),
+        permissions: PERMISSIONS,
+        encrypt_metadata: true,
+        streams: Cipher::Aes256,
+        strings: Cipher::Aes256,
+        file_id: FILE_ID.to_vec(),
+    };
+    let d = Decryptor::open(&params, b"").expect("empty user password");
+    let mut b = Builder::new("2.0");
+    encrypted_objects(&mut b, &d, Cipher::Aes256, "Encrypted AES-256 (revision 6)");
+    b.object(
+        6,
+        format!(
+            "<< /Filter /Standard /V 5 /R 6 /Length 256 /P -3904 \
+             /CF << /StdCF << /CFM /AESV3 /AuthEvent /DocOpen /Length 32 >> >> \
+             /StmF /StdCF /StrF /StdCF /O {} /U {} /OE {} /UE {} /Perms {} >>",
+            hex(&e.owner),
+            hex(&e.user),
+            hex(&e.owner_key),
+            hex(&e.user_key),
+            hex(&e.perms)
+        )
+        .as_bytes(),
+    );
+    let table = encrypted_trailer(&mut b);
+    b.finish(table, "encrypted-aes256.pdf");
 }

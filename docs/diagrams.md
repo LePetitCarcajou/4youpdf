@@ -33,10 +33,12 @@ flowchart TB
     end
     subgraph services["Services"]
         conformance["fyp-conformance"]
-        crypto["fyp-crypto"]
     end
     subgraph noyau["Noyau"]
-        core["fyp-core<br/>lexique, objets, xref, filtres, récupération, écriture"]
+        core["fyp-core<br/>lexique, objets, xref, filtres, récupération, déchiffrement, écriture"]
+    end
+    subgraph primitives["Primitives"]
+        crypto["fyp-crypto<br/>handler de sécurité standard : RC4, AES, dérivation de clé"]
     end
     plugins["Modules tiers<br/>WebAssembly, jamais natifs"]
 
@@ -47,7 +49,7 @@ flowchart TB
     host --> api
     host --> core
     conformance --> core
-    crypto --> core
+    core --> crypto
     plugins --> api
 ```
 

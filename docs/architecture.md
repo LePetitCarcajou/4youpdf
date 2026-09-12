@@ -10,15 +10,19 @@
 ├──────────────────────────────────────────────────────────┤
 │  fyp-plugin-api — manifeste, traits, types d'échange      │  CONTRAT (versionné à part)
 ├──────────────────────────────────────────────────────────┤
-│  fyp-conformance   fyp-crypto                             │  services
+│  fyp-conformance                                          │  services
 ├──────────────────────────────────────────────────────────┤
 │  fyp-core — lexer, objets, xref, filtres, writer          │  noyau
+├──────────────────────────────────────────────────────────┤
+│  fyp-crypto — handler de sécurité standard (7.6)          │  primitives
 └──────────────────────────────────────────────────────────┘
         plugins/* ──dépendent uniquement de──▶ fyp-plugin-api
 ```
 
 Les flèches de dépendance vont toujours vers le bas. `fyp-core` ne connaît ni
-les plugins, ni l'hôte, ni l'interface.
+les plugins, ni l'hôte, ni l'interface. Il s'appuie sur `fyp-crypto`, crate
+feuille qui ne dépend d'aucune autre crate du projet : elle reçoit les valeurs
+du dictionnaire `/Encrypt` et des octets, jamais des objets PDF.
 
 Quatre diagrammes Mermaid complètent ce document dans `diagrams.md` : les
 couches et leurs dépendances, le parcours d'un fichier à l'ouverture, le
@@ -32,8 +36,8 @@ d'un module.
 | 1. Lexique | `lexer` | ISO 32000-2, 7.2 | fait, testé |
 | 2. Objets | `object`, `parser` | 7.3 | fait, testé |
 | 3. Fichier | `version`, `xref` | 7.5 | fait, testé (table classique, flux xref, chaîne `/Prev`, `/XRefStm` des fichiers hybrides) |
-| 4. Filtres | `filters` | 7.4 | fait, testé (Flate + prédicteurs TIFF/PNG, ASCIIHex, ASCII85, RunLength) ; LZW, filtres image et `/Crypt` nommés à venir |
-| 5. Chiffrement | `fyp-crypto` | 7.6 | types |
+| 4. Filtres | `filters` | 7.4 | fait, testé (Flate + prédicteurs TIFF/PNG, ASCIIHex, ASCII85, RunLength, `/Crypt`) ; LZW et filtres image à venir |
+| 5. Chiffrement | `encryption` + `fyp-crypto` | 7.6 | fait, testé (révisions 2 à 6 : RC4 40 à 128 bits, AES-128, AES-256 ; mot de passe utilisateur ou propriétaire ; crypt filters `/StmF`, `/StrF`, `/Identity` et nommés ; `/EncryptMetadata`) ; chiffrement à l'écriture à venir |
 | 6. Document | `document`, `recover` | 7.7 | fait, testé (objets via la xref et les object streams, catalogue, nombre de pages, xref reconstruite par scan) |
 | 7. Écriture | `writer` | 7.5.5, 7.5.8 | fait, testé (table classique ou flux xref, round-trip sur toutes les fixtures, `fyp rewrite`) |
 
@@ -160,13 +164,17 @@ et `%%EOF`. La lecture est tolérante, l'écriture est stricte :
   de numéros contigus (pas de remplissage), qui se liste lui-même sous le
   numéro suivant le plus grand numéro écrit. La version d'en-tête est
   portée à 1.5 au minimum.
-- Refus explicites : fichier chiffré (`Error::Unsupported`, les objets
-  sortis d'un object stream seraient en clair, 7.6), `/Root` qui ne mène à
-  aucun objet écrit, offset au-delà des dix chiffres d'une entrée de table.
+- Refus explicites : `/Root` qui ne mène à aucun objet écrit, offset
+  au-delà des dix chiffres d'une entrée de table.
+- Entrée chiffrée : la sortie est **en clair**. `Document` fournit les
+  chaînes et les flux déchiffrés, le dictionnaire `/Encrypt` n'est pas
+  recopié et le trailer n'a pas d'entrée `/Encrypt`. Le chiffrement à
+  l'écriture est un jalon ultérieur ; d'ici là, tout appelant qui réécrit
+  un fichier chiffré doit le dire (`fyp rewrite` l'affiche avant d'écrire).
 
-`fyp rewrite entrée.pdf sortie.pdf [--xref-stream]` applique le writer avec
-la version de l'entrée, puis relit le fichier produit : la commande échoue
-si cette relecture a besoin d'une reconstruction.
+`fyp rewrite entrée.pdf sortie.pdf [--xref-stream] [--password …]` applique
+le writer avec la version de l'entrée, puis relit le fichier produit : la
+commande échoue si cette relecture a besoin d'une reconstruction.
 
 Test central (`crates/fyp-core/tests/roundtrip.rs`) : chaque fixture est
 ouverte, écrite dans les deux styles, rouverte. Le second document n'a pas
@@ -175,6 +183,60 @@ lisibles (object streams et flux xref exclus des deux côtés), et chaque
 objet est égal au modèle près (`/Length` mis à part pour les streams) ;
 une seconde écriture reproduit les mêmes octets. Le même parcours
 s'applique à `tests/corpus-private/` quand ce dossier local existe.
+
+### Chiffrement
+
+`Document::open` lit le dictionnaire `/Encrypt` du trailer (handler de
+sécurité standard, ISO 32000-2, 7.6) et essaie le mot de passe vide, en tant
+que mot de passe utilisateur puis propriétaire : c'est le cas de la grande
+majorité des fichiers chiffrés, qui restreignent l'usage sans interdire la
+lecture. `Document::open_with_password` prend un autre mot de passe ;
+`Document::open_with` combine limites et mot de passe. Ensuite tout est
+transparent : les chaînes et les flux rendus par `get` sont en clair, y
+compris les object streams (déchiffrés en bloc avant d'en extraire les
+objets). `Document::encryption()` dit si le fichier était chiffré et
+comment (`Encryption` : révision, longueur de clé, chiffre des flux et des
+chaînes, `/EncryptMetadata`, mot de passe propriétaire ou non) ; `fyp info`
+l'affiche.
+
+Le module `encryption` de `fyp-core` traduit le dictionnaire en
+`fyp_crypto::Params` (tables 20, 21 et 25) : `/V`, `/R`, `/Length`, `/O`,
+`/U`, `/OE`, `/UE`, `/P`, `/EncryptMetadata`, et pour les révisions 4 et
+plus les crypt filters de `/CF` choisis par `/StmF` et `/StrF`
+(`/Identity` par défaut). `fyp-crypto` fait le reste : dérivation de la
+clé (algorithmes 2 à 7 pour RC4 et AES-128, 2.A et 2.B pour AES-256),
+validation du mot de passe, clé par objet (algorithme 1, numéro et
+génération), RC4, AES-CBC avec vecteur d'initialisation en tête et
+bourrage PKCS#5. Ses primitives viennent des crates RustCrypto auditées
+(`aes`, `cbc`, `md-5`, `rc4`, `sha2`), acceptées par `cargo deny`.
+
+Ce qui reste en clair, conformément à 7.6.3 : le dictionnaire `/Encrypt`
+lui-même, l'`/ID` du trailer, les flux xref, et le flux de métadonnées
+quand `/EncryptMetadata` vaut `false`. Un flux qui nomme son propre crypt
+filter (`/Filter /Crypt`, `/DecodeParms /Name`, 7.4.10) est déchiffré avec
+ce filtre à la lecture de l'objet, et le filtre est retiré du dictionnaire :
+le modèle objet vu par l'appelant, et donc par le writer, est celui d'un
+fichier non chiffré.
+
+Tolérances : `/Length` d'un crypt filter inférieur à 40 lu en octets
+(Acrobat écrit `/Length 16`), AES-128 imposant 128 bits quoi que dise
+`/Length`, révision 2 toujours à 40 bits, `/P` non signé accepté, `/O`,
+`/U`, `/OE` et `/UE` plus longs que prévu tronqués et plus courts complétés
+par des zéros comme le fait qpdf (`short-O-U.pdf` du corpus : seuls les 16
+premiers octets de `/U` comptent en révision 3 et 4), données AES sans vecteur
+d'initialisation ou avec un bloc incomplet déchiffrées au mieux, bourrage
+invalide conservé, crypt filter nommé mais absent de `/CF` traité comme le
+chiffre des flux, `/Encrypt` qui ne mène à aucun objet ignoré.
+
+Erreurs, jamais de panique : `Error::BadEncryption` pour un dictionnaire
+inutilisable (révision inconnue, `/O`, `/U` ou `/P` absents ou vides, `/Length` qui
+n'est pas une taille de clé, `/StmF` sans définition dans `/CF`, `/CFM`
+inconnu), `Error::WrongPassword` quand ni le mot de passe utilisateur ni le
+propriétaire ne correspond, `Error::Unsupported` pour un handler autre que
+`/Standard` (clé publique, 7.6.5). Limites connues : SASLprep n'est pas
+appliqué aux mots de passe des révisions 5 et 6 ; la reconstruction par
+scan n'ouvre pas les object streams d'un fichier chiffré (leur contenu
+n'est indexé qu'après, quand ils sont lus par `Document`).
 
 ### Corpus public et rapport
 
@@ -210,6 +272,6 @@ L'hôte re-parse et valide tout document renvoyé par un module.
   module réel (`merge`) ; `fyp merge`.
 - **0.3** — application Tauri : ouvrir, organiser, pipeline, panneau de
   conformité PDF/A (validation veraPDF externe puis moteur interne).
-- **0.4** — chiffrement R6, PDF 2.0 en écriture, PDF/X.
+- **0.4** — chiffrement à l'écriture (révision 6), PDF 2.0 en écriture, PDF/X.
 - **0.5** — OCR (module natif Tesseract), PAdES.
 - **1.0** — API des modules gelée, catalogue signé, PDF/E, PDF/UA.

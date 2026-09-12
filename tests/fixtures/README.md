@@ -48,7 +48,19 @@ reconstruisant la xref par scan (`Document::reconstructed()` non vide) :
 - `prev-loop.pdf` — voir ci-dessus : la boucle `/Prev` est une table
   inutilisable, donc un cas de reconstruction.
 
-`xrefstream.pdf`, `objstm.pdf` et `hybrid.pdf` sont produits par les tests
+Fichiers chiffrés par le handler de sécurité standard (ISO 32000-2, 7.6),
+mot de passe utilisateur vide, mot de passe propriétaire `owner`, produits
+par `fixtures_gen.rs` avec `fyp-crypto` (vecteurs d'initialisation et sels
+fixes, donc fichiers identiques à chaque exécution). Chacun contient la page
+de `minimal.pdf` avec un flux de contenu Flate puis chiffré, et un
+dictionnaire `/Info` dont le `/Title` est une chaîne chiffrée :
+
+- `encrypted-rc4.pdf` — révision 3, `/V 2`, RC4 128 bits, PDF 1.4.
+- `encrypted-aes256.pdf` — révision 6, `/V 5`, AES-256 par le crypt filter
+  `/StdCF` (`/CFM /AESV3`), PDF 2.0.
+
+`xrefstream.pdf`, `objstm.pdf`, `hybrid.pdf`, `inuse-offset-zero.pdf`,
+`encrypted-rc4.pdf` et `encrypted-aes256.pdf` sont produits par les tests
 `#[ignore]` de `crates/fyp-core/tests/fixtures_gen.rs`, qui calculent les
 offsets et écrivent des fichiers identiques à chaque exécution :
 
@@ -56,5 +68,4 @@ offsets et écrivent des fichiers identiques à chaque exécution :
 cargo test -p fyp-core --test fixtures_gen -- --ignored
 ```
 
-À ajouter au fil du développement : fichier chiffré RC4/AES, `/Length`
-indirect, LZWDecode.
+À ajouter au fil du développement : `/Length` indirect, LZWDecode.
