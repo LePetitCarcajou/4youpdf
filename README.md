@@ -22,6 +22,8 @@ cargo build --workspace
 cargo test --workspace
 cargo run -p fyp-cli -- info tests/fixtures/minimal.pdf
 cargo run -p fyp-cli -- modules plugins --trusted
+python tools/fetch_ui_tools.py && python tools/fetch_pdfium.py && python tools/build_ui.py
+cargo run -p fyp-app
 ```
 
 ## Structure
@@ -35,7 +37,7 @@ cargo run -p fyp-cli -- modules plugins --trusted
 | `crates/fyp-host` | chargement des modules, permissions, limites |
 | `crates/fyp-cli` | binaire `fyp` |
 | `plugins/` | modules officiels |
-| `app/` | application desktop Tauri (jalon 0.3) |
+| `app/` | application desktop Tauri (jalon 0.3) : voir `app/README.md` |
 | `tests/` | fixtures et corpus (git-lfs) |
 | `fuzz/` | cibles cargo-fuzz |
 | `docs/` | architecture, ADR, format de manifeste |

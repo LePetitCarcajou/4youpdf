@@ -8,6 +8,7 @@ members = [
     "crates/fyp-host",
     "crates/fyp-cli",
     "plugins/merge",
+    "app",
 ]
 exclude = ["fuzz"]
 

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>4YouPDF</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="toolbar" role="toolbar" aria-label="Actions">
+    <button id="open" type="button" title="Ouvrir un PDF (Ctrl+O)">Ouvrir…</button>
+    <span class="doc-name" id="doc-name" aria-live="polite">Aucun document</span>
+    <span class="spacer"></span>
+    <button id="undo" type="button" title="Annuler (Ctrl+Z)" disabled>Annuler</button>
+    <button id="redo" type="button" title="Refaire (Ctrl+Y)" disabled>Refaire</button>
+    <button id="delete" type="button" title="Supprimer les pages sélectionnées (Suppr)" disabled>Supprimer</button>
+    <button id="save" type="button" class="primary" title="Enregistrer sous… (Ctrl+S)" disabled>Enregistrer sous…</button>
+  </header>
+
+  <section id="notices" class="notices" aria-live="polite"></section>
+
+  <main id="grid-root" class="grid-root">
+    <div id="empty" class="empty">
+      <p>Glissez un PDF ici, ou <button id="open-empty" type="button" class="link">choisissez un fichier</button>.</p>
+      <p class="hint">Réorganisez les pages en les faisant glisser ; supprimez-les avec le bouton de chaque vignette, la touche Suppr ou le clic droit.</p>
+    </div>
+    <div id="grid" class="grid" role="list" aria-label="Pages" hidden></div>
+    <div id="drop-marker" class="drop-marker" hidden></div>
+  </main>
+
+  <footer class="status" id="status" aria-live="polite">
+    <span id="status-text">Prêt.</span>
+    <span class="spacer"></span>
+    <span id="renderer-status" class="muted"></span>
+  </footer>
+
+  <div id="context-menu" class="context-menu" role="menu" hidden>
+    <button type="button" role="menuitem" data-action="delete">Supprimer</button>
+    <button type="button" role="menuitem" data-action="move-first">Déplacer au début</button>
+    <button type="button" role="menuitem" data-action="move-last">Déplacer à la fin</button>
+  </div>
+
+  <div id="drop-overlay" class="drop-overlay" hidden>Déposer pour ouvrir</div>
+
+  <script src="main.js"></script>
+</body>
+</html>

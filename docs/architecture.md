@@ -380,6 +380,50 @@ la recherche d'un objet par numéro dans un object stream dont l'index de la
 table est faux, est désormais un `BTreeMap` construit au décodage
 (`ObjectStream::by_number`).
 
+## Application desktop (`app/`)
+
+Tauri 2 côté Rust, interface en TypeScript et CSS sans framework, compilée
+par deux binaires autonomes (esbuild, tsgo) récupérés par
+`tools/fetch_ui_tools.py` : aucun Node.js requis. Voir `app/README.md`
+pour construire et lancer.
+
+Première étape du jalon 0.3 : une fenêtre qui ouvre un PDF, montre ses
+pages en vignettes, permet de les réordonner et de les supprimer, et
+enregistre le résultat. Répartition :
+
+- **Côté Rust (`app/src/`)**, la seule partie qui touche au disque et au
+  noyau. `session.rs` ouvre le fichier par `Document::open_with_password`,
+  liste les pages par `ops::pages` (taille et rotation pour une vignette
+  vide au bon format, avant l'image) et enregistre par
+  `ops::extract_pages`, après relecture du résultat. `main.rs` expose
+  sept commandes : ouvrir, fermer, état du rendu, rendre une page,
+  enregistrer, et les deux sélecteurs de fichiers du système (appelés
+  depuis Rust par le plugin `dialog`, pas depuis l'interface).
+- **Rendu (`app/src/render.rs`)** : PDFium par `pdfium-render`, chargé à
+  l'exécution, sur un thread dédié qui sert les demandes une par une.
+  Dépendance temporaire et confinée à ce module (ADR 0005) : l'interface
+  ne voit qu'un service « page N, largeur W → PNG » et son état ; sans la
+  bibliothèque, tout fonctionne avec des vignettes vides.
+- **Interface (`app/ui/`)** : l'ordre des pages et l'historique
+  annuler/refaire vivent dans l'interface (`history.ts`) ; le côté Rust ne
+  connaît que le document ouvert. Les vignettes se chargent au fil du
+  défilement (`thumbnails.ts`, `IntersectionObserver`, trois demandes à la
+  fois, pages visibles d'abord) et sont mises en cache par page source, si
+  bien que réordonner ne redessine rien. Le glisser-déposer des vignettes
+  passe par les événements de pointeur, pas par le glisser-déposer HTML5 :
+  Tauri l'intercepte pour le dépôt de fichiers natif, qui reste actif.
+- **ADR 0004 appliqué** : une seule fenêtre, aucune boîte modale (le mot
+  de passe d'un fichier chiffré est demandé dans un bandeau, les erreurs et
+  les avertissements aussi), actions contextuelles sur les vignettes
+  (bouton de suppression, menu du clic droit, clavier). Un document réparé
+  ou chiffré est annoncé avec les mots de `fyp info`, et l'enregistrement
+  d'un fichier chiffré est annoncé comme produisant un fichier en clair.
+
+Ce qui manque encore et vient ensuite : la palette de commandes, le
+panneau de conformité, les modules, la lecture par blocs et le budget
+mémoire de l'ADR 0004 (un document ouvert est aujourd'hui entier en
+mémoire, deux fois avec PDFium).
+
 ## Modules
 
 Un module = un dossier avec `manifest.toml` + code. Voir `plugin-manifest.md`.
@@ -399,7 +443,8 @@ L'hôte re-parse et valide tout document renvoyé par un module.
   découpage, rotation, suppression ; `fyp merge`, `fyp pages`, `fyp split`),
   faites ; puis chargement WASM (Wasmtime), permissions, limites ; premier
   module réel.
-- **0.3** — application Tauri : ouvrir, organiser, pipeline, panneau de
+- **0.3** — application Tauri : ouvrir, organiser (fait : fenêtre,
+  vignettes, réordonner, supprimer, enregistrer), pipeline, panneau de
   conformité PDF/A (validation veraPDF externe puis moteur interne).
 - **0.4** — chiffrement à l'écriture (révision 6), PDF 2.0 en écriture, PDF/X.
 - **0.5** — OCR (module natif Tesseract), PAdES.

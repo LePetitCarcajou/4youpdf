@@ -40,6 +40,17 @@ l'utilisateur regarde déjà.
    sont alimentées automatiquement par le champ `actions` des manifestes
    (`id`, `label`, `category`, voir `docs/plugin-manifest.md`). Ajouter un
    module n'exige aucune modification de l'interface.
+6. **Aperçu de l'effet avant application.** Tout réglage montre ce qu'il
+   produira avant d'être appliqué. Un champ numérique seul (« largeur de
+   brosse : 32 », « qualité : 75 ») oblige à l'essai-erreur : la valeur
+   s'accompagne d'une prévisualisation en direct, et le curseur ou la
+   sélection reflète le réglage réel sur le document.
+7. **Une liste unique de réglages, avec recherche.** Pas un onglet par
+   composant interne du logiciel : l'utilisateur cherche « langue » ou
+   « dossier de sortie », il ne sait pas quel composant les détient.
+8. **Plusieurs documents ouverts dans la même fenêtre.** Les opérations
+   multi-documents (fusion, comparaison) portent sur les documents déjà
+   ouverts plutôt que sur des fichiers à repiquer sur le disque.
 
 ## Conséquences
 - **La palette devient un composant critique.** Sa qualité de recherche
@@ -86,3 +97,70 @@ l'utilisateur regarde déjà.
   clique ailleurs, et l'action n'est lancée que par le bouton qui la nomme.
   Entrée pressée par réflexe, clic en dehors du panneau ou fermeture du
   panneau ne valent jamais accord.
+- **L'aperçu emprunte le chemin de l'application réelle.** Une
+  prévisualisation qui approxime l'effet ment, et ramène l'essai-erreur
+  qu'elle devait supprimer. Elle exécute le même code que l'application,
+  sur une copie en mémoire, restreinte à ce qui est visible (la page
+  affichée, une vignette) pour tenir le temps réel. Quand seule une
+  estimation est possible, comme la taille finale d'un fichier compressé à
+  « qualité : 75 », l'interface le dit. Chaque nouvelle valeur annule le
+  calcul précédent encore en cours, et les limites de ressources de
+  l'ADR 0003 s'appliquent à l'aperçu comme à l'exécution.
+- **Le rendu de page devient un prérequis de l'interface.** Il n'y a pas
+  d'aperçu sans page affichée. Le module de rendu, officiel et natif selon
+  l'ADR 0003, doit être disponible dès le jalon 0.3, et assez rapide pour
+  redessiner une page à chaque réglage modifié, pas seulement à l'ouverture.
+- **Les modules décrivent leurs paramètres, l'hôte dessine les contrôles.**
+  Pour qu'un réglage de module ait son aperçu et entre dans la liste
+  unique, le manifeste déclare chaque paramètre : type, bornes, unité,
+  valeur par défaut, libellé et explication traduits, mots-clés de
+  recherche. L'hôte construit le contrôle, affiche l'aperçu et range le
+  réglage ; un module ne fournit pas d'écran de réglages à lui. Le contrat
+  distingue « calculer un aperçu » d'« appliquer » : calculer un aperçu ne
+  vaut pas exécution et ne déclenche jamais la confirmation d'une
+  permission sensible, si bien qu'un module qui a besoin du réseau pour
+  calculer son effet n'a pas d'aperçu en direct tant que la permission
+  n'est pas accordée. Cette évolution de `fyp-plugin-api` s'ajoute à celle
+  du champ `actions` décrite plus haut et suit le même versionnage séparé.
+- **Les réglages forment un registre, pas des écrans.** Chaque réglage, de
+  l'application comme d'un module, est déclaré une fois avec un
+  identifiant stable ; la liste, la recherche et le stockage en découlent.
+  La recherche réutilise le moteur de la palette et ses exigences (fautes
+  de frappe, mots sans accents, deux langues), et la palette trouve aussi
+  les réglages : « dossier de sortie » tapé dans Ctrl+K y mène directement.
+  Les regroupements affichés suivent le sens (document, sortie, apparence,
+  sécurité), jamais le composant ; le module qui fournit un réglage
+  n'apparaît qu'en information secondaire, pour savoir lequel désactiver.
+- **Un module ne lit que ses propres réglages.** La liste est unique à
+  l'écran, pas dans les droits. Les identifiants sont préfixés par celui
+  du module (`org.4youpdf.merge.…`), ce qui écarte les collisions, et un
+  module n'accède ni aux réglages des autres ni à ceux de l'application,
+  sauf ceux que l'hôte expose explicitement à tous, comme la langue de
+  l'interface. Le « dossier de sortie » est un réglage de l'hôte : c'est
+  l'hôte qui écrit le document revalidé (ADR 0003), et ce réglage ne donne
+  à aucun module la permission `write_dir` sur ce dossier.
+- **Le noyau garde plusieurs documents vivants à la fois.** `Document`
+  emprunte les octets du fichier : chaque document ouvert garde son
+  fichier entier en mémoire, et dix fichiers de 200 Mio en occupent près
+  de 2 Gio avant tout rendu. `unsafe` étant interdit, la projection du
+  fichier en mémoire (mmap) n'est pas une issue. Il faut, avant le
+  jalon 0.3, une source d'octets qui lit le fichier par blocs à la demande,
+  et un budget mémoire global de l'hôte qui libère les caches (object
+  streams décodés, pages rendues) des documents qui ne sont pas à l'écran.
+- **Les opérations reçoivent des documents, pas des chemins.** C'est déjà
+  la forme du noyau (`ops::merge` prend des `Document` ouverts) et ce doit
+  être celle du contrat des modules : l'hôte transmet au module les
+  documents choisis parmi ceux qui sont ouverts. Un module de fusion ou de
+  comparaison n'a alors besoin ni de `read_dir` ni d'aucun accès au disque,
+  ce qui renforce l'ADR 0003. L'outil affiche en permanence sur quels
+  documents il porte et dans quel ordre, réordonnable à la souris ; la
+  palette classe Fusionner et Comparer plus haut dès que le nombre de
+  documents ouverts atteint le `min_inputs` de l'action. La comparaison
+  suppose deux documents visibles ensemble : la mise en page prévoit une
+  vue partagée dans la fenêtre unique dès la première version.
+- **Chaque document ouvert a son propre état.** Historique d'annulation et
+  modifications non enregistrées sont tenus par document. Fermer la
+  fenêtre alors que plusieurs documents sont modifiés passe par un arrêt
+  explicite qui les liste, comme toute action irréversible. Ouvrir un
+  fichier déjà ouvert ramène celui-ci au premier plan au lieu d'en créer
+  une seconde copie qui divergerait.

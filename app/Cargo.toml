@@ -1,0 +1,30 @@
+[package]
+name = "fyp-app"
+description = "4YouPDF desktop application: Tauri 2 window over fyp-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+fyp-core = { workspace = true }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+# Temporary page renderer (ADR 0005): PDFium behind the `render` module.
+pdfium-render = { version = "0.9", default-features = false, features = [
+    "pdfium_latest",
+    "image_latest",
+    "thread_safe",
+] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+base64 = "0.22"
+
+[lints]
+workspace = true

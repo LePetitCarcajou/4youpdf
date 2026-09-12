@@ -9,6 +9,19 @@ targets = [
 [advisories]
 version = 2
 yanked = "deny"
+# "Unmaintained" notices (no vulnerability) pulled in by Tauri 2 through
+# `tauri-utils` → `urlpattern` (unic-*) and by its macros
+# (proc-macro-error). Nothing of ours calls them; they parse URL patterns
+# and derive macros at build time. Re-check each time `tauri` is bumped:
+# `cargo deny check advisories` with these lines removed.
+ignore = [
+    { id = "RUSTSEC-2024-0370", reason = "proc-macro-error, build-time only, via tauri 2" },
+    { id = "RUSTSEC-2025-0075", reason = "unic-char-range via tauri-utils/urlpattern" },
+    { id = "RUSTSEC-2025-0080", reason = "unic-common via tauri-utils/urlpattern" },
+    { id = "RUSTSEC-2025-0081", reason = "unic-char-property via tauri-utils/urlpattern" },
+    { id = "RUSTSEC-2025-0098", reason = "unic-ucd-version via tauri-utils/urlpattern" },
+    { id = "RUSTSEC-2025-0100", reason = "unic-ucd-ident via tauri-utils/urlpattern" },
+]
 
 [licenses]
 version = 2
