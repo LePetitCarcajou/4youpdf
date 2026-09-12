@@ -27,8 +27,9 @@
 
 use std::borrow::Borrow;
 use std::collections::BTreeMap;
-use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::Write as _;
+
+use md5::{Digest, Md5};
 
 use crate::document::Document;
 use crate::lexer::is_delimiter;
@@ -63,7 +64,8 @@ pub struct Writer {
 const BINARY_COMMENT: &[u8] = b"%\xE2\xE3\xCF\xD3\n";
 
 /// Largest byte offset a classic table entry can hold: ten digits (7.5.4).
-const MAX_TABLE_OFFSET: usize = 9_999_999_999;
+/// A `u64`: the literal does not fit a 32-bit `usize` (wasm32 modules).
+const MAX_TABLE_OFFSET: u64 = 9_999_999_999;
 
 /// A file that was never updated has one cross-reference subsection
 /// starting at object 0 (7.5.4), so every unused number below the highest
@@ -255,18 +257,12 @@ fn describes_file_layout(obj: &Object) -> bool {
     }
 }
 
-/// Sixteen bytes derived from `body`, for `/ID`. Deterministic: the same
-/// content gives the same identifier.
+/// Sixteen bytes derived from `body`, for `/ID`: its MD5 digest, as
+/// ISO 32000-2, 14.4 suggests. Deterministic on every platform and
+/// toolchain, so a module compiled to wasm32 writes the same bytes as the
+/// host (a `std` hasher would hash the slice length as a `usize`).
 fn file_id(body: &[u8]) -> [u8; 16] {
-    let mut first = DefaultHasher::new();
-    body.hash(&mut first);
-    let mut second = DefaultHasher::new();
-    0x3446_5950_4446_4944_u64.hash(&mut second);
-    body.hash(&mut second);
-    let mut id = [0u8; 16];
-    id[..8].copy_from_slice(&first.finish().to_be_bytes());
-    id[8..].copy_from_slice(&second.finish().to_be_bytes());
-    id
+    Md5::digest(body).into()
 }
 
 /// Classic table and trailer (7.5.4, 7.5.5). Returns the offset of `xref`.
@@ -303,7 +299,7 @@ fn write_table(
         };
         match written.get(&n) {
             Some(&(offset, gen)) => {
-                if offset > MAX_TABLE_OFFSET {
+                if u64::try_from(offset).map_or(true, |o| o > MAX_TABLE_OFFSET) {
                     return Err(unwritable(
                         "object offset beyond the ten digits of a table entry",
                     ));

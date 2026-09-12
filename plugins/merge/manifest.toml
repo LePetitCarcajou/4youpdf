@@ -1,7 +1,7 @@
 id = "org.4youpdf.merge"
 name = "Fusionner"
 version = "0.1.0"
-api_version = "0.1.0"
+api_version = "0.2.0"
 license = "AGPL-3.0-or-later"
 source = "https://github.com/4youpdf/4youpdf/tree/main/plugins/merge"
 runtime = "wasm"

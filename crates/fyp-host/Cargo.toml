@@ -3,7 +3,8 @@ name = "fyp-host"
 description = "Loads 4YouPDF modules, enforces permissions and resource limits"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
+# Wasmtime 48 (LTS) needs Rust 1.95.
+rust-version = "1.95"
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
@@ -12,7 +13,19 @@ authors.workspace = true
 fyp-core = { workspace = true }
 fyp-plugin-api = { workspace = true }
 thiserror = { workspace = true }
-# Next milestone: wasmtime = { version = "..", default-features = false, features = ["cranelift", "wasi"] }
+# The sandbox (ADR 0003). No `wat`: the host only loads binary modules.
+# No `wasi` crate either: the few WASI functions a module receives are
+# implemented in `sandbox.rs`, none of them touches the system.
+wasmtime = { version = "48.0.2", default-features = false, features = [
+    "runtime",
+    "cranelift",
+    "std",
+    "parallel-compilation",
+] }
+
+[dev-dependencies]
+# Hostile test modules are written in the text format.
+wat = "1"
 
 [lints]
 workspace = true

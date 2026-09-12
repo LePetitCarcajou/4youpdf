@@ -15,9 +15,12 @@ Ce diagramme répond à la question « qui a le droit de dépendre de qui ? ».
 C'est la vue d'ensemble de `architecture.md`, avec les flèches de dépendance
 telles que les manifestes Cargo les déclarent. Toutes vont vers le bas : le
 noyau ne connaît ni l'hôte, ni les modules, ni l'interface ; le contrat des
-modules ne connaît pas le noyau ; un module tiers ne voit que le contrat.
-Avant d'ajouter une dépendance entre deux crates, vérifier qu'une flèche
-existe ici dans ce sens.
+modules ne connaît pas le noyau ; un module ne parle à l'hôte que par le
+contrat. La flèche pointillée est une dépendance de compilation, pas un
+canal : un module peut embarquer le noyau comme bibliothèque dans son
+binaire WebAssembly, où ce code tourne sous la sandbox. Avant d'ajouter une
+dépendance entre deux crates, vérifier qu'une flèche existe ici dans ce
+sens.
 
 ```mermaid
 flowchart TB
@@ -51,6 +54,7 @@ flowchart TB
     conformance --> core
     core --> crypto
     plugins --> api
+    plugins -. "compilé dans le module,<br/>sans autorité" .-> core
 ```
 
 Le contrat (`fyp-plugin-api`) n'a aucune flèche sortante vers le reste du
@@ -170,29 +174,47 @@ gomme en réécrivant tout au premier niveau.
 ## 4. Cycle de vie d'un module
 
 Ce diagramme répond à la question « par quelles portes passe un module
-tiers avant que son résultat soit accepté ? ». Il met en ordre les six
-étapes de l'ADR 0003 : découverte, parsing, validation statique,
-présentation des permissions, exécution sous sandbox, re-validation. Un
-module hostile est l'hypothèse par défaut : chaque étape peut le rejeter, et
-le document source n'est jamais modifié en place. La découverte et la
-validation existent dans l'hôte ; l'exécution sandboxée et la re-validation
-sont le programme du jalon 0.2.
+tiers avant que son résultat soit accepté ? ». Il met en ordre les étapes
+de l'ADR 0003 : découverte, parsing, validation statique, chargement du
+code, présentation des permissions, vérification de la demande, exécution
+sous sandbox, re-validation. Un module hostile est l'hypothèse par défaut :
+chaque étape peut le rejeter, et le document source n'est jamais modifié en
+place. Tout existe dans l'hôte sauf la présentation des permissions, qui
+attend l'interface (jalon 0.3) ; d'ici là seules les permissions de
+document, qui ne sont pas sensibles, peuvent être accordées.
+
+Dans la sandbox, le module ne voit que sa requête et ne produit que sa
+réponse. Les limites ne sont pas des étapes mais une surveillance
+permanente : le premier dépassement arrête le module, où qu'il en soit.
 
 ```mermaid
 flowchart TD
     disk["Dossier de modules sur disque<br/>un sous-dossier par module"] --> find["Découverte :<br/>chaque sous-dossier avec un manifeste"]
     find --> parse{"Manifeste<br/>lisible ?"}
     parse -- non --> rejected["Refusé, avec la raison<br/>montrée à l'utilisateur"]
-    parse -- oui --> validate{"Validation statique :<br/>version d'API compatible,<br/>runtime autorisé ici,<br/>permissions bien formées,<br/>signature si exigée"}
+    parse -- oui --> validate{"Validation statique :<br/>version d'API compatible,<br/>runtime autorisé ici,<br/>permissions et paramètres bien formés,<br/>signature si exigée"}
     validate -- non --> rejected
     validate -- oui --> listed["Module proposé dans l'interface<br/>(palette, barre latérale)"]
-    listed --> ask["Première exécution :<br/>permissions présentées,<br/>les sensibles en évidence,<br/>confirmation active"]
+    listed --> load{"Chargement du code :<br/>une commande WebAssembly,<br/>permissions que l'hôte sait fournir ?"}
+    load -- non --> rejected
+    load -- oui --> ask["Première exécution :<br/>permissions présentées,<br/>les sensibles en évidence,<br/>confirmation active"]
     ask -- refus --> stop["Non exécuté"]
-    ask -- accord --> run["Exécution dans la sandbox WebAssembly<br/>sur une copie du document,<br/>capacités accordées seulement,<br/>limites de temps, mémoire, taille"]
-    run -- "limite dépassée<br/>ou erreur" --> abort["Arrêt propre,<br/>document source intact"]
-    run -- "document renvoyé" --> revalidate{"Re-validation par le noyau :<br/>le résultat est-il un PDF<br/>que l'on sait relire ?"}
+    ask -- accord --> check{"Demande conforme au manifeste :<br/>action, nombre de documents,<br/>paramètres ?"}
+    check -- non --> stop
+    check -- oui --> run
+
+    subgraph sandbox["Exécution sandboxée"]
+        run["Le module reçoit une copie des documents<br/>et ses paramètres, rend une réponse ;<br/>rien d'autre : ni fichier, ni réseau,<br/>ni horloge, ni aléa"]
+        watch["Surveillance permanente :<br/>temps, mémoire, taille de la réponse,<br/>appel d'une fonction non fournie"]
+        run --- watch
+    end
+
+    watch -- "limite dépassée,<br/>fonction refusée,<br/>plantage" --> abort["Arrêt propre avec sa cause,<br/>document source intact"]
+    run -- "réponse : une erreur" --> abort
+    run -- "réponse : un document" --> revalidate{"Re-validation par le noyau :<br/>le résultat se relit-il,<br/>reconstruit au besoin,<br/>avec au moins une page ?"}
     revalidate -- non --> abort
-    revalidate -- oui --> replace["Remplacement atomique<br/>du document"]
+    revalidate -- oui --> rewrite["Réécriture par le noyau :<br/>seule la réécriture sort de l'hôte,<br/>jamais les octets du module"]
+    rewrite --> replace["Remplacement atomique<br/>du document"]
 
     classDef fail fill:#f8d7da,stroke:#b02a37,color:#000
     class rejected,stop,abort fail

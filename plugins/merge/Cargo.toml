@@ -8,11 +8,19 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+# A WASI command for wasm32-wasip1: `tools/build_modules.py` builds the
+# binary and copies it to `module.wasm`, next to `manifest.toml`.
 [lib]
-crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+[[bin]]
+name = "fyp-plugin-merge"
+path = "src/main.rs"
 
 [dependencies]
 fyp-plugin-api = { workspace = true }
+# Compiled into the module, inside the sandbox: the same merge as the core.
+fyp-core = { workspace = true }
 
 [lints]
 workspace = true

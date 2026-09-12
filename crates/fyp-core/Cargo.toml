@@ -11,6 +11,8 @@ authors.workspace = true
 [dependencies]
 flate2.workspace = true
 fyp-crypto = { workspace = true }
+# File identifiers (ISO 32000-2, 14.4): same bytes on every platform.
+md-5 = "0.10"
 
 [lints]
 workspace = true

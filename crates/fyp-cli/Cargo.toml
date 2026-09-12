@@ -3,7 +3,8 @@ name = "fyp-cli"
 description = "4YouPDF command-line interface"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
+# Through fyp-host: Wasmtime 48 needs Rust 1.95.
+rust-version = "1.95"
 license.workspace = true
 repository.workspace = true
 authors.workspace = true

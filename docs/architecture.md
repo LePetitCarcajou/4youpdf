@@ -16,13 +16,20 @@
 ├──────────────────────────────────────────────────────────┤
 │  fyp-crypto — handler de sécurité standard (7.6)          │  primitives
 └──────────────────────────────────────────────────────────┘
-        plugins/* ──dépendent uniquement de──▶ fyp-plugin-api
+        plugins/* ──dépendent du contrat──▶ fyp-plugin-api
+                  ··peuvent embarquer, dans leur binaire WASM··▶ fyp-core
 ```
 
 Les flèches de dépendance vont toujours vers le bas. `fyp-core` ne connaît ni
 les plugins, ni l'hôte, ni l'interface. Il s'appuie sur `fyp-crypto`, crate
 feuille qui ne dépend d'aucune autre crate du projet : elle reçoit les valeurs
 du dictionnaire `/Encrypt` et des octets, jamais des objets PDF.
+
+Un module ne dépend jamais de l'hôte ni d'une interface. Il parle à l'hôte
+par le seul contrat, et peut embarquer `fyp-core` comme bibliothèque : ce
+code est compilé dans son binaire WebAssembly et s'exécute dans la sandbox,
+sans rien lui accorder de plus (c'est le cas du module de fusion). Le noyau
+compile donc aussi pour `wasm32-wasip1`, vérifié par la CI.
 
 Quatre diagrammes Mermaid complètent ce document dans `diagrams.md` : les
 couches et leurs dépendances, le parcours d'un fichier à l'ouverture, le
@@ -185,7 +192,9 @@ et `%%EOF`. La lecture est tolérante, l'écriture est stricte :
   `/XRefStm`. `/ID` : la première chaîne est conservée si la source en a
   une, sinon dérivée du contenu ; la seconde est toujours recalculée
   d'après le contenu (14.4), donc réécrire un fichier déjà réécrit donne
-  exactement les mêmes octets.
+  exactement les mêmes octets. La dérivation est le MD5 du corps du
+  fichier : les mêmes octets sur toutes les plateformes, wasm32 compris,
+  si bien qu'un module qui embarque le noyau écrit ce qu'écrirait l'hôte.
 - `XrefStyle::Table` : une seule sous-section à partir de 0 (7.5.4), une
   entrée de 20 octets par numéro, liste des entrées libres chaînée
   (0 → premier trou → … → 0), générations des entrées libres de la source
@@ -426,14 +435,74 @@ mémoire, deux fois avec PDFium).
 
 ## Modules
 
-Un module = un dossier avec `manifest.toml` + code. Voir `plugin-manifest.md`.
-Deux runtimes :
+Un module = un dossier avec `manifest.toml` + `module.wasm`. Voir
+`plugin-manifest.md`. Deux runtimes :
 
-- `wasm` : sandbox Wasmtime + WASI. Obligatoire pour tout module tiers.
+- `wasm` : sandbox Wasmtime. Obligatoire pour tout module tiers.
 - `native` : crate Rust compilé dans l'hôte. Réservé aux modules du dépôt,
-  revus, pour les traitements lourds (OCR, rendu).
+  revus, pour les traitements lourds (OCR, rendu). Pas encore chargé.
 
-L'hôte re-parse et valide tout document renvoyé par un module.
+### Chargement et exécution (`fyp-host`)
+
+Détail et justification : ADR 0003, section « Mise en œuvre ».
+
+- **Découverte** (`discover`) : chaque sous-dossier qui a un manifeste,
+  validé avant toute lecture de code ; les refus sont rendus, pas tus.
+- **Chargement** (`Host::load`) : `module.wasm` (64 Mio au plus) compilé par
+  Wasmtime 48. Refus si ce n'est pas une commande WASI (`_start`, `memory`
+  non partagée), si une importation n'est pas une fonction ou contredit la
+  signature WASI de son nom, ou si le manifeste demande une permission que
+  l'hôte ne fournit pas encore (toutes sauf `read_document` et
+  `write_document`). Chaque importation hors des quatorze fonctions WASI
+  que l'hôte implémente (`wasi.rs`, aucune ne touche au système) est liée à
+  un piège qui la nomme.
+- **Exécution** (`LoadedModule::run`) : action, `min_inputs` et paramètres
+  vérifiés ; requête encodée sur l'entrée standard
+  (`fyp_plugin_api::exchange`) ; store neuf avec les limites du manifeste ;
+  `_start` sur un thread dédié, époque du moteur avancée toutes les 10 ms
+  par un second thread.
+- **Arrêts**, tous des `HostError` : temps (`Timeout`), mémoire
+  (`MemoryExceeded`), sortie (`OutputTooLarge`), capacité non accordée
+  (`CapabilityDenied`), piège du module (`Trapped`, avec sa sortie
+  d'erreur), code de sortie non nul (`Exited`), réponse illisible
+  (`BadResponse`), erreur rendue par le module (`ModuleFailed`). Les
+  documents d'entrée sont empruntés en lecture seule.
+- **Re-validation** (`revalidate`) : `Document::open` (reconstruction si
+  besoin), au moins une page, réécriture par le writer (table classique, ou
+  flux xref si la numérotation est trop éparse), relecture sans
+  réparation. Seule la réécriture est rendue (`RunOutput::document`) ; une
+  reconstruction est signalée (`RunOutput::reconstructed`).
+
+Le module de fusion (`plugins/merge`) est une crate à deux cibles : la
+bibliothèque (`handle`, testée en natif) appelle `ops::merge`, le binaire
+est la commande WASI (`fyp_plugin_api::module::serve`). Compilé pour
+`wasm32-wasip1` (560 Kio en release), il n'importe que `fd_read`,
+`fd_write`, `environ_get`, `environ_sizes_get`, `random_get` et
+`proc_exit`. `python tools/build_modules.py` construit chaque module du
+dépôt et le copie en `plugins/<nom>/module.wasm` (ignoré par Git).
+
+`fyp run <action> entrées… -o sortie [--param nom=valeur] [--modules
+dossier] [--module id] [--password …]` emprunte tout ce chemin : découverte,
+choix du module qui déclare l'action, entrées chiffrées déchiffrées par
+l'hôte (le module ne reçoit jamais le mot de passe), exécution,
+re-validation, écriture et relecture du résultat.
+
+Tests (`crates/fyp-host/tests/sandbox.rs`, modules hostiles écrits en WAT) :
+boucle infinie simple, dans la section `start` et en appels à l'hôte,
+arrêtées au délai ; croissance de la mémoire et mémoire initiale trop
+grande ; sortie sans fin ; appels à `path_open`, `sock_accept`,
+`clock_time_get`, `poll_oneoff` et à une importation `env` ; pointeurs hors
+mémoire (`EFAULT` pour le module, pas de panique) ; aucun dossier
+préouvert, environnement vide ; permissions non déclarées ou indisponibles ;
+paramètres refusés avant le démarrage ; modules malformés refusés au
+chargement ; documents corrompus rejetés à la re-validation, objet illisible
+absent de la réécriture. Avec `plugins/merge/module.wasm` : mêmes octets que
+`ops::merge` sur trois jeux de fixtures (dont un fichier chiffré et un
+hybride) et, quand le corpus est là, sur deux de ses fichiers ;
+`crates/fyp-cli/tests/run.rs` vérifie la même chose par la ligne de
+commande. Ces tests sautent sans `module.wasm`, sauf avec
+`FYP_REQUIRE_MODULES=1` : c'est le cas du job `wasm` de la CI, qui construit
+d'abord les modules.
 
 ## Feuille de route
 
@@ -441,8 +510,10 @@ L'hôte re-parse et valide tout document renvoyé par un module.
   `fyp rewrite` ; round-trip sur 100 % du corpus ; fuzzing sans crash.
 - **0.2** — opérations de pages dans le noyau (`ops` : fusion, extraction,
   découpage, rotation, suppression ; `fyp merge`, `fyp pages`, `fyp split`),
-  faites ; puis chargement WASM (Wasmtime), permissions, limites ; premier
-  module réel.
+  faites ; chargement WASM (Wasmtime 48, WASI fourni par l'hôte), permissions
+  `read_document` et `write_document`, limites appliquées par le runtime,
+  re-validation, module de fusion réel et `fyp run`, faits ; restent les
+  permissions de dossier, de réseau et de sous-processus.
 - **0.3** — application Tauri : ouvrir, organiser (fait : fenêtre,
   vignettes, réordonner, supprimer, enregistrer), pipeline, panneau de
   conformité PDF/A (validation veraPDF externe puis moteur interne).

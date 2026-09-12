@@ -64,16 +64,25 @@ jobs:
       - run: cargo test --workspace
 
   wasm:
-    name: plugins build for wasm32-wasip1
+    name: modules in the WebAssembly sandbox
     needs: check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-wasip1
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build -p fyp-plugin-merge --target wasm32-wasip1 --release
+      # Builds each crate of plugins/ for wasm32-wasip1 and copies it to
+      # plugins/<name>/module.wasm, where fyp-host loads it.
+      - run: python3 tools/build_modules.py
+      # The sandbox and `fyp run` against the real modules: here a missing
+      # module.wasm fails the tests instead of skipping them.
+      - run: cargo test -p fyp-host -p fyp-cli -p fyp-plugin-merge
+        env:
+          FYP_REQUIRE_MODULES: "1"
 
   dco:
     name: DCO sign-off

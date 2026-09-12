@@ -22,6 +22,8 @@ cargo build --workspace
 cargo test --workspace
 cargo run -p fyp-cli -- info tests/fixtures/minimal.pdf
 cargo run -p fyp-cli -- modules plugins --trusted
+python tools/build_modules.py      # modules de plugins/ -> plugins/<nom>/module.wasm
+cargo run -p fyp-cli -- run merge tests/fixtures/minimal.pdf tests/fixtures/objstm.pdf -o fusion.pdf
 python tools/fetch_ui_tools.py && python tools/fetch_pdfium.py && python tools/build_ui.py
 cargo run -p fyp-app
 ```

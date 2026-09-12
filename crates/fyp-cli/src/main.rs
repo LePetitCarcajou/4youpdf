@@ -1,9 +1,13 @@
 //! `fyp` — the 4YouPDF command line.
 //!
 //! Milestone 0.1 commands: `info`, `rewrite`, `modules`. Milestone 0.2:
-//! `merge`, `pages extract|delete|rotate`, `split`, on `fyp_core::ops`.
+//! `merge`, `pages extract|delete|rotate`, `split`, on `fyp_core::ops`;
+//! `run`, which hands an action to a module in the WebAssembly sandbox.
 
 #![forbid(unsafe_code)]
+
+use std::borrow::Cow;
+use std::collections::BTreeMap;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
@@ -12,6 +16,7 @@ use fyp_core::encryption::{Cipher, Encryption};
 use fyp_core::ops;
 use fyp_core::writer::{Writer, XrefStyle};
 use fyp_core::xref::SectionKind;
+use fyp_host::ParamValue;
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
@@ -78,6 +83,31 @@ enum Cmd {
         #[arg(short, long)]
         output: PathBuf,
         /// Password of an encrypted input (the parts are in the clear)
+        #[arg(long, default_value = "")]
+        password: String,
+    },
+    /// Run a module's action in the WebAssembly sandbox:
+    /// `fyp run merge a.pdf b.pdf -o c.pdf`. The module's result is
+    /// re-validated and rewritten by the core before it is written.
+    Run {
+        /// Action to run, as declared in a module's manifest (e.g. `merge`)
+        action: String,
+        /// Documents handed to the module, in order
+        inputs: Vec<PathBuf>,
+        /// File to write
+        #[arg(short, long)]
+        output: PathBuf,
+        /// Parameter of the action, `name=value`; repeat for several
+        #[arg(long = "param", value_name = "NAME=VALUE")]
+        params: Vec<String>,
+        /// Directory containing one sub-directory per module
+        #[arg(long, default_value = "plugins")]
+        modules: PathBuf,
+        /// Module to use when several declare the action, e.g. `org.4youpdf.merge`
+        #[arg(long)]
+        module: Option<String>,
+        /// Password of the encrypted inputs: the host deciphers them and
+        /// the module never sees it (the output is in the clear)
         #[arg(long, default_value = "")]
         password: String,
     },
@@ -276,6 +306,117 @@ fn page_count(path: &Path, doc: &Document<'_>) -> anyhow::Result<usize> {
     ops::pages(doc)
         .map(|p| p.len())
         .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))
+}
+
+/// `fyp run`: find the module declaring `action`, hand it the inputs in
+/// its sandbox, write the re-validated result.
+fn run_action(
+    action: &str,
+    inputs: &[PathBuf],
+    output: &Path,
+    params: &[String],
+    modules: &Path,
+    module: Option<&str>,
+    password: &str,
+) -> anyhow::Result<()> {
+    let (found, refused) = fyp_host::discover(modules, false);
+    let candidates: Vec<&fyp_host::DiscoveredModule> = found
+        .iter()
+        .filter(|m| module.is_none_or(|id| m.manifest.id == id))
+        .filter(|m| m.manifest.actions.iter().any(|a| a.id == action))
+        .collect();
+    let chosen = match candidates.as_slice() {
+        [one] => *one,
+        [] => {
+            for e in &refused {
+                eprintln!("refusé: {e}");
+            }
+            anyhow::bail!(
+                "aucun module accepté dans {} ne déclare l'action « {action} »",
+                modules.display()
+            )
+        }
+        several => anyhow::bail!(
+            "plusieurs modules déclarent l'action « {action} » : {} (préciser --module)",
+            several
+                .iter()
+                .map(|m| m.manifest.id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    };
+    let declared = chosen
+        .manifest
+        .actions
+        .iter()
+        .find(|a| a.id == action)
+        .map(|a| a.params.as_slice())
+        .unwrap_or_default();
+    let mut values = BTreeMap::new();
+    for param in params {
+        let Some((name, text)) = param.split_once('=') else {
+            anyhow::bail!("paramètre « {param} » : écrire nom=valeur");
+        };
+        let Some(spec) = declared.iter().find(|p| p.id == name) else {
+            anyhow::bail!("l'action « {action} » n'a pas de paramètre « {name} »");
+        };
+        let value = ParamValue::parse(spec.kind, text)
+            .map_err(|e| anyhow::anyhow!("paramètre « {name} » : {e}"))?;
+        values.insert(name.to_string(), value);
+    }
+
+    let files: Vec<Vec<u8>> = inputs
+        .iter()
+        .map(|p| read_input(p))
+        .collect::<anyhow::Result<_>>()?;
+    let mut documents: Vec<Cow<'_, [u8]>> = Vec::with_capacity(files.len());
+    for (path, bytes) in inputs.iter().zip(&files) {
+        let doc = open_input(path, bytes, password)?;
+        // The module never receives a password: an encrypted input is
+        // deciphered here and handed over in the clear.
+        if doc.encryption().is_some() {
+            let clear = Writer::new(doc.version())
+                .write(&doc)
+                .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?;
+            documents.push(Cow::Owned(clear));
+        } else {
+            documents.push(Cow::Borrowed(bytes));
+        }
+    }
+
+    let host = fyp_host::Host::new().map_err(|e| anyhow::anyhow!("{e}"))?;
+    let loaded = host.load(chosen).map_err(|e| match e {
+        fyp_host::HostError::Io { .. } => anyhow::anyhow!(
+            "{e}\n(les modules du dépôt se construisent avec : python tools/build_modules.py)"
+        ),
+        e => anyhow::anyhow!("{e}"),
+    })?;
+    let permissions: Vec<String> = chosen
+        .manifest
+        .permissions
+        .iter()
+        .map(|p| format!("{p:?}"))
+        .collect();
+    println!(
+        "module       {} {} (sandbox WebAssembly, permissions [{}])",
+        chosen.manifest.id,
+        chosen.manifest.version,
+        permissions.join(", ")
+    );
+    let refs: Vec<&[u8]> = documents.iter().map(|d| d.as_ref()).collect();
+    let result = loaded
+        .run(action, &values, &refs)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    if !result.diagnostics.trim().is_empty() {
+        eprintln!("module (stderr) : {}", result.diagnostics.trim_end());
+    }
+    match &result.reconstructed {
+        Some(reason) => println!(
+            "revalidé     document du module reconstruit ({reason}), puis réécrit par le noyau"
+        ),
+        None => println!("revalidé     document du module relu et réécrit par le noyau"),
+    }
+    write_result(output, &result.document)
 }
 
 fn main() -> anyhow::Result<()> {
@@ -522,6 +663,23 @@ fn main() -> anyhow::Result<()> {
                 Err(e) => println!("pages        illisible ({e})"),
             }
         }
+        Cmd::Run {
+            action,
+            inputs,
+            output,
+            params,
+            modules,
+            module,
+            password,
+        } => run_action(
+            &action,
+            &inputs,
+            &output,
+            &params,
+            &modules,
+            module.as_deref(),
+            &password,
+        )?,
         Cmd::Modules { dir, trusted } => {
             let (found, errors) = fyp_host::discover(&dir, trusted);
             for m in &found {
