@@ -1,6 +1,7 @@
 # 4YouPDF — consignes pour Claude Code
 
-Lis d'abord : `README.md`, `docs/architecture.md`, `docs/adr/*.md`.
+Lis d'abord : `README.md`, `docs/architecture.md`, `docs/diagrams.md`,
+`docs/adr/*.md`.
 
 ## Invariants à ne jamais casser
 - `unsafe` interdit partout (`[workspace.lints.rust] unsafe_code = "forbid"`).
