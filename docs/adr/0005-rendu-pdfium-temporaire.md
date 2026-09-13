@@ -30,7 +30,9 @@ Les bibliothèques disponibles depuis Rust :
    ou Apache-2.0 (`pdfium-render`, ses dépendances) : compatibles avec
    l'AGPL-3.0, vérifiées par `cargo deny`. Le binaire n'est pas dans le
    dépôt : `tools/fetch_pdfium.py` récupère une version épinglée
-   (`chromium/8044`) dans `app/pdfium/`, ignoré par Git, avec sa licence.
+   (`chromium/8044`, empreinte SHA-256 vérifiée) dans `app/pdfium/`, ignoré
+   par Git, avec les licences de PDFium et des bibliothèques compilées
+   dedans.
 2. **Dépendance temporaire, confinée.** Seul le module `app/src/render.rs`
    connaît `pdfium-render`. Le reste de l'application, et l'interface,
    ne voient qu'un service : « page N du document ouvert, W pixels de
@@ -63,10 +65,16 @@ Les bibliothèques disponibles depuis Rust :
   le noyau pour la structure et par PDFium pour l'image : le mot de passe
   saisi dans l'interface est donné aux deux. Il reste en mémoire le temps
   de la session, jamais sur disque.
-- **Installation en deux temps** tant que le rendu est externe : le binaire
-  PDFium doit accompagner l'exécutable (à côté de lui, ou dans le dossier
-  `FYP_PDFIUM_DIR`). Le futur paquet d'installation l'embarquera avec sa
-  licence ; en développement, `tools/fetch_pdfium.py` suffit.
+- **Livré avec l'application** tant que le rendu est externe. L'installeur
+  et l'archive portable pour Windows (`tools/package_app.py`) mettent
+  `pdfium.dll` à côté de l'exécutable, avec la notice de sa compilation et
+  les licences de PDFium et des bibliothèques compilées dedans ;
+  `tools/fetch_pdfium.py` vérifie l'empreinte SHA-256 de l'archive épinglée.
+  Un paquet cherche la bibliothèque à côté de son exécutable ou dans le
+  dossier `FYP_PDFIUM_DIR`, jamais dans le dépôt dont il vient ; seul un
+  build de développement regarde aussi `app/pdfium/`. Sous Windows, pas de
+  recherche système : elle passe par le dossier courant et le `PATH`, où un
+  `pdfium.dll` déposé serait chargé à la place du nôtre.
 - **Une version épinglée.** `pdfium-render` cible une version précise de
   l'API PDFium (`pdfium_latest` de la crate) ; la version du binaire est
   fixée dans le script et changée délibérément, avec un passage sur les

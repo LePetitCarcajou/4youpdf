@@ -163,7 +163,7 @@ fn stack(n: usize, a: &str, b: &str) {
     assert!(errors.is_empty(), "{errors:?}");
     let merge = found
         .iter()
-        .find(|m| m.manifest.id == "org.4youpdf.merge")
+        .find(|m| m.manifest.id == "org.fouryoupdf.merge")
         .expect("plugins/merge discovered");
     let module = Host::new()
         .and_then(|host| host.load(merge))

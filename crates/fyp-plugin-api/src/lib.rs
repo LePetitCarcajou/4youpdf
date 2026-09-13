@@ -107,7 +107,7 @@ impl Default for Limits {
 /// the module code. Parsed and checked by the host before anything runs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {
-    /// Unique identifier, reverse-DNS style: `org.4youpdf.merge`.
+    /// Unique identifier, reverse-DNS style: `org.fouryoupdf.merge`.
     pub id: String,
     /// Human name shown in the UI.
     pub name: String,
@@ -325,12 +325,12 @@ mod tests {
     use super::*;
 
     const MERGE: &str = r#"
-id = "org.4youpdf.merge"
+id = "org.fouryoupdf.merge"
 name = "Fusionner"
 version = "0.1.0"
 api_version = "0.2.0"
 license = "AGPL-3.0-or-later"
-source = "https://github.com/4youpdf/4youpdf/tree/main/plugins/merge"
+source = "https://github.com/LePetitCarcajou/4youpdf/tree/main/plugins/merge"
 runtime = "wasm"
 permissions = [{ kind = "read_document" }, { kind = "write_document" }]
 
@@ -363,7 +363,7 @@ kind = "text"
     #[test]
     fn parses_and_validates() {
         let m = Manifest::from_toml(MERGE).expect("manifest");
-        assert_eq!(m.id, "org.4youpdf.merge");
+        assert_eq!(m.id, "org.fouryoupdf.merge");
         assert_eq!(m.limits, Limits::default());
         assert_eq!(m.actions[0].min_inputs, 2);
         assert!(m.actions[0].params.is_empty());

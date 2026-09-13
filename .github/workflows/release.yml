@@ -4,11 +4,25 @@ on:
   push:
     tags: ["v*"]
 
+# Read-only by default: only the job that publishes the release writes.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  # Nothing is built unless the tag names the version of the workspace, and
+  # the product crates take that version (tools/check_version.py, the check
+  # that tools/package_app.py --tag applies again before packaging).
+  version-check:
+    name: version check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/check_version.py --tag "$TAG"
+        env:
+          TAG: ${{ github.ref_name }}
+
   build:
+    needs: version-check
     strategy:
       matrix:
         include:
@@ -30,8 +44,47 @@ jobs:
           name: fyp-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/fyp*
 
-  changelog:
+  # The desktop application for Windows: NSIS installer and portable archive,
+  # both with PDFium (tools/package_app.py, app/README.md).
+  #
+  # Next steps, not built yet: the application for macOS (an .app in a .dmg,
+  # with libpdfium.dylib inside the bundle; signing and notarization, without
+  # which Gatekeeper refuses to open it) and for Linux (AppImage and .deb,
+  # with libpdfium.so, WebKitGTK being a dependency of the system). Both need
+  # their own branch in tools/package_app.py, which stops outside Windows;
+  # tools/fetch_pdfium.py already fetches the library of each platform.
+  app-windows:
+    name: application (Windows)
+    needs: version-check
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      # Pinned binaries that build and test the interface, and PDFium,
+      # each checked against its SHA-256.
+      - run: python tools/fetch_ui_tools.py
+      - run: python tools/fetch_pdfium.py
+      # Interface, Tauri CLI (built from crates.io), installer and portable
+      # archive; stops before building unless the tag is v<workspace version>.
+      - run: python tools/package_app.py --tag "$env:TAG" --out dist
+        env:
+          TAG: ${{ github.ref_name }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-windows
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: GitHub release
+    needs: [version-check, build, app-windows]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      # Build provenance of the attached files, checked with
+      # `gh attestation verify <file> --repo <owner>/<repository>`.
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,6 +93,20 @@ jobs:
         with:
           args: --latest --strip header
         id: cliff
+      - uses: actions/download-artifact@v4
+        with:
+          name: app-windows
+          path: dist
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*
+      - name: checksums
+        working-directory: dist
+        run: sha256sum -- *.exe *.zip | tee SHA256SUMS.txt
       - uses: softprops/action-gh-release@v2
         with:
           body: ${{ steps.cliff.outputs.content }}
+          files: |
+            dist/*.exe
+            dist/*.zip
+            dist/SHA256SUMS.txt

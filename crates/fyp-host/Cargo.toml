@@ -1,11 +1,11 @@
 [package]
 name = "fyp-host"
 description = "Loads 4YouPDF modules, enforces permissions and resource limits"
-# Ahead of the workspace since HostLimits and the new HostError variants.
+# Not the version of the workspace: the host is versioned with the contract
+# of the modules (CLAUDE.md, ADR 0003).
 version = "0.2.0"
 edition.workspace = true
-# Wasmtime 48 (LTS) needs Rust 1.95.
-rust-version = "1.95"
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- 4YouPDF, temporary mark: "4Y" drawn as plain shapes (no font) on the
+       accent colour of the interface. Every icon of this folder is generated
+       from this file: `cargo tauri icon icons/icon.svg` (see app/README.md). -->
+  <rect width="1024" height="1024" rx="192" fill="#1f4e79"/>
+  <path fill="#ffffff" d="M216 256H328L264 536H152Z M152 536H512V648H152Z M368 256H480V768H368Z M552 256H672L712 364L752 256H872L768 536V768H656V536Z"/>
+</svg>

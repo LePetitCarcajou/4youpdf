@@ -451,11 +451,16 @@ Répartition :
   (bouton de suppression, menu du clic droit, clavier). Un document réparé
   ou chiffré est annoncé avec les mots de `fyp info`, et l'enregistrement
   d'un fichier chiffré est annoncé comme produisant un fichier en clair.
+- **Distribution (Windows)** : un installeur NSIS, pour l'utilisateur
+  courant et sans droits d'administrateur, et une archive portable, tous
+  deux avec PDFium et les licences, construits par `tools/package_app.py`
+  et, sur un tag `v*`, par le workflow de release qui les attache à la
+  Release GitHub. Voir `app/README.md`, « Empaqueter pour Windows ».
 
 Ce qui manque encore et vient ensuite : la palette de commandes, le
-panneau de conformité, les modules, la lecture par blocs et le budget
-mémoire de l'ADR 0004 (un document ouvert est aujourd'hui entier en
-mémoire, deux fois avec PDFium).
+panneau de conformité, les modules, les paquets pour macOS et Linux, la
+lecture par blocs et le budget mémoire de l'ADR 0004 (un document ouvert
+est aujourd'hui entier en mémoire, deux fois avec PDFium).
 
 ## Modules
 

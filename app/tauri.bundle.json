@@ -1,0 +1,11 @@
+{
+  "bundle": {
+    "active": true,
+    "resources": {
+      "pdfium/pdfium.dll": "pdfium.dll",
+      "../LICENSE": "LICENSE.txt",
+      "pdfium/LICENSE": "third-party/pdfium/LICENSE.txt",
+      "pdfium/licenses/": "third-party/pdfium/licenses/"
+    }
+  }
+}

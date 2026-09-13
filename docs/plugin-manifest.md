@@ -6,7 +6,7 @@ Le code est dans `module.wasm`, à côté du manifeste : une commande WASI
 compilée pour `wasm32-wasip1` (voir « Exécution » plus bas).
 
 ```toml
-id = "org.4youpdf.merge"          # unique, style DNS inversé
+id = "org.fouryoupdf.merge"       # unique, style DNS inversé
 name = "Fusionner"                # nom affiché
 version = "0.1.0"                 # SemVer du module
 api_version = "0.2.0"             # SemVer de fyp-plugin-api ciblée

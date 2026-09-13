@@ -377,6 +377,8 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins");
         let (found, errors) = discover(&root, true);
         assert!(errors.is_empty(), "{errors:?}");
-        assert!(found.iter().any(|m| m.manifest.id == "org.4youpdf.merge"));
+        assert!(found
+            .iter()
+            .any(|m| m.manifest.id == "org.fouryoupdf.merge"));
     }
 }

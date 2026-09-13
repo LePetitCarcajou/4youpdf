@@ -133,7 +133,7 @@ l'utilisateur regarde déjà.
   n'apparaît qu'en information secondaire, pour savoir lequel désactiver.
 - **Un module ne lit que ses propres réglages.** La liste est unique à
   l'écran, pas dans les droits. Les identifiants sont préfixés par celui
-  du module (`org.4youpdf.merge.…`), ce qui écarte les collisions, et un
+  du module (`org.fouryoupdf.merge.…`), ce qui écarte les collisions, et un
   module n'accède ni aux réglages des autres ni à ceux de l'application,
   sauf ceux que l'hôte expose explicitement à tous, comme la langue de
   l'interface. Le « dossier de sortie » est un réglage de l'hôte : c'est

@@ -103,7 +103,7 @@ enum Cmd {
         /// Directory containing one sub-directory per module
         #[arg(long, default_value = "plugins")]
         modules: PathBuf,
-        /// Module to use when several declare the action, e.g. `org.4youpdf.merge`
+        /// Module to use when several declare the action, e.g. `org.fouryoupdf.merge`
         #[arg(long)]
         module: Option<String>,
         /// Password of the encrypted inputs: the host deciphers them and

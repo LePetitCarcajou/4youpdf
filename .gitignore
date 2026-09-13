@@ -23,3 +23,6 @@
 # lot, documented in tests/corpus/SOURCES.md. Only the Markdown files at the
 # top of tests/corpus/ are tracked.
 /tests/corpus/*/
+
+# Output of the merge example in the README
+/fusion.pdf

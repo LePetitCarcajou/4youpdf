@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "4YouPDF",
-  "version": "0.1.0",
-  "identifier": "org.4youpdf.app",
+  "mainBinaryName": "4YouPDF",
+  "identifier": "org.fouryoupdf.desktop",
   "build": {
     "frontendDist": "dist"
   },
@@ -11,6 +11,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "4YouPDF",
         "width": 1100,
         "height": 760,
@@ -25,10 +26,28 @@
   },
   "bundle": {
     "active": false,
+    "targets": ["nsis"],
+    "publisher": "4YouPDF contributors",
+    "copyright": "Copyright (C) 2026 4YouPDF contributors, AGPL-3.0-or-later",
+    "homepage": "https://github.com/LePetitCarcajou/4youpdf",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "embedBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["English", "French"],
+        "installerIcon": "icons/icon.ico",
+        "installerHooks": "windows/installer-hooks.nsh"
+      }
+    }
   }
 }

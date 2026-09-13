@@ -271,8 +271,86 @@ async fn pick_save_file(app: tauri::AppHandle, suggested: String) -> Option<Stri
         .map(|p| p.display().to_string())
 }
 
+/// Name of the folder, next to the executable, that makes a copy portable:
+/// the portable archive ships it empty (`tools/package_app.py`). WebView2
+/// then keeps its profile there instead of
+/// `%LOCALAPPDATA%\org.fouryoupdf.desktop`, and deleting the folder of the
+/// application deletes all it wrote.
+const PORTABLE_DATA: &str = "data";
+
+/// The profile folder of a portable copy whose executable is in `exe_dir`;
+/// `None` for an installed copy, and for a portable folder that cannot be
+/// written to (read-only medium), where WebView2 would not start.
+fn portable_data_dir(exe_dir: &Path) -> Option<PathBuf> {
+    let dir = exe_dir.join(PORTABLE_DATA);
+    if !dir.is_dir() {
+        return None;
+    }
+    let probe = dir.join(".write-test");
+    std::fs::write(&probe, b"").ok()?;
+    let _ = std::fs::remove_file(&probe);
+    Some(dir)
+}
+
+/// Open the main window described in `tauri.conf.json`, where `create` is
+/// `false` so that it opens here: in the profile folder of a portable copy
+/// when this is one ([`portable_data_dir`]).
+fn open_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let config = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|window| window.label == "main")
+        .ok_or("tauri.conf.json ne décrit pas la fenêtre « main »")?;
+    let mut window = tauri::WebviewWindowBuilder::from_config(app.handle(), config)?;
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(Path::to_path_buf));
+    if let Some(data) = exe_dir.as_deref().and_then(portable_data_dir) {
+        window = window.data_directory(data);
+    }
+    window.build()?;
+    Ok(())
+}
+
+/// Stop with a message box when WebView2 is missing (a portable copy on a
+/// machine without it, or an installed copy whose WebView2 was removed
+/// since; the installer itself stops when it cannot install WebView2): no
+/// window can open, and a program without a console would otherwise exit
+/// without a word. The one dialog outside ADR 0004, shown only when the
+/// window cannot exist.
+#[cfg(windows)]
+fn require_webview2() {
+    if let Err(e) = tauri::webview_version() {
+        let _ = rfd::MessageDialog::new()
+            .set_level(rfd::MessageLevel::Error)
+            .set_title("4YouPDF")
+            .set_description(format!(
+                "4YouPDF ne peut pas s'ouvrir : Microsoft Edge WebView2 Runtime, \
+                 le moteur d'affichage de Windows dont il se sert, est introuvable \
+                 sur cet ordinateur.\n\n\
+                 Installez-le depuis le site de Microsoft \
+                 (https://developer.microsoft.com/microsoft-edge/webview2/), \
+                 puis relancez 4YouPDF. L'installeur de 4YouPDF s'en charge \
+                 lui-même quand il manque, avec une connexion à Internet.\n\n\
+                 Détail : {e}"
+            ))
+            .set_buttons(rfd::MessageButtons::Ok)
+            .show();
+        std::process::exit(1);
+    }
+}
+
 fn main() {
-    let render = Arc::new(RenderService::start(&render::library_candidates()));
+    #[cfg(windows)]
+    require_webview2();
+    // A development build (`cargo run`, not `tauri build`) also finds PDFium
+    // in app/pdfium/ of its checkout; a packaged build only next to itself.
+    let development = tauri::is_dev().then(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("pdfium"));
+    let render = Arc::new(RenderService::start(&render::library_candidates(
+        development,
+    )));
     let state = AppState {
         session: Mutex::new(None),
         render,
@@ -281,6 +359,7 @@ fn main() {
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(state)
+        .setup(|app| open_main_window(app))
         .invoke_handler(tauri::generate_handler![
             open_document,
             close_document,
@@ -384,5 +463,38 @@ mod tests {
             state.rotate(second.document, &[0], -90).expect("rotate")[0].rotate,
             270
         );
+    }
+
+    /// A copy is portable when a `data` folder sits next to its executable,
+    /// as in the portable archive; installed, or a plain build, otherwise.
+    #[test]
+    fn a_data_folder_next_to_the_executable_makes_a_copy_portable() {
+        let dir = std::env::temp_dir().join(format!("fyp-app-portable-{}", std::process::id()));
+        let data = dir.join(PORTABLE_DATA);
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(portable_data_dir(&dir), None);
+        std::fs::write(&data, b"").unwrap();
+        assert_eq!(portable_data_dir(&dir), None, "a file is not the folder");
+        std::fs::remove_file(&data).unwrap();
+        std::fs::create_dir(&data).unwrap();
+        assert_eq!(portable_data_dir(&dir), Some(data.clone()));
+        // Checking that the folder can be written to leaves nothing in it.
+        assert_eq!(std::fs::read_dir(&data).unwrap().count(), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Tauri must not open the main window itself: `open_main_window` does,
+    /// and a second window with the same label would stop the application
+    /// as it starts. The configuration has no version either: the
+    /// workspace's is the only one (build.rs).
+    #[test]
+    fn the_configuration_leaves_the_window_and_the_version_to_the_application() {
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let windows = config["app"]["windows"].as_array().unwrap();
+        let main = windows.iter().find(|w| w["label"] == "main").unwrap();
+        assert_eq!(main["create"], false);
+        assert!(config.get("version").is_none());
     }
 }

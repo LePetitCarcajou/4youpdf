@@ -45,7 +45,7 @@ pub struct RenderService {
 
 impl RenderService {
     /// Start the worker. Looks for the PDFium library in `candidates`
-    /// (directories), then in the system library path.
+    /// (directories), then, except on Windows, in the system library path.
     pub fn start(candidates: &[PathBuf]) -> RenderService {
         let (ready_tx, ready_rx) = mpsc::channel();
         let (tx, rx) = mpsc::channel::<Request>();
@@ -101,9 +101,12 @@ impl RenderService {
     }
 }
 
-/// Where the PDFium library may be: `FYP_PDFIUM_DIR`, next to the
-/// executable, and `app/pdfium/` in a development checkout.
-pub fn library_candidates() -> Vec<PathBuf> {
+/// Where the PDFium library may be, in this order: the directory named by
+/// `FYP_PDFIUM_DIR`; the directory of the executable, where the installer
+/// and the portable archive put it; and `development`, the `app/pdfium/`
+/// of the checkout a development build was compiled from
+/// (`tools/fetch_pdfium.py`), which a packaged build does not give.
+pub fn library_candidates(development: Option<PathBuf>) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     if let Some(dir) = std::env::var_os("FYP_PDFIUM_DIR") {
         dirs.push(PathBuf::from(dir));
@@ -114,7 +117,7 @@ pub fn library_candidates() -> Vec<PathBuf> {
     {
         dirs.push(dir);
     }
-    dirs.push(Path::new(env!("CARGO_MANIFEST_DIR")).join("pdfium"));
+    dirs.extend(development);
     dirs
 }
 
@@ -167,6 +170,10 @@ mod pdfium {
                 Err(e) => tried.push(format!("{} ({e})", path.display())),
             }
         }
+        // Windows has no system copy of PDFium, and its search for a bare
+        // library name goes through the current directory and `PATH`: a
+        // `pdfium.dll` left there must never be loaded in place of ours.
+        #[cfg(not(windows))]
         if let Ok(bindings) = Pdfium::bind_to_system_library() {
             return Ok((
                 Pdfium::new(bindings),
@@ -174,7 +181,7 @@ mod pdfium {
             ));
         }
         Err(format!(
-            "bibliothèque PDFium introuvable (tools/fetch_pdfium.py la place dans app/pdfium/) ; cherchée : {}",
+            "bibliothèque PDFium introuvable (à côté de l'exécutable une fois installé, dans app/pdfium/ après tools/fetch_pdfium.py en développement) ; cherchée : {}",
             tried.join(", ")
         ))
     }
@@ -242,6 +249,24 @@ mod tests {
                 .unwrap_err();
             assert!(err.contains("introuvable"));
         }
+    }
+
+    /// A packaged build looks next to its executable, never in the checkout
+    /// it was built from; a development build looks there last.
+    #[test]
+    fn only_a_development_build_looks_in_the_checkout() {
+        let exe_dir = std::env::current_exe()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        let checkout = Path::new(env!("CARGO_MANIFEST_DIR")).join("pdfium");
+        let packaged = library_candidates(None);
+        assert!(packaged.contains(&exe_dir));
+        assert!(!packaged.contains(&checkout));
+        let development = library_candidates(Some(checkout.clone()));
+        assert_eq!(development.last(), Some(&checkout));
+        assert_eq!(development[..development.len() - 1], packaged[..]);
     }
 
     /// With the library fetched (tools/fetch_pdfium.py), the first page

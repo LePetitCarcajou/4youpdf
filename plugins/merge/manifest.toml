@@ -1,9 +1,9 @@
-id = "org.4youpdf.merge"
+id = "org.fouryoupdf.merge"
 name = "Fusionner"
 version = "0.1.0"
 api_version = "0.2.0"
 license = "AGPL-3.0-or-later"
-source = "https://github.com/4youpdf/4youpdf/tree/main/plugins/merge"
+source = "https://github.com/LePetitCarcajou/4youpdf/tree/main/plugins/merge"
 runtime = "wasm"
 permissions = [{ kind = "read_document" }, { kind = "write_document" }]
 

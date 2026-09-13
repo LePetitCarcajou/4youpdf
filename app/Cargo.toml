@@ -10,6 +10,7 @@ authors.workspace = true
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+serde_json = { workspace = true }
 
 [dependencies]
 fyp-core = { workspace = true }
@@ -25,6 +26,11 @@ pdfium-render = { version = "0.9", default-features = false, features = [
 ] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 base64 = "0.22"
+
+# The message box shown when WebView2 is missing, before any window exists
+# (the dialog plugin, which uses rfd, needs one).
+[target.'cfg(windows)'.dependencies]
+rfd = { version = "0.16", default-features = false, features = ["common-controls-v6"] }
 
 [lints]
 workspace = true

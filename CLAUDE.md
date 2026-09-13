@@ -17,6 +17,25 @@ Lis d'abord : `README.md`, `docs/architecture.md`, `docs/diagrams.md`,
 - `crates/fyp-plugin-api` est versionné séparément. Un changement cassant y
   exige un bump de version et une mention dans la PR.
 - Un module tiers est WebAssembly, jamais natif.
+- Deux lignées de versions, vérifiées par `tools/check_version.py` :
+  - `fyp-core`, `fyp-crypto`, `fyp-conformance`, `fyp-cli` et `fyp-app`
+    prennent `[workspace.package] version` (`version.workspace = true`), que
+    `[workspace.dependencies]` demande exactement et que nomme le tag de
+    release (`v<version>`, job `version-check` de `release.yml`) ;
+  - `fyp-plugin-api` et `fyp-host` gardent chacun leur propre version, parce
+    que le contrat des modules est versionné à part (ADR 0002, ADR 0003) : ne
+    jamais les aligner sur le workspace. Un module de `plugins/` a aussi la
+    sienne, celle de son `manifest.toml`.
+- Un MSRV pour le produit, `[workspace.package] rust-version`, sans
+  surcharge par crate ; le plus bas possible pour le contrat,
+  `fyp-plugin-api`, qui garde le sien. Même logique que les deux lignées de
+  versions : `tools/check_version.py --rust-version` refuse une surcharge,
+  et les jobs `msrv-product` et `msrv-plugin-api` de la CI compilent et
+  testent chacun avec exactement sa valeur.
+- L'identifiant de l'application, `org.fouryoupdf.desktop`, ne change plus :
+  il nomme le dossier de ses données (`%LOCALAPPDATA%\org.fouryoupdf.desktop`
+  sous Windows), et le changer les déplacerait. Les modules du dépôt et les
+  réglages utilisent le même préfixe, `org.fouryoupdf.`.
 
 ## Avant de proposer une PR
 ```

@@ -223,7 +223,7 @@ chargé et exécuté comme lui ; le test
 et devra être inversé. Les identifiants en double ne sont refusés qu'à
 l'intérieur d'un même dossier : un appelant qui combine plusieurs dossiers
 doit le vérifier lui-même. À faire : signature des modules du catalogue,
-espace de noms `org.4youpdf.*` réservé aux modules signés, modules non
+espace de noms `org.fouryoupdf.*` réservé aux modules signés, modules non
 signés refusés hors du mode développeur.
 
 ### Priorité 2

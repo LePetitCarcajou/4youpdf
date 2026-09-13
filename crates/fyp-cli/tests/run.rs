@@ -44,7 +44,7 @@ fn run_merge_goes_through_the_wasm_module() {
     let stdout = String::from_utf8_lossy(&result.stdout);
     let stderr = String::from_utf8_lossy(&result.stderr);
     assert!(result.status.success(), "{stdout}\n{stderr}");
-    assert!(stdout.contains("org.4youpdf.merge"), "{stdout}");
+    assert!(stdout.contains("org.fouryoupdf.merge"), "{stdout}");
     let written = std::fs::read(&output).unwrap();
     let files = [std::fs::read(&a).unwrap(), std::fs::read(&b).unwrap()];
     let docs: Vec<Document<'_>> = files.iter().map(|f| Document::open(f).unwrap()).collect();
@@ -115,7 +115,7 @@ fn host_refusals_say_what_is_wrong_and_what_to_change() {
 
     // A time limit of a day, above the host's ten minutes.
     let greedy_manifest = merge
-        .replace("org.4youpdf.merge", "org.example.greedy")
+        .replace("org.fouryoupdf.merge", "org.example.greedy")
         .replace("timeout_ms = 60000", "timeout_ms = 86400000");
     assert!(greedy_manifest.contains("86400000"), "{merge}");
     let greedy = dir.join("greedy");
@@ -134,7 +134,7 @@ fn host_refusals_say_what_is_wrong_and_what_to_change() {
     assert!(!output.exists());
 
     // Two modules declaring one identifier: neither is loaded.
-    let twin = merge.replace("org.4youpdf.merge", "org.example.twin");
+    let twin = merge.replace("org.fouryoupdf.merge", "org.example.twin");
     let twins = dir.join("twins");
     install(&twins, "twin-a", &twin);
     install(&twins, "twin-b", &twin);

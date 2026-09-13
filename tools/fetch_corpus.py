@@ -29,7 +29,7 @@ from pathlib import Path, PurePosixPath
 ROOT = Path(__file__).resolve().parent.parent
 CORPUS = ROOT / "tests" / "corpus"
 MARKER = ".source.json"
-USER_AGENT = "4youpdf-fetch-corpus (https://github.com/4youpdf/4youpdf)"
+USER_AGENT = "4youpdf-fetch-corpus (https://github.com/LePetitCarcajou/4youpdf)"
 
 # Suites downloaded from GitHub. `ref` None means the default branch.
 SOURCES = [

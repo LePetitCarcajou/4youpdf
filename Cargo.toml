@@ -13,17 +13,24 @@ members = [
 exclude = ["fuzz", "tools/bench_host"]
 
 [workspace.package]
-version = "0.1.0"
+# The version of the product, which a release tag names: fyp-core,
+# fyp-crypto, fyp-conformance, fyp-cli and fyp-app take it. fyp-plugin-api
+# and fyp-host keep their own (CLAUDE.md, ADR 0003). Both rules are checked
+# by tools/check_version.py.
+version = "0.3.3"
 edition = "2021"
-rust-version = "1.80"
+# The minimum Rust of the product, that of its most demanding dependency:
+# Wasmtime 48 (LTS), through fyp-host and fyp-cli. fyp-plugin-api, which
+# authors of modules compile, keeps its own, as low as it builds (CLAUDE.md).
+rust-version = "1.95"
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/4youpdf/4youpdf"
+repository = "https://github.com/LePetitCarcajou/4youpdf"
 authors = ["4YouPDF contributors"]
 
 [workspace.dependencies]
-fyp-core = { path = "crates/fyp-core", version = "0.1.0" }
-fyp-crypto = { path = "crates/fyp-crypto", version = "0.1.0" }
-fyp-conformance = { path = "crates/fyp-conformance", version = "0.1.0" }
+fyp-core = { path = "crates/fyp-core", version = "0.3.3" }
+fyp-crypto = { path = "crates/fyp-crypto", version = "0.3.3" }
+fyp-conformance = { path = "crates/fyp-conformance", version = "0.3.3" }
 fyp-plugin-api = { path = "crates/fyp-plugin-api", version = "0.2.0" }
 fyp-host = { path = "crates/fyp-host", version = "0.2.0" }
 serde = { version = "1", features = ["derive"] }

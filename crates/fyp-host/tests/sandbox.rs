@@ -910,7 +910,7 @@ fn known_gap_an_impostor_of_a_repository_module_is_not_told_apart() {
         let [impostor] = found.as_slice() else {
             panic!("{found:?}")
         };
-        assert_eq!(impostor.manifest.id, "org.4youpdf.merge");
+        assert_eq!(impostor.manifest.id, "org.fouryoupdf.merge");
         // `trusted` is the caller's word for the directory, not a check.
         assert_eq!(impostor.trusted, trusted);
         let module = Host::new().unwrap().load(impostor).unwrap();
@@ -937,14 +937,14 @@ fn modules_sharing_an_identifier_are_all_refused() {
     // filesystems, the copy a careless lookup would pick.
     install(&root, "a-shadow", &text, "shadow");
     install(&root, "merge", &text, "real");
-    let other = text.replace("org.4youpdf.merge", "org.example.other");
+    let other = text.replace("org.fouryoupdf.merge", "org.example.other");
     install(&root, "other", &other, "other");
     let (found, errors) = discover(&root, false);
     let ids: Vec<&str> = found.iter().map(|m| m.manifest.id.as_str()).collect();
     assert_eq!(ids, ["org.example.other"]);
     assert!(
         matches!(errors.as_slice(), [HostError::DuplicateId { id, dirs }]
-            if id == "org.4youpdf.merge" && dirs.len() == 2),
+            if id == "org.fouryoupdf.merge" && dirs.len() == 2),
         "{errors:?}"
     );
     let _ = std::fs::remove_dir_all(&root);
@@ -987,7 +987,7 @@ fn merge_module() -> Option<LoadedModule> {
     assert!(errors.is_empty(), "{errors:?}");
     let merge = found
         .iter()
-        .find(|m| m.manifest.id == "org.4youpdf.merge")
+        .find(|m| m.manifest.id == "org.fouryoupdf.merge")
         .expect("merge module discovered");
     Some(Host::new().unwrap().load(merge).unwrap())
 }
