@@ -72,11 +72,11 @@ définitifs, le nœud orange la récupération.
 
 ```mermaid
 flowchart TD
-    input["Octets du fichier"] --> quick{"En-tête %PDF<br/>trouvé ?"}
+    input["Octets du fichier"] --> quick{"En-tête %PDF, ou en-tête d'objet<br/>dans le premier kilo-octet ?"}
     quick -- non --> badheader["Échec : pas un PDF"]
     quick -- oui --> startxref{"startxref<br/>présent ?"}
     startxref -- non --> scan
-    startxref -- oui --> section["Lecture de la section xref<br/>table classique, flux xref ou hybride"]
+    startxref -- oui --> section["Lecture de la section xref,<br/>à l'offset annoncé ou juste à côté :<br/>table classique, flux xref ou hybride"]
     section --> prev{"Section lisible,<br/>chaîne des mises à jour<br/>sans boucle ?"}
     prev -- non --> scan
     prev -- oui --> verify["Vérification : chaque entrée mène<br/>bien à l'objet annoncé,<br/>le trailer a une racine"]
@@ -179,9 +179,13 @@ de l'ADR 0003 : découverte, parsing, validation statique, chargement du
 code, présentation des permissions, vérification de la demande, exécution
 sous sandbox, re-validation. Un module hostile est l'hypothèse par défaut :
 chaque étape peut le rejeter, et le document source n'est jamais modifié en
-place. Tout existe dans l'hôte sauf la présentation des permissions, qui
-attend l'interface (jalon 0.3) ; d'ici là seules les permissions de
-document, qui ne sont pas sensibles, peuvent être accordées.
+place. L'hôte fait aujourd'hui la découverte, la validation, le chargement,
+la vérification de la demande, l'exécution sous sandbox et la re-validation.
+Manquent la signature, la présentation des modules et de leurs permissions
+dans l'interface, où les modules ne sont pas encore intégrés, et le
+remplacement atomique : `fyp run` écrit la réécriture dans le fichier de
+sortie qu'on lui donne. D'ici là, seules les permissions de document, qui ne
+sont pas sensibles, peuvent être accordées.
 
 Dans la sandbox, le module ne voit que sa requête et ne produit que sa
 réponse. Les limites ne sont pas des étapes mais une surveillance

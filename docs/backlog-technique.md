@@ -1,8 +1,9 @@
 # Backlog technique
 
-Travaux sans effet visible pour l'utilisateur, consignés le 12 septembre
-2026 : les garde-fous qui font tenir les décisions des ADR. Rien n'est
-commencé.
+Travaux sans effet visible dans l'application : les garde-fous qui font
+tenir les décisions des ADR, et la dette de l'outillage et du dépôt.
+Consignés à partir du 12 septembre 2026, chacun avec sa date quand elle
+diffère ; seul l'épinglage des actions par SHA est entamé (`ci.yml`).
 
 - [ ] **Faire tenir l'ADR 0006 par l'outillage.** L'ADR 0006 réserve le
   réseau au relais de l'hôte qui sert un module autorisé, mais seules la CSP
@@ -63,14 +64,17 @@ commencé.
     mais `dtolnay/rust-toolchain`, qui n'a pas de tag de version, se
     remonte à la main. Même famille : `fuzz.yml` installe `cargo-fuzz` sans
     version ni `--locked`.
-- [ ] **Faire couvrir par le fuzzing ce que le README annonce, dans la
-  session consacrée au fuzz** (consigné le 13 septembre 2026). Le README
-  présente « un noyau en Rust (`#![forbid(unsafe_code)]`), fuzzé en
-  continu », l'ADR 0003 range le « fuzzing continu » parmi les défenses en
-  profondeur, et la feuille de route promet au jalon 0.1 un « fuzzing sans
-  crash ». `fuzz.yml` tourne bien chaque nuit, mais ses deux cibles ne
-  voient qu'une petite partie du noyau : `parse_object`, le lexer et le
-  parseur d'un objet isolé (`parse_object`, `parse_indirect`), et
+- [ ] **Étendre le fuzzing au reste du noyau et du contrat, dans la session
+  consacrée au fuzz** (consigné le 13 septembre 2026). Le README présentait
+  « un noyau en Rust (`#![forbid(unsafe_code)]`), fuzzé en continu » ; il
+  dit depuis le 13 septembre 2026 ce qui est fuzzé et ce qui ne l'est pas,
+  comme `SECURITY.md`. L'ADR 0003 range toujours le « fuzzing continu »
+  parmi les défenses en profondeur, et la première feuille de route
+  promettait au jalon 0.1 un « fuzzing sans crash ». `fuzz.yml` tourne bien
+  chaque nuit (trois exécutions, toutes réussies, du 11 au 13 septembre
+  2026), mais ses deux cibles ne voient qu'une petite partie du noyau :
+  `parse_object`, le lexer et le parseur d'un objet isolé (`parse_object`,
+  `parse_indirect`), et
   `quick_info`, l'en-tête puis la recherche de `startxref`, `/Encrypt` et
   `%%EOF` dans les 2 derniers Kio, sans construire de document. La
   troisième cible, `host_wasi` (les fonctions WASI de l'hôte confrontées à
@@ -95,3 +99,28 @@ commencé.
   partir de `Document::open`, et même une cible qui l'appelait, amorcée par
   `tests/fixtures` et `tests/corpus`, n'a jamais exercé le prédicteur TIFF
   sur 16 bits.
+- [ ] **Réduire les permissions de la fenêtre à ce que l'interface utilise,
+  dans la session de durcissement de la WebView** (consigné le 13 septembre
+  2026). `app/capabilities/default.json` accorde aux scripts de la page
+  `core:default` et `dialog:default` : les ensembles par défaut de
+  `core:app`, `core:event`, `core:image`, `core:menu`, `core:path`,
+  `core:resources`, `core:tray`, `core:webview` et `core:window`, et les
+  dialogues `open`, `save` et `message` du plugin. L'interface n'appelle
+  pourtant que ses propres commandes, écoute le dépôt de fichiers
+  (`core:event`) et demande `setTitle`, que ces ensembles n'accordent pas
+  (`docs/backlog-ui.md`) ; les sélecteurs de fichiers sont appelés depuis
+  Rust. Relevé dans `app/gen/schemas/acl-manifests.json`, que génère
+  tauri-build.
+- [ ] **Ouvrir un canal privé de signalement des vulnérabilités, avant la
+  première release publique** (consigné le 13 septembre 2026).
+  `SECURITY.md` demande de ne pas ouvrir d'issue publique, mais
+  `MAINTAINERS.md` n'indique aucune adresse (« à compléter ») et le
+  signalement privé de GitHub est désactivé sur le dépôt (API
+  `private-vulnerability-reporting` : `"enabled": false`). Choisir l'un ou
+  l'autre, puis mettre `SECURITY.md` à jour.
+- [ ] **Générer `CHANGELOG.md` ou le retirer** (consigné le 13 septembre
+  2026). Le fichier ne contient aucune entrée alors que 16 tags existent :
+  `release.yml` n'appelle git-cliff que pour les notes de la release en
+  cours (`--latest --strip header`), et rien n'écrit le fichier. Décider
+  s'il est produit et commité avant chaque tag, ou si les notes des releases
+  suffisent.

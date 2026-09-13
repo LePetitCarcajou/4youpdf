@@ -11,9 +11,10 @@ ce backlog. Les garde-fous qui font tenir cette règle sont suivis dans
 `docs/backlog-technique.md`.
 
 Demandes pour l'application desktop (`app/`), consignées le 12 septembre
-2026, à traiter après A.3 ; plusieurs supposent d'abord du travail dans le
-noyau. Rien n'est commencé : chaque point sera cadré au moment de le
-prendre.
+2026 sauf mention contraire ; plusieurs supposent d'abord du travail dans le
+noyau. Relevé du 13 septembre 2026, à la version 0.3.3 : aucune n'est faite
+ni commencée. Chaque point sera cadré au moment de le prendre, et sortira de
+la liste une fois fait.
 
 - [ ] **Basculer l'affichage du panneau de vignettes.** La grille de
   vignettes occupe aujourd'hui toute la zone de travail et la vue plein
@@ -64,7 +65,7 @@ prendre.
   entre sortir du plein écran et quitter la vue.
 - [ ] **OCR : reconnaissance du texte des pages scannées.** Priorité
   confirmée par plusieurs comparatifs d'éditeurs PDF ; la feuille de route
-  le prévoit au jalon 0.5 comme module natif Tesseract côté hôte
+  le prévoit, sans version attribuée, comme module natif Tesseract côté hôte
   (`docs/architecture.md`), et non dans `fyp-core`, qui n'embarque ni code
   natif ni `unsafe` et compile pour wasm32-wasip1 ; rien n'est commencé, ni
   le chargement des modules natifs, ni l'écriture par le noyau de la couche
@@ -84,3 +85,12 @@ prendre.
   distinguer des étiquettes `/PageLabels`, 12.4.2) ajoutent aux pages du
   contenu dessiné avec une police, ce qu'aucune opération du noyau ne fait
   encore, avec l'aperçu en direct que l'ADR 0004 exige pour leurs réglages.
+- [ ] **Bug : le titre de la fenêtre ne prend pas le nom du document**
+  (consigné le 13 septembre 2026). À l'ouverture d'un fichier, `main.ts`
+  demande le titre « nom — 4YouPDF » par `setTitle`, mais
+  `capabilities/default.json` n'accorde que `core:default`, dont
+  `core:window:default` permet de lire le titre sans le changer (il y
+  faudrait `core:window:allow-set-title`) : la demande est refusée, et
+  `main.ts` ignore le refus. Seule la barre d'outils nomme le document.
+  Constaté par script : lancée avec `minimal.pdf` en argument, la fenêtre
+  s'appelle encore « 4YouPDF » quinze secondes plus tard.

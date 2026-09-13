@@ -374,7 +374,7 @@ d'aucun d'eux sans mot de passe.
 
 | Limite | Fichiers | Nature |
 |---|---:|---|
-| Chiffrés avec un mot de passe utilisateur non vide : `Error::WrongPassword` tant que l'appelant ne le fournit pas | 35 | Comportement voulu ; Poppler exige aussi le mot de passe. Avec le bon mot de passe (`fyp info --password`), les fichiers qpdf `enc-R2`, `enc-R3`, `enc-XI-R6` s'ouvrent. |
+| Chiffrés avec un mot de passe utilisateur non vide : `Error::WrongPassword` tant que l'appelant ne le fournit pas | 34 | Comportement voulu ; Poppler exige aussi le mot de passe. Avec le bon mot de passe (`fyp info --password`), les fichiers qpdf `enc-R2`, `enc-R3`, `enc-XI-R6` s'ouvrent. |
 | Aucun objet lisible nulle part : `Error::BadHeader` (4 fichiers sans un seul `N G obj`), `Error::Unrecoverable` (5 fichiers : flux xref à `/W [0 0 0]`, fichiers fuzzés tronqués) ou `Error::BadEncryption` (1 fichier : `/Encrypt` à `/Length 160`, sans autre objet) | 10 | Fichiers réellement invalides (qpdf `bad1.pdf`, `issue-141b`, `issue-143`, `issue-147`, `issue-150`, `issue-263`, `issue-335a/b`, `bad-direct-root` ; pdf.js `bug1020226`). |
 | Ouverts par scan mais sans aucun catalogue lisible (`/Root` absent ou pendant, aucun objet `/Type /Catalog` qui se parse) : `Error::Unwritable` à l'écriture | 12 | Fichiers fuzzés (qpdf `issue-99b`, `issue-100`, `issue-101`, `issue-146`, `issue-148`, `issue-141a`, `issue-1503`, `inspect`, `bad-content`, `fuzz-16214` ; pdf.js `REDHAT-1531897-0`, `poppler-742-0-fuzzed`). Le catalogue de `issue-99b` est l'objet 0, numéro que 7.5.4 réserve ; renuméroter un objet serait inventer un document. |
 | Numérotation trop éparse pour une table classique (objet 2147483647) : `Error::Unwritable` en style table, écrit en style flux xref | 1 | pdf.js `bug1980958.pdf`. Limite de `MAX_TABLE_PADDING`, protection contre une sortie démesurée ; `fyp rewrite --xref-stream` fonctionne. |
@@ -396,10 +396,10 @@ et testée par trois binaires autonomes (esbuild, tsgo, QuickJS-ng)
 récupérés par `tools/fetch_ui_tools.py` : aucun Node.js requis. Voir
 `app/README.md` pour construire et lancer.
 
-Première étape du jalon 0.3 : une fenêtre qui ouvre un PDF, montre ses
-pages en vignettes ou une par une en grand, permet de les réordonner, de
-les faire pivoter et de les supprimer, et enregistre le résultat.
-Répartition :
+État à la version 0.3.3 : une fenêtre qui ouvre un PDF, montre ses pages en
+vignettes ou une par une en grand, permet de les réordonner, de les faire
+pivoter et de les supprimer, avec annuler et refaire, et enregistre le
+résultat ; pour Windows, un installeur et une archive portable. Répartition :
 
 - **Côté Rust (`app/src/`)**, la seule partie qui touche au disque et au
   noyau. `session.rs` ouvre le fichier par `Document::open_with_password`,
@@ -409,11 +409,14 @@ Répartition :
   par `ops::rotate` : le document gardé en mémoire est réécrit, relu sans
   réparation (et en clair s'il était chiffré), puis rendu et enregistré
   tel quel. Elle nomme l'ouverture qu'elle vise et n'est jamais appliquée
-  à un autre fichier ouvert entre-temps. `main.rs` expose huit commandes :
-  ouvrir, fermer, état du rendu, rendre une page, faire pivoter des pages,
-  enregistrer, et les deux sélecteurs de fichiers du système (appelés
-  depuis Rust par le plugin `dialog`, pas depuis l'interface). Une
-  ouverture qui échoue ne remplace pas le document en cours.
+  à un autre fichier ouvert entre-temps. `main.rs` expose neuf commandes :
+  ouvrir, fermer, état du rendu, fichier passé en ligne de commande, rendre
+  une page, faire pivoter des pages, enregistrer, et les deux sélecteurs de
+  fichiers du système (appelés depuis Rust par le plugin `dialog`, pas
+  depuis l'interface). Une ouverture qui échoue ne remplace pas le document
+  en cours. `main.rs` ouvre aussi la fenêtre, avec le profil de WebView2
+  dans le dossier `data` d'une copie portable, et s'arrête sur un message
+  quand WebView2 manque.
 - **Rendu (`app/src/render.rs`)** : PDFium par `pdfium-render`, chargé à
   l'exécution, sur un thread dédié qui sert les demandes une par une.
   Dépendance temporaire et confinée à ce module (ADR 0005) : l'interface
@@ -444,23 +447,29 @@ Répartition :
   attend son mot de passe, laisse le document affiché et ses bandeaux en
   place. Cette logique, sans DOM, est testée dans `app/ui/tests/` par
   QuickJS-ng, que lance `tools/build_ui.py`.
-- **ADR 0004 appliqué** : une seule fenêtre, aucune boîte modale (le mot
-  de passe d'un fichier chiffré est demandé dans un bandeau, les erreurs et
-  les avertissements aussi ; la vue d'une page est un état de la fenêtre,
-  sous lequel ces bandeaux restent visibles), actions contextuelles sur les vignettes
-  (bouton de suppression, menu du clic droit, clavier). Un document réparé
-  ou chiffré est annoncé avec les mots de `fyp info`, et l'enregistrement
-  d'un fichier chiffré est annoncé comme produisant un fichier en clair.
+- **ADR 0004 appliqué** : une seule fenêtre, aucune boîte modale hors des
+  sélecteurs de fichiers du système et du message qui dit quoi installer
+  quand WebView2 manque (le mot de passe d'un fichier chiffré est demandé
+  dans un bandeau, les erreurs et les avertissements aussi ; la vue d'une
+  page est un état de la fenêtre, sous lequel ces bandeaux restent
+  visibles), actions contextuelles sur les vignettes (bouton de
+  suppression, menu du clic droit, clavier). Un document réparé ou chiffré
+  est annoncé avec la cause et la description du chiffrement que donne
+  aussi `fyp info`, et l'enregistrement d'un fichier chiffré est annoncé
+  comme produisant un fichier en clair.
 - **Distribution (Windows)** : un installeur NSIS, pour l'utilisateur
   courant et sans droits d'administrateur, et une archive portable, tous
-  deux avec PDFium et les licences, construits par `tools/package_app.py`
-  et, sur un tag `v*`, par le workflow de release qui les attache à la
-  Release GitHub. Voir `app/README.md`, « Empaqueter pour Windows ».
+  deux avec PDFium et les licences, non signés, construits par
+  `tools/package_app.py`. Le workflow de release est écrit pour les
+  construire sur un tag `v*` et les attacher à la Release GitHub, ce qu'il
+  n'a encore fait pour aucune ; les essais sur une machine sont à refaire
+  depuis le changement d'identifiant. Voir `app/README.md`, « Empaqueter
+  pour Windows ».
 
-Ce qui manque encore et vient ensuite : la palette de commandes, le
-panneau de conformité, les modules, les paquets pour macOS et Linux, la
-lecture par blocs et le budget mémoire de l'ADR 0004 (un document ouvert
-est aujourd'hui entier en mémoire, deux fois avec PDFium).
+Ce qui manque encore : la palette de commandes, le panneau de conformité,
+les modules, les paquets pour macOS et Linux, la lecture par blocs et le
+budget mémoire de l'ADR 0004 (un document ouvert est aujourd'hui entier en
+mémoire, deux fois avec PDFium).
 
 ## Modules
 
@@ -517,7 +526,7 @@ Détail et justification : ADR 0003, section « Mise en œuvre ».
 Le module de fusion (`plugins/merge`) est une crate à deux cibles : la
 bibliothèque (`handle`, testée en natif) appelle `ops::merge`, le binaire
 est la commande WASI (`fyp_plugin_api::module::serve`). Compilé pour
-`wasm32-wasip1` (560 Kio en release), il n'importe que `fd_read`,
+`wasm32-wasip1` (environ 550 Kio en release), il n'importe que `fd_read`,
 `fd_write`, `environ_get`, `environ_sizes_get`, `random_get` et
 `proc_exit`. `python tools/build_modules.py` construit chaque module du
 dépôt et le copie en `plugins/<nom>/module.wasm` (ignoré par Git).
@@ -558,17 +567,49 @@ d'abord les modules.
 
 ## Feuille de route
 
-- **0.1** — noyau syntaxique + xref + filtres + writer ; `fyp info`,
-  `fyp rewrite` ; round-trip sur 100 % du corpus ; fuzzing sans crash.
-- **0.2** — opérations de pages dans le noyau (`ops` : fusion, extraction,
-  découpage, rotation, suppression ; `fyp merge`, `fyp pages`, `fyp split`),
-  faites ; chargement WASM (Wasmtime 48, WASI fourni par l'hôte), permissions
-  `read_document` et `write_document`, limites appliquées par le runtime,
-  re-validation, module de fusion réel et `fyp run`, faits ; restent les
-  permissions de dossier, de réseau et de sous-processus.
-- **0.3** — application Tauri : ouvrir, organiser (fait : fenêtre,
-  vignettes, vue d'une page, réordonner, faire pivoter, supprimer, enregistrer), pipeline, panneau de
-  conformité PDF/A (validation veraPDF externe puis moteur interne).
-- **0.4** — chiffrement à l'écriture (révision 6), PDF 2.0 en écriture, PDF/X.
-- **0.5** — OCR (module natif Tesseract), PAdES.
-- **1.0** — API des modules gelée, catalogue signé, PDF/E, PDF/UA.
+Les versions suivent `paliers.md` : une rampe ajoute des fonctionnalités
+(`v0.X.0`), le palier qui la suit n'ajoute rien et solde la dette (patch
+suivant). Les versions jusqu'à v0.3.3 ont précédé cette méthode.
+
+Fait :
+
+- **v0.0.1 à v0.0.10** — noyau : lexer et objets, xref (table, flux, chaîne
+  `/Prev`), filtres et object streams, reconstruction par scan, writer,
+  déchiffrement, tolérances issues du corpus ; `fyp info`, `fyp rewrite`.
+- **v0.1.0** — opérations de pages (`ops`) ; `fyp merge`, `fyp pages`,
+  `fyp split`.
+- **v0.2.0** — première fenêtre Tauri : ouvrir, vignettes, réordonner,
+  supprimer, enregistrer.
+- **v0.3.0** — modules WebAssembly exécutés en sandbox, permissions
+  `read_document` et `write_document`, module de fusion, `fyp run`.
+- **v0.3.1** — audit du chargeur de modules : budget mémoire partagé, texte
+  hostile neutralisé, dette consignée (ADR 0003, « Limites connues »).
+- **v0.3.2** — vue d'une page en grand.
+- **v0.3.3** — rotation depuis l'interface, annuler et refaire.
+- **Après v0.3.3, pour le prochain tag** — ADR 0006 (fonctionnement local) ;
+  empaquetage Windows (installeur NSIS, archive portable) ; versions et
+  identité re-basées (workspace 0.3.3, `org.fouryoupdf.desktop`, Rust 1.95 au
+  minimum, `tools/check_version.py`).
+
+Ensuite :
+
+- **v0.3.4, palier : première release publique.** Durcissement de la
+  fenêtre WebView, workflow de release terminé avec les notices de
+  licences, fuzzing étendu en CI et dette WebAssembly datée ; le détail est
+  dans `backlog-technique.md`, `backlog-ui.md` et l'ADR 0003, « Limites
+  connues ».
+- **v0.4.0, rampe** — moteur de rendu : voir l'ADR qui remplacera
+  l'ADR 0005.
+
+Plus tard, sans version attribuée : permissions de dossier, de réseau et de
+sous-processus ; chiffrement à l'écriture (révision 6), PDF 2.0 en écriture,
+PDF/X ; dans l'application, pipeline, palette de commandes, panneau de
+conformité PDF/A (validation veraPDF externe puis moteur interne) et
+modules ; OCR (module natif Tesseract), PAdES ; pour la 1.0, API des modules
+gelée, catalogue signé, PDF/E, PDF/UA.
+
+Les ADR et quelques documents parlent des « jalons » de la première feuille
+de route, antérieure à ces numéros de version : jalon 0.1, le noyau (v0.0.1
+à v0.0.10) ; jalon 0.2, les opérations de pages et les modules (v0.1.0,
+v0.3.0, v0.3.1) ; jalon 0.3, l'application (v0.2.0, v0.3.2, v0.3.3). Les
+jalons 0.4, 0.5 et 1.0 sont repris ci-dessus.

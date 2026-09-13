@@ -47,6 +47,14 @@ Windows (WebView2, présent sur Windows 11) et macOS ne demandent rien de plus.
 5. Une PR qui touche `crates/fyp-plugin-api` doit dire si le changement est
    compatible ou cassant et ajuster la version de ce crate en conséquence.
 
+## Rampes et paliers
+
+Le projet alterne des rampes, qui ajoutent des fonctionnalités, et des
+paliers, qui n'ajoutent rien et soldent la dette ; une trouvaille faite
+pendant un travail va au backlog, sauf si elle empêche d'atteindre son
+objectif. La PR qui clôt un palier recopie et coche la grille de sortie de
+`docs/paliers.md`, qui décrit la méthode.
+
 ## Règles de code
 
 - `unsafe` est interdit dans tout le workspace.

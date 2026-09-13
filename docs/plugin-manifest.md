@@ -68,7 +68,7 @@ Au chargement, `fyp-host` refuse en plus :
 | caractère de contrôle ou de mise en forme bidirectionnelle (U+202E…) dans un champ texte | refusé |
 | limite au-dessus des plafonds de l'hôte (par défaut : 10 min, 4 Gio de mémoire et au plus le budget commun, 4 Gio de sortie) | refusé (`LimitAboveCeiling`) |
 | `module.wasm` qui n'est pas une commande WASI (pas d'export `_start` ou `memory`, mémoire partagée, importation autre qu'une fonction) | refusé (`BadModule`) |
-| au jalon 0.2, toute permission autre que `read_document` et `write_document` | refusé (`PermissionUnavailable`) |
+| aujourd'hui (`fyp-host` 0.2.0), toute permission autre que `read_document` et `write_document` | refusé (`PermissionUnavailable`) |
 
 Un `id` n'est pas une preuve d'origine : tant que les modules ne sont pas
 signés, rien ne distingue un module qui reprend l'identifiant d'un module

@@ -8,10 +8,11 @@ passer à 100 %. Deux origines :
   sous-dossiers sont ignorés par Git : la CI ne les a pas, chaque poste les
   récupère. La provenance, le commit et la licence de chaque lot sont dans
   `SOURCES.md`, généré par le script.
-- **Fichiers maison**, versionnés ici avec git-lfs (`.gitattributes`) :
-  exports ERP, scans d'atelier, sorties PDF24 / LibreOffice / Word / Chrome,
-  anonymisés. Ne jamais commiter un document contenant des données réelles
-  non anonymisées. Chaque fichier a un `.expect` à côté :
+- **Fichiers maison**, prévus mais absents pour l'instant : exports ERP,
+  scans d'atelier, sorties PDF24 / LibreOffice / Word / Chrome, anonymisés,
+  à versionner ici avec git-lfs (`.gitattributes` y envoie déjà les PDF). Ne
+  jamais commiter un document contenant des données réelles non anonymisées.
+  Chaque fichier aura un `.expect` à côté, que le test ne lit pas encore :
 
   ```toml
   # nom.pdf.expect

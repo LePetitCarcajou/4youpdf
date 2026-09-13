@@ -1,10 +1,11 @@
-# app — application desktop (jalon 0.3)
+# app — application desktop
 
-Tauri 2 (Rust) + interface en TypeScript et CSS, sans framework. Première
-étape : une fenêtre qui ouvre un PDF, montre ses pages en vignettes ou une
-par une en grand, permet de les réordonner, de les faire pivoter et de les
-supprimer, et enregistre le résultat par `fyp_core::ops`. Pas de palette, pas de conformité, pas de
-modules pour l'instant.
+Tauri 2 (Rust) + interface en TypeScript et CSS, sans framework. Une fenêtre
+qui ouvre un PDF, montre ses pages en vignettes ou une par une en grand,
+permet de les réordonner, de les faire pivoter et de les supprimer, avec
+annuler et refaire, et enregistre le résultat par `fyp_core::ops`. Pas de
+palette, pas de conformité, pas de modules pour l'instant. Pour Windows, un
+installeur et une archive portable (voir « Empaqueter pour Windows »).
 
 ## Construire et lancer
 
@@ -18,6 +19,8 @@ python tools/fetch_pdfium.py     # PDFium (BSD-3), ADR 0005                     
 python tools/build_ui.py         # vérification des types, tests, bundle              -> app/dist/
 cargo run -p fyp-app
 ```
+
+Sous Linux et macOS, `python` s'appelle souvent `python3`.
 
 Un `app/.tools/` récupéré avant l'arrivée de QuickJS-ng ne suffit plus :
 relancer `fetch_ui_tools.py`, sans quoi `build_ui.py` s'arrête faute de
@@ -84,10 +87,12 @@ jamais un installeur privé de PDFium.
 
 `--tag vX.Y.Z` arrête le script avant de compiler si le tag ne nomme pas la
 version du workspace ; `--out dossier` y copie les deux fichiers. C'est ainsi
-que le workflow de release (`.github/workflows/release.yml`) les construit
-sur un tag `v*`, puis les attache à la Release GitHub avec le changelog,
-leurs empreintes (`SHA256SUMS.txt`) et une attestation de provenance de
-GitHub. Les paquets pour macOS et Linux viendront ensuite.
+que le workflow de release (`.github/workflows/release.yml`) est écrit pour
+les construire sur un tag `v*`, puis les attacher à la Release GitHub avec
+les notes produites par git-cliff, leurs empreintes (`SHA256SUMS.txt`) et une
+attestation de provenance de GitHub. Sous cette forme, il n'a encore tourné
+sur aucun tag : les releases publiées jusqu'à v0.3.3 n'ont aucun fichier.
+Les paquets pour macOS et Linux viendront ensuite.
 
 ### Installeur et archive portable
 
@@ -118,18 +123,6 @@ paquets d'application de macOS, ce que Tauri signale. Aucun de ses éléments
 ne commence par un chiffre, d'où `fouryoupdf` : un élément de nom D-Bus ne le
 peut pas, et l'identifiant d'application GLib, sous Linux, serait invalide.
 
-Vérifié sur Windows 11 (installeur marqué comme téléchargé, avertissement
-SmartScreen, lancement par le raccourci du menu Démarrer, ouverture d'un PDF
-par le sélecteur de fichiers, désinstallation) : il ne reste rien de ce que
-l'installeur ou l'application ont écrit, ni fichier ni clé. Restent les
-traces que Windows tient pour tout programme : la copie du désinstalleur
-dans `%TEMP%\~nsuN.tmp` (80 Kio : NSIS s'y copie pour pouvoir effacer
-l'original, et sans droits d'administrateur ne peut pas en programmer la
-suppression ; Windows la retire avec les fichiers temporaires), les documents
-récents et l'historique du sélecteur de fichiers (`Recent`, `RecentDocs`,
-`ComDlg32`, liste « Ouvrir avec » de `.pdf`), les compteurs de lancement
-(`UserAssist`) et les métadonnées du menu Démarrer.
-
 L'archive fait une copie portable par son dossier `data/` : quand il existe à
 côté de l'exécutable et qu'on peut y écrire, WebView2 y garde son profil au
 lieu de `%LOCALAPPDATA%\org.fouryoupdf.desktop` (`portable_data_dir`, dans
@@ -140,16 +133,39 @@ l'archive avant de lancer `4YouPDF.exe` : lancé depuis l'intérieur du zip,
 l'exécutable part seul dans un dossier temporaire, sans `pdfium.dll` ni
 `data/`.
 
-Vérifié sur Windows 11, depuis un dossier au nom quelconque (espaces,
-parenthèses, accent) : `pdfium.dll` chargée depuis ce dossier, profil de
-WebView2 dans `data\EBWebView` (8 Mio après l'ouverture d'un PDF de
-14 pages), rien dans `%LOCALAPPDATA%` ni `%APPDATA%`, et après la
-suppression du dossier aucun fichier ni aucune clé écrits par 4YouPDF.
-Windows note seulement, comme pour tout programme lancé, le nom de
-l'exécutable et ses lancements (`MuiCache`, `UserAssist`) et les documents
-récents du sélecteur de fichiers. L'Explorateur transmet la marque
-« téléchargé d'Internet » de l'archive aux fichiers qu'il en extrait :
-SmartScreen avertit au premier lancement, comme pour l'installeur.
+### À vérifier sur une machine
+
+L'installeur et l'archive ont été essayés sur Windows 11 avant la re-base
+des versions et de l'identité, avec l'identifiant précédent. Ces essais ne
+valent plus, et aucun n'a été refait depuis. Restent à vérifier, sur des
+paquets construits avec `org.fouryoupdf.desktop` et marqués comme
+téléchargés d'Internet :
+
+- **l'installeur** : avertissement SmartScreen, puis « Exécuter quand
+  même » ; installation sans droits d'administrateur dans
+  `%LOCALAPPDATA%\4YouPDF\` ; raccourcis du menu Démarrer et du bureau ;
+  lancement par le menu Démarrer, ouverture d'un PDF par le sélecteur de
+  fichiers, pages dessinées ; profil de WebView2 dans
+  `%LOCALAPPDATA%\org.fouryoupdf.desktop\EBWebView` ; désinstallation depuis
+  « Applications installées », case « Supprimer les données de
+  l'application » décochée, après laquelle ne restent ni le dossier
+  d'installation, ni le profil, ni les clés `HKCU` du tableau ci-dessus ;
+- **l'archive portable** : extraction par l'Explorateur dans un dossier au
+  nom quelconque (espaces, parenthèses, accent) et avertissement SmartScreen
+  au premier lancement ; `pdfium.dll` chargée depuis ce dossier ; profil de
+  WebView2 dans `data\EBWebView`, rien dans `%LOCALAPPDATA%` ni
+  `%APPDATA%` ; après suppression du dossier, aucun fichier ni aucune clé
+  écrits par 4YouPDF ; sur un support en lecture seule, profil dans
+  `%LOCALAPPDATA%` ;
+- **l'absence de WebView2**, dont aucun essai n'est consigné : message et
+  code de sortie 1 pour l'archive, arrêt de l'installeur privé de connexion.
+
+Ne sont pas des restes de 4YouPDF les traces que Windows et NSIS laissent
+pour tout programme : la copie du désinstalleur dans `%TEMP%`, les
+documents récents et l'historique du sélecteur de fichiers (`Recent`,
+`RecentDocs`, `ComDlg32`, liste « Ouvrir avec » de `.pdf`), le nom de
+l'exécutable et ses lancements (`MuiCache`, `UserAssist`), les métadonnées
+du menu Démarrer.
 
 ### WebView2 absent
 
@@ -225,7 +241,7 @@ ici).
 
 | Fichier | Rôle |
 |---|---|
-| `src/main.rs` | commandes exposées à l'interface : ouvrir, lister, rendre une page, faire pivoter des pages, enregistrer, dialogues de fichiers ; ouverture de la fenêtre (profil WebView2 d'une copie portable) ; message et arrêt si WebView2 manque |
+| `src/main.rs` | commandes exposées à l'interface : ouvrir, fermer, état du rendu, fichier passé en ligne de commande, rendre une page, faire pivoter des pages, enregistrer, dialogues de fichiers ; ouverture de la fenêtre (profil WebView2 d'une copie portable) ; message et arrêt si WebView2 manque |
 | `src/session.rs` | le document ouvert vu par `fyp-core` : pages, réparation, chiffrement ; rotation par `ops::rotate`, qui réécrit le document gardé en mémoire ; enregistrement par `ops::extract_pages` |
 | `src/render.rs` | images des pages (vignettes, vue d'une page) : thread dédié qui charge PDFium et sert les demandes une à une ; où chercher la bibliothèque ; seul endroit qui connaît `pdfium-render` |
 | `ui/src/main.ts` | la fenêtre : grille, glisser-déposer, sélection, menu contextuel, clavier, avis en place |
@@ -235,7 +251,7 @@ ici).
 | `ui/src/viewer.ts` | vue d'une page par-dessus la grille : navigation, largeur de rendu adaptée à la fenêtre, page affichée puis ses voisines |
 | `ui/src/api.ts` | façade typée des commandes ; `tauri.d.ts` décrit le sous-ensemble de l'API globale de Tauri utilisé |
 | `ui/tests/` | tests de la logique sans DOM, exécutés par QuickJS-ng ; `check.ts` est leur harnais |
-| `tauri.conf.json`, `capabilities/` | fenêtre unique, ouverte par `main.rs`, `withGlobalTauri`, permissions minimales ; identité de l'application, icônes, réglages de l'installeur et de WebView2 |
+| `tauri.conf.json`, `capabilities/` | fenêtre unique, ouverte par `main.rs`, `withGlobalTauri`, permissions `core:default` et `dialog:default`, plus larges que ce que l'interface utilise (`docs/backlog-technique.md`) ; identité de l'application, icônes, réglages de l'installeur et de WebView2 |
 | `tauri.bundle.json` | fusionné à `tauri.conf.json` par `tools/package_app.py` : active l'empaquetage et liste les fichiers livrés à côté de l'exécutable |
 | `windows/installer-hooks.nsh` | ce que l'installeur et le désinstalleur font de plus que ceux de Tauri |
 | `icons/` | `icon.svg`, source de toutes les icônes |
@@ -254,12 +270,15 @@ ici).
   pages sélectionnées d'un quart de tour (voir « Rotation »).
 - Double-cliquer sur une vignette, ou appuyer sur Entrée, montre la page en
   grand (voir « Vue d'une page »).
-- `Enregistrer sous…` (Ctrl+S) écrit un fichier neuf, relu avant d'être
-  annoncé. Le fichier d'origine n'est jamais modifié.
+- `Enregistrer sous…` (Ctrl+S) écrit le fichier choisi, relu avant d'être
+  annoncé ; le nom proposé est celui du fichier d'origine suivi de
+  `-modifié`. Le fichier d'origine n'est remplacé que si on le choisit comme
+  destination.
 - Un fichier réparé (table reconstruite, `startxref` corrigé) ou chiffré
-  est annoncé au-dessus de la grille, avec les mêmes mots que `fyp info` ;
-  un fichier chiffré demande son mot de passe dans le même bandeau, et
-  l'enregistrement est annoncé comme produisant un fichier en clair.
+  est annoncé au-dessus de la grille, avec la cause et la description du
+  chiffrement que donne aussi `fyp info` ; un fichier protégé par un mot de
+  passe le demande dans le même bandeau, et l'enregistrement d'un fichier
+  chiffré est annoncé comme produisant un fichier en clair.
 - Les bandeaux ne sont remplacés qu'une fois un autre fichier ouvert. Une
   ouverture qui échoue laisse le document affiché, ses bandeaux et la barre
   d'état tels quels, et ajoute un seul message d'erreur (celui d'un échec
