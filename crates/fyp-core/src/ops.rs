@@ -812,7 +812,7 @@ fn is_dead_action(obj: &Object, snapshot: &BTreeMap<u32, Object>) -> bool {
     let goto = matches!(dict.get(&Name::new("S")), Some(Object::Name(n)) if n.0 == b"GoTo");
     goto && dict
         .get(&Name::new("D"))
-        .map_or(true, |d| is_dead_dest(d, snapshot))
+        .is_none_or(|d| is_dead_dest(d, snapshot))
 }
 
 /// A named destination's value: a destination array, or a dictionary

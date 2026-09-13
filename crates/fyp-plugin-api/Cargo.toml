@@ -4,7 +4,11 @@ description = "Contract between the 4YouPDF host and its modules (manifest, perm
 # Versioned independently from the workspace: this is the plugin contract.
 version = "0.2.0"
 edition.workspace = true
-rust-version.workspace = true
+# Not the minimum Rust of the product (1.95, for Wasmtime): authors of
+# modules compile this crate, so it keeps the lowest version it builds with,
+# checked apart by the CI job msrv-plugin-api (CLAUDE.md). 1.85 comes from
+# hashbrown 0.17, through toml.
+rust-version = "1.85"
 license.workspace = true
 repository.workspace = true
 authors.workspace = true

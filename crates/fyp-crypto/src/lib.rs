@@ -311,7 +311,7 @@ fn check(params: &Params) -> Result<(), Error> {
     let bits = params.key_bits;
     match params.revision {
         Revision::R2 if bits != 40 => return bad("revision 2 uses a 40-bit key"),
-        Revision::R3 | Revision::R4 if bits % 8 != 0 || !(40..=128).contains(&bits) => {
+        Revision::R3 | Revision::R4 if !bits.is_multiple_of(8) || !(40..=128).contains(&bits) => {
             return bad(&format!(
                 "key length {bits} is not a multiple of 8 between 40 and 128"
             ))
@@ -756,7 +756,7 @@ where
         return Vec::new();
     };
     let mut out = Vec::with_capacity(body.len());
-    for chunk in body.chunks_exact(16) {
+    for chunk in body.as_chunks::<16>().0 {
         let Some(mut b) = block(chunk) else {
             break;
         };
@@ -803,7 +803,7 @@ where
         return Vec::new();
     };
     let mut out = Vec::with_capacity(body.len());
-    for chunk in body.chunks_exact(16) {
+    for chunk in body.as_chunks::<16>().0 {
         let Some(mut b) = block(chunk) else {
             break;
         };

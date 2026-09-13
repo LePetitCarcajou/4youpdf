@@ -382,7 +382,9 @@ fn index_pairs(dict: &Dict, offset: usize) -> Result<Vec<(u32, u64)>> {
                 return Err(bad(offset, "/Index must hold pairs of integers"));
             }
             items
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|pair| {
                     let first = pair
                         .first()

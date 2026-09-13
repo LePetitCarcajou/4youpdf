@@ -422,8 +422,8 @@ fn tiff_unpredict(data: &[u8], row_len: usize, p: Predictor) -> Vec<u8> {
             }
             16 => {
                 let mut cur: Vec<u16> = Vec::with_capacity(row.len() / 2);
-                let mut pairs = row.chunks_exact(2);
-                for pair in &mut pairs {
+                let (pairs, odd) = row.as_chunks::<2>();
+                for pair in pairs {
                     let raw = pair.iter().fold(0u16, |acc, &b| (acc << 8) | u16::from(b));
                     let left = cur
                         .len()
@@ -435,7 +435,7 @@ fn tiff_unpredict(data: &[u8], row_len: usize, p: Predictor) -> Vec<u8> {
                 }
                 out.extend(cur.iter().flat_map(|v| v.to_be_bytes()));
                 // A dangling odd byte cannot be a sample: keep it as is.
-                out.extend_from_slice(pairs.remainder());
+                out.extend_from_slice(odd);
             }
             bits => {
                 // 1, 2 or 4 bits: unpack the samples, add, repack.
@@ -589,7 +589,7 @@ pub fn run_length_decode(data: &[u8], limits: DecodeLimits) -> Result<Vec<u8>> {
                     break;
                 };
                 let n = 257 - usize::from(length);
-                out.extend(std::iter::repeat(b).take(n));
+                out.extend(std::iter::repeat_n(b, n));
             }
         }
         if out.len() > limits.max_output {

@@ -9,6 +9,9 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
 
+# dtolnay/rust-toolchain is pinned by commit: it has no release tag, and a
+# branch would run whatever it points to that day. The toolchain itself comes
+# from the `toolchain` input.
 jobs:
   check:
     name: fmt · clippy · deny
@@ -27,8 +30,9 @@ jobs:
             librsvg2-dev \
             libsoup-3.0-dev \
             pkg-config
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master, 2026-09-12
         with:
+          toolchain: stable
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
@@ -59,7 +63,9 @@ jobs:
             librsvg2-dev \
             libsoup-3.0-dev \
             pkg-config
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master, 2026-09-12
+        with:
+          toolchain: stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace
 
@@ -71,8 +77,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           lfs: true
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master, 2026-09-12
         with:
+          toolchain: stable
           targets: wasm32-wasip1
       - uses: Swatinem/rust-cache@v2
       # Builds each crate of plugins/ for wasm32-wasip1 and copies it to
@@ -83,6 +90,78 @@ jobs:
       - run: cargo test -p fyp-host -p fyp-cli -p fyp-plugin-merge
         env:
           FYP_REQUIRE_MODULES: "1"
+
+  # The minimum Rust of the product (CLAUDE.md), which no job tried before:
+  # the 1.80 once declared was false for a long time. The whole workspace is
+  # built and tested with exactly that toolchain, and the module of the
+  # repository is checked for wasm32-wasip1. One runner is enough: a
+  # rust-version is about the compiler, not the platform.
+  msrv-product:
+    name: product on its MSRV
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      # fyp-app links against WebKitGTK through Tauri 2.
+      - name: install Tauri system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            pkg-config
+      # Also fails if a crate other than the contract overrides it.
+      - name: read the rust-version of the workspace
+        id: msrv
+        run: |
+          version=$(python3 tools/check_version.py --rust-version)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master, 2026-09-12
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+          targets: wasm32-wasip1
+      # For every later step, over rust-toolchain.toml, which would select
+      # stable: the cache is keyed on this toolchain too.
+      - run: echo "RUSTUP_TOOLCHAIN=$MSRV" >> "$GITHUB_ENV"
+        env:
+          MSRV: ${{ steps.msrv.outputs.version }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --locked
+      - run: cargo check -p fyp-plugin-merge --locked --target wasm32-wasip1
+
+  # The contract of the modules keeps the lowest Rust it builds with, below
+  # that of the product (CLAUDE.md): authors of modules compile it. Checked
+  # with exactly the rust-version of its Cargo.toml, for the host and for
+  # wasm32-wasip1, so that neither its code nor a dependency raises it
+  # unnoticed.
+  msrv-plugin-api:
+    name: fyp-plugin-api on its MSRV
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Also fails if the contract does not give its own.
+      - name: read the rust-version of fyp-plugin-api
+        id: msrv
+        run: |
+          version=$(python3 tools/check_version.py --rust-version fyp-plugin-api)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master, 2026-09-12
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+          targets: wasm32-wasip1
+      # For every later step, over rust-toolchain.toml, which would select
+      # stable.
+      - run: echo "RUSTUP_TOOLCHAIN=$MSRV" >> "$GITHUB_ENV"
+        env:
+          MSRV: ${{ steps.msrv.outputs.version }}
+      - run: cargo test -p fyp-plugin-api --locked
+      - run: cargo check -p fyp-plugin-api --locked --target wasm32-wasip1
 
   dco:
     name: DCO sign-off

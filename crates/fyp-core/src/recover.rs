@@ -268,7 +268,7 @@ impl Scan<'_> {
                 let Ok(index) = u32::try_from(index) else {
                     break;
                 };
-                let older = self.found.get(&inner).map_or(true, |f| f.at < at);
+                let older = self.found.get(&inner).is_none_or(|f| f.at < at);
                 if !older {
                     continue;
                 }
@@ -282,7 +282,7 @@ impl Scan<'_> {
                         at,
                     },
                 );
-                if has_catalog && self.catalog.map_or(true, |(pos, _)| pos < at) {
+                if has_catalog && self.catalog.is_none_or(|(pos, _)| pos < at) {
                     let is_catalog = matches!(
                         Parser::at(&stream.data, offset).parse_object(),
                         Ok(Object::Dict(d))
@@ -388,14 +388,14 @@ fn find_between(input: &[u8], from: usize, to: usize, needle: &[u8]) -> Option<u
 fn boundary_after(input: &[u8], at: usize) -> bool {
     input
         .get(at)
-        .map_or(true, |&b| is_whitespace(b) || is_delimiter(b))
+        .is_none_or(|&b| is_whitespace(b) || is_delimiter(b))
 }
 
 /// Is the byte before `at` (or the start of input) a token boundary?
 fn boundary_before(input: &[u8], at: usize) -> bool {
     at.checked_sub(1)
         .and_then(|i| input.get(i))
-        .map_or(true, |&b| is_whitespace(b) || is_delimiter(b))
+        .is_none_or(|&b| is_whitespace(b) || is_delimiter(b))
 }
 
 /// Read `n g` backwards from an `obj` keyword at `kw`. Returns the offset
@@ -493,7 +493,7 @@ fn stream_keyword_between(input: &[u8], from: usize, to: usize) -> Option<usize>
         let before_ok = s
             .checked_sub(1)
             .and_then(|i| input.get(i))
-            .map_or(true, |&b| is_whitespace(b) || b == b'>');
+            .is_none_or(|&b| is_whitespace(b) || b == b'>');
         let after_ok = input.get(s + 6).is_some_and(|&b| is_whitespace(b));
         if before_ok && after_ok {
             return Some(s);

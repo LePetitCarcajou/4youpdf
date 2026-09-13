@@ -489,10 +489,10 @@ fn section_starts_at(input: &[u8], at: usize) -> bool {
     };
     let before = at.checked_sub(1).and_then(|i| input.get(i)).copied();
     if rest.starts_with(b"xref") {
-        let before_ok = before.map_or(true, |b| !b.is_ascii_alphanumeric());
+        let before_ok = before.is_none_or(|b| !b.is_ascii_alphanumeric());
         let after_ok = rest
             .get(4)
-            .map_or(true, |&b| is_whitespace(b) || is_delimiter(b));
+            .is_none_or(|&b| is_whitespace(b) || is_delimiter(b));
         return before_ok && after_ok;
     }
     if rest.first().is_some_and(u8::is_ascii_digit) && !before.is_some_and(|b| b.is_ascii_digit()) {
