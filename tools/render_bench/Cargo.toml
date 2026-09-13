@@ -1,0 +1,40 @@
+[package]
+name = "fyp-render-bench"
+description = "Rendering fidelity bench: two engines, one page set, image distance and timings (ADR 0005)"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+default-run = "fyp-render-bench"
+autobins = false
+
+# A tool of the repository, not part of the product: version 0.0.0, never
+# published. Engines are programs of their own, named in engines.toml, so
+# that adding one leaves this crate as it is (docs/banc-rendu.md).
+
+[[bin]]
+name = "fyp-render-bench"
+path = "src/main.rs"
+
+# The engine the tests of the bench run: synthetic pages, and the failures a
+# real engine may have (crash, hang, unreadable answer).
+[[bin]]
+name = "fyp-render-engine-fake"
+path = "src/bin/fake_engine.rs"
+test = false
+
+[dependencies]
+fyp-core = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+# The application's `image` and features: PNG only.
+image = { version = "0.25", default-features = false, features = ["png"] }
+sha2 = "0.10"
+
+[lints]
+workspace = true

@@ -1,0 +1,40 @@
+[package]
+name = "fyp-render-engine-pdfium"
+description = "PDFium engine of the rendering fidelity bench, through the application's app/src/render.rs"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+# app/src/render.rs is compiled into this binary as it is (`#[path]`). Its
+# tests need the rest of the application and stay there: the binary is never
+# built as a test harness (`test = false`, and `bench = false`, which
+# `--all-targets` would otherwise build with `cfg(test)`); tests/engine.rs
+# runs the built program instead.
+[[bin]]
+name = "fyp-render-engine-pdfium"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+fyp-render-bench = { path = "../.." }
+serde_json = { workspace = true }
+# What app/src/render.rs needs, exactly as app/Cargo.toml asks for it
+# (tests/engine.rs compares both manifests).
+serde = { workspace = true }
+pdfium-render = { version = "0.9", default-features = false, features = [
+    "pdfium_latest",
+    "image_latest",
+    "thread_safe",
+] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[dev-dependencies]
+toml = { workspace = true }
+
+[lints]
+workspace = true

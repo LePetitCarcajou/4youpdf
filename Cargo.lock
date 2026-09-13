@@ -1424,6 +1424,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "fyp-render-bench"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "fyp-core",
+ "image",
+ "serde",
+ "serde_json",
+ "sha2",
+ "toml 0.8.2",
+]
+
+[[package]]
+name = "fyp-render-engine-pdfium"
+version = "0.0.0"
+dependencies = [
+ "fyp-render-bench",
+ "image",
+ "pdfium-render",
+ "serde",
+ "serde_json",
+ "toml 0.8.2",
+]
+
+[[package]]
 name = "gdk"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

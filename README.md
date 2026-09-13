@@ -132,6 +132,7 @@ python tools/fetch_ui_tools.py
 python tools/fetch_pdfium.py
 python tools/build_ui.py
 cargo run -p fyp-app
+cargo run --release -p fyp-render-bench   # banc de fidélité du rendu, après fetch_pdfium.py et tools/fetch_corpus.py -> target/render-bench/ (docs/banc-rendu.md)
 python tools/package_app.py        # Windows : installeur et archive portable -> target/release/bundle/
 ```
 

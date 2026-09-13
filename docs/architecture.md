@@ -424,7 +424,11 @@ résultat ; pour Windows, un installeur et une archive portable. Répartition :
   bibliothèque, tout fonctionne avec des vignettes vides. Pour une page à
   la taille de la fenêtre, le temps passe dans l'encodage PNG, pas dans
   PDFium : le filtre `Up` est plus de quatre fois plus rapide que le filtre
-  adaptatif par défaut, pour des fichiers 12 à 14 % plus gros.
+  adaptatif par défaut, pour des fichiers 12 à 14 % plus gros. Une demande
+  passe par trois étapes : ouvrir le document, dessiner la page, l'encoder.
+  Le banc de fidélité du rendu (`tools/render_bench`, `docs/banc-rendu.md`)
+  compile ce module tel quel et appelle ces étapes une à une, pour
+  chronométrer séparément le dessin et l'encodage.
 - **Interface (`app/ui/`)** : l'ordre des pages et l'historique
   annuler/refaire vivent dans l'interface (`history.ts`) ; le côté Rust ne
   connaît que le document ouvert, tourné au fil des rotations. L'interface
@@ -589,7 +593,8 @@ Fait :
 - **Après v0.3.3, pour le prochain tag** — ADR 0006 (fonctionnement local) ;
   empaquetage Windows (installeur NSIS, archive portable) ; versions et
   identité re-basées (workspace 0.3.3, `org.fouryoupdf.desktop`, Rust 1.95 au
-  minimum, `tools/check_version.py`).
+  minimum, `tools/check_version.py`) ; banc de fidélité du rendu
+  (`tools/render_bench`, `docs/banc-rendu.md`).
 
 Ensuite :
 

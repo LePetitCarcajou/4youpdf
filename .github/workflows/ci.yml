@@ -163,6 +163,39 @@ jobs:
       - run: cargo test -p fyp-plugin-api --locked
       - run: cargo check -p fyp-plugin-api --locked --target wasm32-wasip1
 
+  # The rendering fidelity guard (docs/banc-rendu.md, « Garde en CI »):
+  # written, not active. The bench draws the reference page set with two
+  # engines and exits with code 3 when a page of B is further from A than
+  # the threshold, when B fails where A draws, or when a page cannot be
+  # measured. Today B can only be PDFium itself, against which the only
+  # threshold already known is zero. Missing before `if: false` goes: the
+  # engine to guard; a threshold measured against it on this runner, whose
+  # system fonts are not those of the machine that chose the set; the public
+  # corpus, fetched from three repositories, cached; a run that fits a job.
+  render-fidelity:
+    name: rendering fidelity guard (inactive)
+    if: false
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master, 2026-09-12
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - run: python3 tools/fetch_pdfium.py
+      - run: python3 tools/fetch_corpus.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # --b: the engine to guard, once it exists; --fail-above: its measured
+      # threshold.
+      - run: cargo run --release -p fyp-render-bench -- run --a pdfium --b pdfium --fail-above 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: render-fidelity-report
+          path: target/render-bench/
+
   dco:
     name: DCO sign-off
     runs-on: ubuntu-latest

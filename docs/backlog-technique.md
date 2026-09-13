@@ -53,10 +53,11 @@ diffère ; seul l'épinglage des actions par SHA est entamé (`ci.yml`).
     Restent sur une référence mobile les branches
     `dtolnay/rust-toolchain@stable` (`release.yml`, 2 fois) et
     `dtolnay/rust-toolchain@nightly` (`fuzz.yml`), et les tags
-    `actions/checkout@v4` (`ci.yml` 6 fois, `release.yml` 4, `fuzz.yml` 1),
-    `Swatinem/rust-cache@v2` (`ci.yml`, 4 fois),
+    `actions/checkout@v4` (`ci.yml` 7 fois, `release.yml` 4, `fuzz.yml` 1),
+    `Swatinem/rust-cache@v2` (`ci.yml`, 5 fois),
     `EmbarkStudios/cargo-deny-action@v2` (`ci.yml`),
-    `actions/upload-artifact@v4` (`release.yml` 2 fois, `fuzz.yml` 1),
+    `actions/upload-artifact@v4` (`ci.yml` 1 fois, `release.yml` 2,
+    `fuzz.yml` 1),
     `actions/download-artifact@v4`, `orhun/git-cliff-action@v4`,
     `actions/attest-build-provenance@v2` et `softprops/action-gh-release@v2`
     (`release.yml`). Prévoir en même temps leur mise à jour : Dependabot
@@ -124,3 +125,24 @@ diffère ; seul l'épinglage des actions par SHA est entamé (`ci.yml`).
   cours (`--latest --strip header`), et rien n'écrit le fichier. Décider
   s'il est produit et commité avant chaque tag, ou si les notes des releases
   suffisent.
+- [ ] **Empêcher un build de développement en release de charger une
+  `pdfium.dll` restée dans `target/release/`** (consigné le 13 septembre
+  2026, en préparant le moteur PDFium du banc de fidélité). Il y en a une,
+  identique aujourd'hui à `app/pdfium/pdfium.dll` (SHA-256 `04100c03…`, même
+  date de modification) ; qu'elle vienne de l'empaquetage, qui copie les
+  ressources de `tauri.bundle.json`, n'a pas été vérifié.
+  `library_candidates` (`app/src/render.rs`) cherche à côté de l'exécutable
+  avant `app/pdfium/` : après un changement de la version épinglée par
+  `tools/fetch_pdfium.py`, `cargo run --release -p fyp-app` chargerait encore
+  cette copie. Le banc, lui, ne cherche que dans `FYP_PDFIUM_DIR` puis dans
+  `app/pdfium/`.
+- [ ] **Préciser dans quel build l'encodage PNG coûte plus que le rendu
+  d'une page** (consigné le 13 septembre 2026, par le banc de fidélité).
+  `docs/architecture.md` (« Rendu ») affirme que, pour une page à la taille de
+  la fenêtre, « le temps passe dans l'encodage PNG, pas dans PDFium ». La
+  mesure que cite le commentaire de `app/src/render.rs` a été prise dans un
+  build debug : 190 ms pour une page de 1400 pixels. En release, sur les 156
+  pages comparées du jeu de référence à 1400 pixels, l'encodage prend 5,3 %
+  du temps de rendu et d'encodage : 213 ms contre 3 779 ms, 11,6 ms au plus
+  pour une page (`docs/banc-rendu.md`, « Temps de référence »). Or
+  l'application empaquetée est un build release.

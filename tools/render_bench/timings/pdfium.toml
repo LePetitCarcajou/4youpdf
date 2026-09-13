@@ -1,0 +1,2405 @@
+# Temps de référence du moteur pdfium sur le jeu de pages du banc de fidélité
+# du rendu (docs/banc-rendu.md, « Temps de référence »). Écrit par
+# `fyp-render-bench run --record-timings` ; ne pas modifier à la main.
+#
+# Ils ne valent que sur la machine et avec le build de la table [run] :
+# comparés à des temps pris ailleurs, ils ne mesurent que la différence
+# des machines. En millisecondes ; pour chaque page, la médiane des
+# échantillons de tous les processus de ce moteur, et leurs extrêmes.
+
+[run]
+date = "2026-09-13 21:33 UTC"
+engine = "pdfium"
+version = "chromium/8044, pdfium.dll sha256 04100c03e41c"
+detail = 'PDFium chargé depuis E:\CODE\4YouPDF\app\pdfium\pdfium.dll'
+machine = "11th Gen Intel(R) Core(TM) i7-11700KF @ 3.60GHz, 16 fils, Microsoft Windows [version 10.0.26200.9445], x86_64"
+rustc = "rustc 1.98.1 (48a229cea 2026-09-01)"
+revision = "5c2650d49c6c (arbre de travail modifié)"
+pages_file = "tools/render_bench/pages.toml"
+pages_sha256 = "4047a66923ac4d465ee8aef6ce4cd96aa7eea943914783b5c9294dde2037ce6c"
+width = 1400
+repeat = 3
+processes = 2
+
+[[page]]
+n = 1
+file = "tests/fixtures/bad-offsets.pdf"
+index = 0
+width = 1400
+height = 1981
+open_ms = 0.15
+render_ms = 3.346
+render_min_ms = 3.021
+render_max_ms = 3.395
+encode_ms = 1.284
+encode_min_ms = 1.164
+encode_max_ms = 1.403
+samples = 6
+
+[[page]]
+n = 2
+file = "tests/fixtures/encrypted-aes256.pdf"
+index = 0
+width = 1400
+height = 1981
+open_ms = 2.625
+render_ms = 3.41
+render_min_ms = 3.192
+render_max_ms = 5.577
+encode_ms = 1.224
+encode_min_ms = 1.133
+encode_max_ms = 1.542
+samples = 6
+
+[[page]]
+n = 3
+file = "tests/fixtures/encrypted-rc4.pdf"
+index = 0
+width = 1400
+height = 1981
+open_ms = 0.191
+render_ms = 3.567
+render_min_ms = 3.395
+render_max_ms = 5.623
+encode_ms = 1.269
+encode_min_ms = 1.173
+encode_max_ms = 1.458
+samples = 6
+
+[[page]]
+n = 4
+file = "tests/fixtures/garbage-xref.pdf"
+index = 0
+samples = 0
+error = "document impossible à ouvrir : PDFium ne peut pas ouvrir ce fichier : PdfiumLibraryInternalError(FormatError)"
+
+[[page]]
+n = 5
+file = "tests/fixtures/gen-65536.pdf"
+index = 0
+width = 1400
+height = 1981
+open_ms = 0.163
+render_ms = 3.403
+render_min_ms = 3.349
+render_max_ms = 4.105
+encode_ms = 1.448
+encode_min_ms = 1.178
+encode_max_ms = 1.785
+samples = 6
+
+[[page]]
+n = 6
+file = "tests/fixtures/hybrid.pdf"
+index = 0
+open_ms = 0.16
+samples = 0
+error = "page 0 : PdfiumLibraryInternalError(Unknown)"
+
+[[page]]
+n = 7
+file = "tests/fixtures/incremental.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.154
+render_ms = 3.471
+render_min_ms = 3.111
+render_max_ms = 3.671
+encode_ms = 1.234
+encode_min_ms = 1.083
+encode_max_ms = 1.781
+samples = 6
+
+[[page]]
+n = 8
+file = "tests/fixtures/inuse-offset-zero.pdf"
+index = 0
+width = 1400
+height = 1981
+open_ms = 0.145
+render_ms = 3.307
+render_min_ms = 3.113
+render_max_ms = 4.21
+encode_ms = 1.303
+encode_min_ms = 1.194
+encode_max_ms = 1.611
+samples = 6
+
+[[page]]
+n = 9
+file = "tests/fixtures/minimal.pdf"
+index = 0
+width = 1400
+height = 1981
+open_ms = 0.133
+render_ms = 3.389
+render_min_ms = 3.182
+render_max_ms = 3.664
+encode_ms = 1.195
+encode_min_ms = 1.13
+encode_max_ms = 1.354
+samples = 6
+
+[[page]]
+n = 10
+file = "tests/fixtures/no-header-junk.pdf"
+index = 0
+samples = 0
+error = "document impossible à ouvrir : PDFium ne peut pas ouvrir ce fichier : PdfiumLibraryInternalError(FormatError)"
+
+[[page]]
+n = 11
+file = "tests/fixtures/no-header.pdf"
+index = 0
+samples = 0
+error = "document impossible à ouvrir : PDFium ne peut pas ouvrir ce fichier : PdfiumLibraryInternalError(FormatError)"
+
+[[page]]
+n = 12
+file = "tests/fixtures/no-minor-version.pdf"
+index = 0
+width = 1400
+height = 1981
+open_ms = 0.151
+render_ms = 3.22
+render_min_ms = 3.159
+render_max_ms = 3.347
+encode_ms = 1.123
+encode_min_ms = 1.111
+encode_max_ms = 1.168
+samples = 6
+
+[[page]]
+n = 13
+file = "tests/fixtures/no-startxref.pdf"
+index = 0
+width = 1400
+height = 1981
+open_ms = 0.132
+render_ms = 3.228
+render_min_ms = 3.048
+render_max_ms = 3.666
+encode_ms = 1.127
+encode_min_ms = 1.114
+encode_max_ms = 1.232
+samples = 6
+
+[[page]]
+n = 14
+file = "tests/fixtures/object-zero.pdf"
+index = 0
+width = 1400
+height = 1981
+open_ms = 0.143
+render_ms = 3.192
+render_min_ms = 3.057
+render_max_ms = 3.686
+encode_ms = 1.26
+encode_min_ms = 1.151
+encode_max_ms = 1.346
+samples = 6
+
+[[page]]
+n = 15
+file = "tests/fixtures/objstm.pdf"
+index = 0
+width = 1400
+height = 1981
+open_ms = 0.213
+render_ms = 3.209
+render_min_ms = 3.153
+render_max_ms = 3.372
+encode_ms = 1.18
+encode_min_ms = 1.102
+encode_max_ms = 1.217
+samples = 6
+
+[[page]]
+n = 16
+file = "tests/fixtures/prev-loop.pdf"
+index = 0
+width = 1400
+height = 1981
+open_ms = 0.144
+render_ms = 3.216
+render_min_ms = 3.019
+render_max_ms = 3.297
+encode_ms = 1.157
+encode_min_ms = 1.082
+encode_max_ms = 1.462
+samples = 6
+
+[[page]]
+n = 17
+file = "tests/fixtures/root-dangling.pdf"
+index = 0
+samples = 0
+error = "document impossible à ouvrir : PDFium ne peut pas ouvrir ce fichier : PdfiumLibraryInternalError(FormatError)"
+
+[[page]]
+n = 18
+file = "tests/fixtures/root-direct.pdf"
+index = 0
+samples = 0
+error = "document impossible à ouvrir : PDFium ne peut pas ouvrir ce fichier : PdfiumLibraryInternalError(FormatError)"
+
+[[page]]
+n = 19
+file = "tests/fixtures/startxref-off.pdf"
+index = 0
+width = 1400
+height = 1981
+open_ms = 0.14
+render_ms = 3.149
+render_min_ms = 3.03
+render_max_ms = 3.314
+encode_ms = 1.171
+encode_min_ms = 1.106
+encode_max_ms = 1.319
+samples = 6
+
+[[page]]
+n = 20
+file = "tests/fixtures/xrefstream.pdf"
+index = 0
+width = 1400
+height = 1981
+open_ms = 0.139
+render_ms = 3.331
+render_min_ms = 2.996
+render_max_ms = 3.641
+encode_ms = 1.254
+encode_min_ms = 1.168
+encode_max_ms = 1.389
+samples = 6
+
+[[page]]
+n = 21
+file = "tests/corpus/pdfjs/22060_A1_01_Plans.pdf"
+index = 0
+width = 1400
+height = 1980
+open_ms = 0.966
+render_ms = 1359.425
+render_min_ms = 1335.871
+render_max_ms = 1391.41
+encode_ms = 5.258
+encode_min_ms = 5.212
+encode_max_ms = 5.49
+samples = 6
+
+[[page]]
+n = 22
+file = "tests/corpus/pdfjs/annotation-polyline-polygon-without-appearance.pdf"
+index = 0
+width = 1400
+height = 1980
+open_ms = 0.184
+render_ms = 3.773
+render_min_ms = 3.692
+render_max_ms = 6.853
+encode_ms = 1.113
+encode_min_ms = 1.102
+encode_max_ms = 1.37
+samples = 6
+
+[[page]]
+n = 23
+file = "tests/corpus/pdfjs/annotation-square-circle-without-appearance.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.19
+render_ms = 4.126
+render_min_ms = 4.002
+render_max_ms = 6.565
+encode_ms = 1.199
+encode_min_ms = 1.169
+encode_max_ms = 1.301
+samples = 6
+
+[[page]]
+n = 24
+file = "tests/corpus/pdfjs/blendmode.pdf"
+index = 0
+width = 1400
+height = 1980
+open_ms = 0.341
+render_ms = 30.469
+render_min_ms = 30.159
+render_max_ms = 33.621
+encode_ms = 4.624
+encode_min_ms = 4.576
+encode_max_ms = 4.833
+samples = 6
+
+[[page]]
+n = 25
+file = "tests/corpus/pdfjs/bomb_giant.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.153
+render_ms = 3.713
+render_min_ms = 3.622
+render_max_ms = 5.981
+encode_ms = 1.102
+encode_min_ms = 1.073
+encode_max_ms = 1.143
+samples = 6
+
+[[page]]
+n = 26
+file = "tests/corpus/pdfjs/bug1538111.pdf"
+index = 0
+width = 1400
+height = 1981
+open_ms = 0.141
+render_ms = 4.655
+render_min_ms = 4.528
+render_max_ms = 5.411
+encode_ms = 1.394
+encode_min_ms = 1.29
+encode_max_ms = 1.482
+samples = 6
+
+[[page]]
+n = 27
+file = "tests/corpus/pdfjs/bug1669099.pdf"
+index = 0
+width = 1400
+height = 1980
+open_ms = 0.229
+render_ms = 9.657
+render_min_ms = 9.45
+render_max_ms = 16.243
+encode_ms = 2.739
+encode_min_ms = 2.69
+encode_max_ms = 3.073
+samples = 6
+
+[[page]]
+n = 28
+file = "tests/corpus/pdfjs/bug1795263.pdf"
+index = 0
+width = 1400
+height = 1981
+open_ms = 4.886
+render_ms = 6.579
+render_min_ms = 6.437
+render_max_ms = 8.852
+encode_ms = 1.34
+encode_min_ms = 1.291
+encode_max_ms = 1.373
+samples = 6
+
+[[page]]
+n = 29
+file = "tests/corpus/pdfjs/bug1815476.pdf"
+index = 0
+width = 1400
+height = 1981
+open_ms = 0.592
+render_ms = 65.015
+render_min_ms = 64.638
+render_max_ms = 72.163
+encode_ms = 2.527
+encode_min_ms = 2.457
+encode_max_ms = 2.636
+samples = 6
+
+[[page]]
+n = 30
+file = "tests/corpus/pdfjs/bug1865341.pdf"
+index = 0
+width = 1400
+height = 602
+open_ms = 0.365
+render_ms = 1.196
+render_min_ms = 1.113
+render_max_ms = 3.16
+encode_ms = 0.388
+encode_min_ms = 0.384
+encode_max_ms = 0.397
+samples = 6
+
+[[page]]
+n = 31
+file = "tests/corpus/pdfjs/bug1871353.1.pdf"
+index = 0
+width = 1400
+height = 491
+open_ms = 0.418
+render_ms = 0.993
+render_min_ms = 0.903
+render_max_ms = 3.078
+encode_ms = 0.346
+encode_min_ms = 0.321
+encode_max_ms = 0.436
+samples = 6
+
+[[page]]
+n = 32
+file = "tests/corpus/pdfjs/bug1871353.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.364
+render_ms = 2.943
+render_min_ms = 2.767
+render_max_ms = 5.239
+encode_ms = 1.085
+encode_min_ms = 0.996
+encode_max_ms = 1.144
+samples = 6
+
+[[page]]
+n = 33
+file = "tests/corpus/pdfjs/bug878026.pdf"
+index = 0
+width = 1400
+height = 350
+open_ms = 0.146
+render_ms = 0.97
+render_min_ms = 0.946
+render_max_ms = 3.129
+encode_ms = 0.304
+encode_min_ms = 0.291
+encode_max_ms = 0.327
+samples = 6
+
+[[page]]
+n = 34
+file = "tests/corpus/pdfjs/colorkeymask.pdf"
+index = 0
+width = 1400
+height = 1980
+open_ms = 0.179
+render_ms = 6.196
+render_min_ms = 6.048
+render_max_ms = 6.554
+encode_ms = 1.152
+encode_min_ms = 1.136
+encode_max_ms = 1.179
+samples = 6
+
+[[page]]
+n = 35
+file = "tests/corpus/pdfjs/coons-allflags-withfunction.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.209
+render_ms = 34.216
+render_min_ms = 31.713
+render_max_ms = 38.432
+encode_ms = 1.883
+encode_min_ms = 1.846
+encode_max_ms = 2.725
+samples = 6
+
+[[page]]
+n = 36
+file = "tests/corpus/pdfjs/empty_protected.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 2.634
+render_ms = 2.789
+render_min_ms = 2.709
+render_max_ms = 2.889
+encode_ms = 1.049
+encode_min_ms = 0.982
+encode_max_ms = 1.145
+samples = 6
+
+[[page]]
+n = 37
+file = "tests/corpus/pdfjs/endchar.pdf"
+index = 0
+width = 1400
+height = 3267
+open_ms = 0.366
+render_ms = 6.733
+render_min_ms = 6.56
+render_max_ms = 7.445
+encode_ms = 1.963
+encode_min_ms = 1.866
+encode_max_ms = 2.14
+samples = 6
+
+[[page]]
+n = 38
+file = "tests/corpus/pdfjs/file_url_link.pdf"
+index = 0
+width = 1400
+height = 350
+open_ms = 0.159
+render_ms = 1.216
+render_min_ms = 1.12
+render_max_ms = 3.307
+encode_ms = 0.339
+encode_min_ms = 0.312
+encode_max_ms = 0.353
+samples = 6
+
+[[page]]
+n = 39
+file = "tests/corpus/pdfjs/filled-background.pdf"
+index = 0
+width = 1400
+height = 1867
+open_ms = 1.425
+render_ms = 3.265
+render_min_ms = 3.078
+render_max_ms = 3.694
+encode_ms = 1.062
+encode_min_ms = 1.013
+encode_max_ms = 1.087
+samples = 6
+
+[[page]]
+n = 40
+file = "tests/corpus/pdfjs/freeculture.pdf"
+index = 4
+width = 1400
+height = 2099
+open_ms = 0.665
+render_ms = 3.89
+render_min_ms = 3.66
+render_max_ms = 5.561
+encode_ms = 1.157
+encode_min_ms = 1.154
+encode_max_ms = 1.229
+samples = 6
+
+[[page]]
+n = 41
+file = "tests/corpus/pdfjs/function_based_shading_cmyk.pdf"
+index = 0
+width = 1400
+height = 1400
+open_ms = 0.12
+render_ms = 173.691
+render_min_ms = 172.591
+render_max_ms = 174.797
+encode_ms = 3.435
+encode_min_ms = 3.33
+encode_max_ms = 3.501
+samples = 6
+
+[[page]]
+n = 42
+file = "tests/corpus/pdfjs/glyph_accent.pdf"
+index = 0
+width = 1400
+height = 350
+open_ms = 0.131
+render_ms = 0.785
+render_min_ms = 0.773
+render_max_ms = 1.397
+encode_ms = 0.28
+encode_min_ms = 0.262
+encode_max_ms = 0.292
+samples = 6
+
+[[page]]
+n = 43
+file = "tests/corpus/pdfjs/images.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.429
+render_ms = 90.201
+render_min_ms = 89.318
+render_max_ms = 91.55
+encode_ms = 2.589
+encode_min_ms = 2.532
+encode_max_ms = 2.74
+samples = 6
+
+[[page]]
+n = 44
+file = "tests/corpus/pdfjs/issue12213.pdf"
+index = 0
+width = 1400
+height = 225
+open_ms = 0.303
+render_ms = 2.048
+render_min_ms = 1.965
+render_max_ms = 2.311
+encode_ms = 0.245
+encode_min_ms = 0.217
+encode_max_ms = 0.368
+samples = 6
+
+[[page]]
+n = 45
+file = "tests/corpus/pdfjs/issue12841_reduced.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.827
+render_ms = 68.55
+render_min_ms = 67.308
+render_max_ms = 69.083
+encode_ms = 11.642
+encode_min_ms = 11.602
+encode_max_ms = 11.834
+samples = 6
+
+[[page]]
+n = 46
+file = "tests/corpus/pdfjs/issue12963.pdf"
+index = 0
+width = 1400
+height = 1979
+open_ms = 0.268
+render_ms = 44.91
+render_min_ms = 44.28
+render_max_ms = 62.866
+encode_ms = 2.453
+encode_min_ms = 2.429
+encode_max_ms = 2.48
+samples = 6
+
+[[page]]
+n = 47
+file = "tests/corpus/pdfjs/issue13447.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.189
+render_ms = 81.139
+render_min_ms = 80.245
+render_max_ms = 88.341
+encode_ms = 4.148
+encode_min_ms = 4.065
+encode_max_ms = 4.507
+samples = 6
+
+[[page]]
+n = 48
+file = "tests/corpus/pdfjs/issue13520.pdf"
+index = 0
+width = 1400
+height = 601
+open_ms = 0.76
+render_ms = 152.427
+render_min_ms = 150.263
+render_max_ms = 154.903
+encode_ms = 1.409
+encode_min_ms = 1.38
+encode_max_ms = 1.449
+samples = 6
+
+[[page]]
+n = 49
+file = "tests/corpus/pdfjs/issue13931.pdf"
+index = 0
+width = 1400
+height = 1980
+open_ms = 0.183
+render_ms = 86.591
+render_min_ms = 84.848
+render_max_ms = 88.822
+encode_ms = 1.558
+encode_min_ms = 1.497
+encode_max_ms = 1.657
+samples = 6
+
+[[page]]
+n = 50
+file = "tests/corpus/pdfjs/issue14438.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.193
+render_ms = 11.053
+render_min_ms = 10.671
+render_max_ms = 19.971
+encode_ms = 4.169
+encode_min_ms = 4.098
+encode_max_ms = 4.371
+samples = 6
+
+[[page]]
+n = 51
+file = "tests/corpus/pdfjs/issue17848.pdf"
+index = 0
+width = 1400
+height = 672
+open_ms = 0.134
+render_ms = 1.562
+render_min_ms = 1.308
+render_max_ms = 3.437
+encode_ms = 0.458
+encode_min_ms = 0.431
+encode_max_ms = 0.751
+samples = 6
+
+[[page]]
+n = 52
+file = "tests/corpus/pdfjs/issue18032.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.494
+render_ms = 7.756
+render_min_ms = 7.627
+render_max_ms = 9.82
+encode_ms = 1.088
+encode_min_ms = 1.061
+encode_max_ms = 1.106
+samples = 6
+
+[[page]]
+n = 53
+file = "tests/corpus/pdfjs/issue18042.pdf"
+index = 0
+width = 1400
+height = 1400
+open_ms = 0.154
+render_ms = 2.275
+render_min_ms = 2.093
+render_max_ms = 2.42
+encode_ms = 0.832
+encode_min_ms = 0.772
+encode_max_ms = 1.026
+samples = 6
+
+[[page]]
+n = 54
+file = "tests/corpus/pdfjs/issue18816.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.169
+render_ms = 12.881
+render_min_ms = 12.732
+render_max_ms = 15.562
+encode_ms = 1.708
+encode_min_ms = 1.64
+encode_max_ms = 1.733
+samples = 6
+
+[[page]]
+n = 55
+file = "tests/corpus/pdfjs/issue19176.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.14
+render_ms = 3.123
+render_min_ms = 3.036
+render_max_ms = 3.293
+encode_ms = 1.042
+encode_min_ms = 1.011
+encode_max_ms = 1.101
+samples = 6
+
+[[page]]
+n = 56
+file = "tests/corpus/pdfjs/issue19517.pdf"
+index = 0
+width = 1400
+height = 1866
+open_ms = 0.884
+render_ms = 381.777
+render_min_ms = 377.674
+render_max_ms = 396.437
+encode_ms = 2.466
+encode_min_ms = 2.436
+encode_max_ms = 2.642
+samples = 6
+
+[[page]]
+n = 57
+file = "tests/corpus/pdfjs/issue20062.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.402
+render_ms = 3.043
+render_min_ms = 2.889
+render_max_ms = 4.942
+encode_ms = 1.036
+encode_min_ms = 1.007
+encode_max_ms = 1.066
+samples = 6
+
+[[page]]
+n = 58
+file = "tests/corpus/pdfjs/issue20930.pdf"
+index = 0
+width = 1400
+height = 1750
+open_ms = 0.165
+render_ms = 2.907
+render_min_ms = 2.858
+render_max_ms = 3.48
+encode_ms = 1.082
+encode_min_ms = 1.051
+encode_max_ms = 1.097
+samples = 6
+
+[[page]]
+n = 59
+file = "tests/corpus/pdfjs/issue3214.pdf"
+index = 2
+width = 1400
+height = 1812
+open_ms = 0.272
+render_ms = 2.875
+render_min_ms = 2.742
+render_max_ms = 4.838
+encode_ms = 1.021
+encode_min_ms = 0.995
+encode_max_ms = 1.109
+samples = 6
+
+[[page]]
+n = 60
+file = "tests/corpus/pdfjs/issue3584.pdf"
+index = 0
+width = 1400
+height = 350
+open_ms = 0.152
+render_ms = 0.807
+render_min_ms = 0.779
+render_max_ms = 1.419
+encode_ms = 0.245
+encode_min_ms = 0.24
+encode_max_ms = 0.267
+samples = 6
+
+[[page]]
+n = 61
+file = "tests/corpus/pdfjs/issue4260_reduced.pdf"
+index = 0
+width = 1400
+height = 990
+open_ms = 0.143
+render_ms = 1.79
+render_min_ms = 1.688
+render_max_ms = 1.88
+encode_ms = 0.896
+encode_min_ms = 0.794
+encode_max_ms = 0.999
+samples = 6
+
+[[page]]
+n = 62
+file = "tests/corpus/pdfjs/issue4379.pdf"
+index = 0
+width = 1400
+height = 1981
+open_ms = 0.162
+render_ms = 13.196
+render_min_ms = 12.972
+render_max_ms = 13.658
+encode_ms = 1.393
+encode_min_ms = 1.368
+encode_max_ms = 1.414
+samples = 6
+
+[[page]]
+n = 63
+file = "tests/corpus/pdfjs/issue4402_reduced.pdf"
+index = 0
+width = 1400
+height = 184
+open_ms = 0.347
+render_ms = 1.596
+render_min_ms = 1.432
+render_max_ms = 2.093
+encode_ms = 0.321
+encode_min_ms = 0.269
+encode_max_ms = 0.344
+samples = 6
+
+[[page]]
+n = 64
+file = "tests/corpus/pdfjs/issue5044.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.167
+render_ms = 3.43
+render_min_ms = 3.303
+render_max_ms = 4.198
+encode_ms = 1.058
+encode_min_ms = 1.033
+encode_max_ms = 1.232
+samples = 6
+
+[[page]]
+n = 65
+file = "tests/corpus/pdfjs/issue5747.pdf"
+index = 0
+width = 1400
+height = 1986
+open_ms = 0.227
+render_ms = 32.149
+render_min_ms = 31.298
+render_max_ms = 34.244
+encode_ms = 4.269
+encode_min_ms = 4.151
+encode_max_ms = 4.463
+samples = 6
+
+[[page]]
+n = 66
+file = "tests/corpus/pdfjs/issue6231_1.pdf"
+index = 0
+width = 1400
+height = 1980
+open_ms = 0.153
+render_ms = 5.99
+render_min_ms = 5.517
+render_max_ms = 6.512
+encode_ms = 1.755
+encode_min_ms = 1.702
+encode_max_ms = 1.908
+samples = 6
+
+[[page]]
+n = 67
+file = "tests/corpus/pdfjs/issue6931_reduced.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.16
+render_ms = 12.528
+render_min_ms = 12.18
+render_max_ms = 17.63
+encode_ms = 1.395
+encode_min_ms = 1.376
+encode_max_ms = 1.419
+samples = 6
+
+[[page]]
+n = 68
+file = "tests/corpus/pdfjs/issue7101.pdf"
+index = 0
+width = 1400
+height = 233
+open_ms = 0.16
+render_ms = 0.86
+render_min_ms = 0.821
+render_max_ms = 1.504
+encode_ms = 0.26
+encode_min_ms = 0.254
+encode_max_ms = 0.276
+samples = 6
+
+[[page]]
+n = 69
+file = "tests/corpus/pdfjs/issue7200.pdf"
+index = 0
+width = 1400
+height = 1980
+open_ms = 0.23
+render_ms = 9.809
+render_min_ms = 9.514
+render_max_ms = 9.919
+encode_ms = 3.228
+encode_min_ms = 3.172
+encode_max_ms = 3.309
+samples = 6
+
+[[page]]
+n = 70
+file = "tests/corpus/pdfjs/issue9713.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.247
+render_ms = 3.674
+render_min_ms = 3.57
+render_max_ms = 4.745
+encode_ms = 1.152
+encode_min_ms = 1.091
+encode_max_ms = 1.29
+samples = 6
+
+[[page]]
+n = 71
+file = "tests/corpus/pdfjs/issue9915_reduced.pdf"
+index = 0
+width = 1400
+height = 350
+open_ms = 0.154
+render_ms = 0.865
+render_min_ms = 0.803
+render_max_ms = 1.297
+encode_ms = 0.291
+encode_min_ms = 0.261
+encode_max_ms = 0.314
+samples = 6
+
+[[page]]
+n = 72
+file = "tests/corpus/pdfjs/issue9949.pdf"
+index = 0
+width = 1400
+height = 840
+open_ms = 0.374
+render_ms = 1.937
+render_min_ms = 1.844
+render_max_ms = 3.118
+encode_ms = 0.587
+encode_min_ms = 0.545
+encode_max_ms = 0.714
+samples = 6
+
+[[page]]
+n = 73
+file = "tests/corpus/pdfjs/jbig2_file_header.pdf"
+index = 0
+width = 1400
+height = 1050
+open_ms = 0.145
+render_ms = 3.31
+render_min_ms = 3.195
+render_max_ms = 3.474
+encode_ms = 0.614
+encode_min_ms = 0.588
+encode_max_ms = 0.628
+samples = 6
+
+[[page]]
+n = 74
+file = "tests/corpus/pdfjs/jbig2_symbol_offset.pdf"
+index = 0
+width = 1400
+height = 1980
+open_ms = 0.166
+render_ms = 3.277
+render_min_ms = 3.169
+render_max_ms = 3.603
+encode_ms = 1.125
+encode_min_ms = 1.105
+encode_max_ms = 1.162
+samples = 6
+
+[[page]]
+n = 75
+file = "tests/corpus/pdfjs/jpx_smaskindata.pdf"
+index = 0
+width = 1400
+height = 400
+open_ms = 0.151
+render_ms = 1.761
+render_min_ms = 1.712
+render_max_ms = 2.046
+encode_ms = 0.295
+encode_min_ms = 0.261
+encode_max_ms = 0.317
+samples = 6
+
+[[page]]
+n = 76
+file = "tests/corpus/pdfjs/knockout_nonisolated_sparse.pdf"
+index = 0
+width = 1400
+height = 1145
+open_ms = 0.157
+render_ms = 3.564
+render_min_ms = 3.474
+render_max_ms = 4.028
+encode_ms = 0.681
+encode_min_ms = 0.66
+encode_max_ms = 0.755
+samples = 6
+
+[[page]]
+n = 77
+file = "tests/corpus/pdfjs/large_jpeg_downscale.pdf"
+index = 0
+width = 1400
+height = 350
+open_ms = 0.153
+render_ms = 51.393
+render_min_ms = 50.97
+render_max_ms = 51.96
+encode_ms = 0.228
+encode_min_ms = 0.221
+encode_max_ms = 0.243
+samples = 6
+
+[[page]]
+n = 78
+file = "tests/corpus/pdfjs/mesh_shading_empty.pdf"
+index = 0
+width = 1400
+height = 700
+open_ms = 0.195
+render_ms = 2.341
+render_min_ms = 2.29
+render_max_ms = 2.468
+encode_ms = 1.426
+encode_min_ms = 1.362
+encode_max_ms = 1.629
+samples = 6
+
+[[page]]
+n = 79
+file = "tests/corpus/pdfjs/multiple-filters-length-zero.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.127
+render_ms = 47.347
+render_min_ms = 46.07
+render_max_ms = 48.873
+encode_ms = 1.167
+encode_min_ms = 1.121
+encode_max_ms = 1.358
+samples = 6
+
+[[page]]
+n = 80
+file = "tests/corpus/pdfjs/poppler-90-0-fuzzed.pdf"
+index = 5
+width = 1400
+height = 1812
+open_ms = 0.264
+render_ms = 2.752
+render_min_ms = 2.682
+render_max_ms = 2.997
+encode_ms = 1.024
+encode_min_ms = 0.995
+encode_max_ms = 1.098
+samples = 6
+
+[[page]]
+n = 81
+file = "tests/corpus/pdfjs/poppler-90-0-fuzzed.pdf"
+index = 7
+width = 1400
+height = 1812
+open_ms = 0.264
+render_ms = 2.781
+render_min_ms = 2.707
+render_max_ms = 3.025
+encode_ms = 1.015
+encode_min_ms = 0.97
+encode_max_ms = 1.092
+samples = 6
+
+[[page]]
+n = 82
+file = "tests/corpus/pdfjs/scan-bad.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.304
+render_ms = 46.359
+render_min_ms = 45.892
+render_max_ms = 48.117
+encode_ms = 1.146
+encode_min_ms = 1.139
+encode_max_ms = 1.236
+samples = 6
+
+[[page]]
+n = 83
+file = "tests/corpus/pdfjs/text_clip_cff_cid.pdf"
+index = 0
+width = 1400
+height = 483
+open_ms = 0.147
+render_ms = 1.724
+render_min_ms = 1.578
+render_max_ms = 2.291
+encode_ms = 0.431
+encode_min_ms = 0.411
+encode_max_ms = 0.453
+samples = 6
+
+[[page]]
+n = 84
+file = "tests/corpus/pdfjs/tracemonkey_with_annotations.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.425
+render_ms = 7.786
+render_min_ms = 7.653
+render_max_ms = 15.297
+encode_ms = 4.319
+encode_min_ms = 4.166
+encode_max_ms = 4.59
+samples = 6
+
+[[page]]
+n = 85
+file = "tests/corpus/pdfjs/transfer_maps.pdf"
+index = 0
+width = 1400
+height = 1400
+open_ms = 0.146
+render_ms = 9.855
+render_min_ms = 9.518
+render_max_ms = 10.252
+encode_ms = 0.881
+encode_min_ms = 0.821
+encode_max_ms = 0.904
+samples = 6
+
+[[page]]
+n = 86
+file = "tests/corpus/qpdf/V4-aes-clearmeta.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.297
+render_ms = 2.941
+render_min_ms = 2.834
+render_max_ms = 4.929
+encode_ms = 1.041
+encode_min_ms = 1.005
+encode_max_ms = 1.223
+samples = 6
+
+[[page]]
+n = 87
+file = "tests/corpus/qpdf/annotations-no-acroform-with-p.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.157
+render_ms = 4.593
+render_min_ms = 4.205
+render_max_ms = 7.404
+encode_ms = 1.443
+encode_min_ms = 1.426
+encode_max_ms = 1.461
+samples = 6
+
+[[page]]
+n = 88
+file = "tests/corpus/qpdf/bad-data-out.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.159
+render_ms = 2.822
+render_min_ms = 2.738
+render_max_ms = 3.425
+encode_ms = 1.062
+encode_min_ms = 0.986
+encode_max_ms = 1.463
+samples = 6
+
+[[page]]
+n = 89
+file = "tests/corpus/qpdf/bad-data.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.124
+render_ms = 2.813
+render_min_ms = 2.738
+render_max_ms = 2.892
+encode_ms = 1.028
+encode_min_ms = 1.001
+encode_max_ms = 1.139
+samples = 6
+
+[[page]]
+n = 90
+file = "tests/corpus/qpdf/bad11.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.199
+render_ms = 3.088
+render_min_ms = 2.803
+render_max_ms = 5.015
+encode_ms = 1.034
+encode_min_ms = 0.982
+encode_max_ms = 1.116
+samples = 6
+
+[[page]]
+n = 91
+file = "tests/corpus/qpdf/boxes.pdf"
+index = 5
+width = 1400
+height = 1094
+open_ms = 0.14
+render_ms = 2.877
+render_min_ms = 2.735
+render_max_ms = 5.43
+encode_ms = 0.979
+encode_min_ms = 0.89
+encode_max_ms = 1.086
+samples = 6
+
+[[page]]
+n = 92
+file = "tests/corpus/qpdf/boxes.pdf"
+index = 7
+width = 1400
+height = 1094
+open_ms = 0.14
+render_ms = 2.878
+render_min_ms = 2.67
+render_max_ms = 3.337
+encode_ms = 0.997
+encode_min_ms = 0.879
+encode_max_ms = 1.047
+samples = 6
+
+[[page]]
+n = 93
+file = "tests/corpus/qpdf/enc-XI-R6,V5,U=attachment,encrypted-attachments.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.468
+render_ms = 3.018
+render_min_ms = 2.847
+render_max_ms = 4.906
+encode_ms = 1.049
+encode_min_ms = 0.994
+encode_max_ms = 1.109
+samples = 6
+
+[[page]]
+n = 94
+file = "tests/corpus/qpdf/enc-XI-R6,V5,U=attachment,encrypted-attachments.pdf"
+index = 1
+width = 1400
+height = 1812
+open_ms = 0.468
+render_ms = 2.99
+render_min_ms = 2.836
+render_max_ms = 3.156
+encode_ms = 1.064
+encode_min_ms = 0.99
+encode_max_ms = 1.61
+samples = 6
+
+[[page]]
+n = 95
+file = "tests/corpus/qpdf/enc-XI-attachments-base.pdf"
+index = 3
+width = 1400
+height = 1812
+open_ms = 0.454
+render_ms = 3.155
+render_min_ms = 2.837
+render_max_ms = 4.857
+encode_ms = 1.038
+encode_min_ms = 0.999
+encode_max_ms = 1.161
+samples = 6
+
+[[page]]
+n = 96
+file = "tests/corpus/qpdf/fax-decode-parms.pdf"
+index = 3
+width = 1400
+height = 1486
+open_ms = 0.418
+render_ms = 3.721
+render_min_ms = 3.612
+render_max_ms = 6.778
+encode_ms = 1.077
+encode_min_ms = 1.02
+encode_max_ms = 1.109
+samples = 6
+
+[[page]]
+n = 97
+file = "tests/corpus/qpdf/fax-decode-parms.pdf"
+index = 7
+width = 1400
+height = 1824
+open_ms = 0.418
+render_ms = 23.122
+render_min_ms = 22.626
+render_max_ms = 23.696
+encode_ms = 1.208
+encode_min_ms = 1.182
+encode_max_ms = 1.33
+samples = 6
+
+[[page]]
+n = 98
+file = "tests/corpus/qpdf/form-filled-by-acrobat-out.pdf"
+index = 2
+width = 1400
+height = 1812
+open_ms = 0.205
+render_ms = 3.81
+render_min_ms = 3.653
+render_max_ms = 4.954
+encode_ms = 1.174
+encode_min_ms = 1.148
+encode_max_ms = 1.189
+samples = 6
+
+[[page]]
+n = 99
+file = "tests/corpus/qpdf/form-xobjects-out.pdf"
+index = 5
+width = 1400
+height = 1082
+open_ms = 0.173
+render_ms = 1.95
+render_min_ms = 1.907
+render_max_ms = 4.193
+encode_ms = 0.706
+encode_min_ms = 0.67
+encode_max_ms = 0.76
+samples = 6
+
+[[page]]
+n = 100
+file = "tests/corpus/qpdf/good17.pdf"
+index = 4
+width = 1400
+height = 1812
+open_ms = 0.203
+render_ms = 2.998
+render_min_ms = 2.825
+render_max_ms = 4.9
+encode_ms = 1.015
+encode_min_ms = 0.98
+encode_max_ms = 1.036
+samples = 6
+
+[[page]]
+n = 101
+file = "tests/corpus/qpdf/image-streams-small.pdf"
+index = 2
+width = 1400
+height = 897
+open_ms = 0.142
+render_ms = 2.332
+render_min_ms = 2.256
+render_max_ms = 4.653
+encode_ms = 0.644
+encode_min_ms = 0.628
+encode_max_ms = 0.652
+samples = 6
+
+[[page]]
+n = 102
+file = "tests/corpus/qpdf/image-streams-small.pdf"
+index = 5
+width = 1400
+height = 897
+open_ms = 0.142
+render_ms = 2.395
+render_min_ms = 2.197
+render_max_ms = 2.559
+encode_ms = 0.641
+encode_min_ms = 0.596
+encode_max_ms = 0.671
+samples = 6
+
+[[page]]
+n = 103
+file = "tests/corpus/qpdf/invalid-id-xref.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.23
+render_ms = 2.901
+render_min_ms = 2.79
+render_max_ms = 4.863
+encode_ms = 0.999
+encode_min_ms = 0.981
+encode_max_ms = 1.051
+samples = 6
+
+[[page]]
+n = 104
+file = "tests/corpus/qpdf/lin-special.pdf"
+index = 4
+width = 1400
+height = 1812
+open_ms = 0.147
+render_ms = 3.018
+render_min_ms = 2.919
+render_max_ms = 4.979
+encode_ms = 1.052
+encode_min_ms = 1.006
+encode_max_ms = 1.072
+samples = 6
+
+[[page]]
+n = 105
+file = "tests/corpus/qpdf/minimal-rotated.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.131
+render_ms = 3.613
+render_min_ms = 2.897
+render_max_ms = 5.194
+encode_ms = 1.062
+encode_min_ms = 1.038
+encode_max_ms = 1.093
+samples = 6
+
+[[page]]
+n = 106
+file = "tests/corpus/qpdf/nested-images.pdf"
+index = 0
+width = 1400
+height = 1215
+open_ms = 0.226
+render_ms = 15.986
+render_min_ms = 15.177
+render_max_ms = 20.309
+encode_ms = 0.923
+encode_min_ms = 0.852
+encode_max_ms = 1.324
+samples = 6
+
+[[page]]
+n = 107
+file = "tests/corpus/qpdf/numeric-and-string-1.pdf"
+index = 1
+width = 1400
+height = 1812
+open_ms = 0.129
+render_ms = 59.261
+render_min_ms = 57.905
+render_max_ms = 60.728
+encode_ms = 1.165
+encode_min_ms = 1.086
+encode_max_ms = 1.206
+samples = 6
+
+[[page]]
+n = 108
+file = "tests/corpus/qpdf/numeric-and-string-2.pdf"
+index = 1
+width = 1400
+height = 1812
+open_ms = 0.17
+render_ms = 59.312
+render_min_ms = 56.982
+render_max_ms = 60.362
+encode_ms = 1.05
+encode_min_ms = 1.018
+encode_max_ms = 1.09
+samples = 6
+
+[[page]]
+n = 109
+file = "tests/corpus/qpdf/page-labels-and-outlines.pdf"
+index = 7
+width = 1400
+height = 1812
+open_ms = 0.161
+render_ms = 3.165
+render_min_ms = 2.996
+render_max_ms = 5.238
+encode_ms = 1.112
+encode_min_ms = 1.016
+encode_max_ms = 1.246
+samples = 6
+
+[[page]]
+n = 110
+file = "tests/corpus/qpdf/page_api_1-out2.pdf"
+index = 1
+width = 1400
+height = 1812
+open_ms = 0.145
+render_ms = 2.906
+render_min_ms = 2.807
+render_max_ms = 5.018
+encode_ms = 1.013
+encode_min_ms = 1.008
+encode_max_ms = 1.122
+samples = 6
+
+[[page]]
+n = 111
+file = "tests/corpus/qpdf/pclm-in.pdf"
+index = 0
+width = 1400
+height = 1934
+open_ms = 0.289
+render_ms = 150.977
+render_min_ms = 146.512
+render_max_ms = 157.299
+encode_ms = 4.97
+encode_min_ms = 4.694
+encode_max_ms = 5.275
+samples = 6
+
+[[page]]
+n = 112
+file = "tests/corpus/qpdf/pclm-out.pdf"
+index = 0
+width = 1400
+height = 1934
+open_ms = 0.326
+render_ms = 146.191
+render_min_ms = 145.503
+render_max_ms = 158.712
+encode_ms = 4.959
+encode_min_ms = 4.776
+encode_max_ms = 5.637
+samples = 6
+
+[[page]]
+n = 113
+file = "tests/corpus/qpdf/png-filters-1-column.pdf"
+index = 0
+width = 1400
+height = 1400
+open_ms = 0.151
+render_ms = 4.96
+render_min_ms = 4.758
+render_max_ms = 5.205
+encode_ms = 0.96
+encode_min_ms = 0.933
+encode_max_ms = 0.982
+samples = 6
+
+[[page]]
+n = 114
+file = "tests/corpus/qpdf/png-filters-decoded.pdf"
+index = 0
+width = 1400
+height = 1400
+open_ms = 0.164
+render_ms = 4.839
+render_min_ms = 4.701
+render_max_ms = 5.185
+encode_ms = 1.0
+encode_min_ms = 0.953
+encode_max_ms = 1.127
+samples = 6
+
+[[page]]
+n = 115
+file = "tests/corpus/qpdf/resource-from-dr-out.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.195
+render_ms = 4.56
+render_min_ms = 4.301
+render_max_ms = 10.135
+encode_ms = 1.347
+encode_min_ms = 1.319
+encode_max_ms = 1.442
+samples = 6
+
+[[page]]
+n = 116
+file = "tests/corpus/verapdf/Isartor test files/PDFA-1b/6.1 File structure/6.1.3 File trailer/isartor-6-1-3-t02-fail-a.pdf"
+index = 0
+width = 1400
+height = 1981
+open_ms = 0.243
+render_ms = 3.021
+render_min_ms = 2.968
+render_max_ms = 3.256
+encode_ms = 1.112
+encode_min_ms = 1.067
+encode_max_ms = 1.142
+samples = 6
+
+[[page]]
+n = 117
+file = "tests/corpus/verapdf/Isartor test files/PDFA-1b/6.2 Graphics/6.2.3 Colour spaces/6.2.3.3 Uncalibrated colour spaces/isartor-6-2-3-3-t02-fail-g.pdf"
+index = 0
+width = 1400
+height = 1981
+open_ms = 0.212
+render_ms = 11.786
+render_min_ms = 11.422
+render_max_ms = 12.409
+encode_ms = 1.446
+encode_min_ms = 1.369
+encode_max_ms = 1.548
+samples = 6
+
+[[page]]
+n = 118
+file = "tests/corpus/verapdf/Isartor test files/PDFA-1b/6.2 Graphics/6.2.7 PostScript XObjects/isartor-6-2-7-t01-fail-a.pdf"
+index = 0
+width = 1400
+height = 1981
+open_ms = 0.186
+render_ms = 3.127
+render_min_ms = 3.116
+render_max_ms = 3.28
+encode_ms = 1.184
+encode_min_ms = 1.135
+encode_max_ms = 1.216
+samples = 6
+
+[[page]]
+n = 119
+file = "tests/corpus/verapdf/Isartor test files/PDFA-1b/6.3 Fonts/6.3.3 Composite fonts/6.3.3.3 CMaps/isartor-6-3-3-3-t01-fail-a.pdf"
+index = 0
+width = 1400
+height = 1981
+open_ms = 0.232
+render_ms = 3.716
+render_min_ms = 3.563
+render_max_ms = 4.101
+encode_ms = 1.274
+encode_min_ms = 1.245
+encode_max_ms = 1.349
+samples = 6
+
+[[page]]
+n = 120
+file = "tests/corpus/verapdf/Isartor test files/PDFA-1b/6.5 Annotations/6.5.2 Annotation types/isartor-6-5-2-t02-fail-b.pdf"
+index = 0
+width = 1400
+height = 1981
+open_ms = 0.237
+render_ms = 3.149
+render_min_ms = 2.995
+render_max_ms = 3.237
+encode_ms = 1.128
+encode_min_ms = 1.106
+encode_max_ms = 1.203
+samples = 6
+
+[[page]]
+n = 121
+file = "tests/corpus/verapdf/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t02-fail-f.pdf"
+index = 0
+width = 1400
+height = 1980
+open_ms = 0.203
+render_ms = 3.11
+render_min_ms = 3.025
+render_max_ms = 5.076
+encode_ms = 1.114
+encode_min_ms = 1.084
+encode_max_ms = 1.139
+samples = 6
+
+[[page]]
+n = 122
+file = "tests/corpus/verapdf/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t01-fail-d.pdf"
+index = 0
+width = 1400
+height = 1980
+open_ms = 0.194
+render_ms = 3.395
+render_min_ms = 3.202
+render_max_ms = 3.78
+encode_ms = 1.144
+encode_min_ms = 1.095
+encode_max_ms = 1.357
+samples = 6
+
+[[page]]
+n = 123
+file = "tests/corpus/verapdf/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t03-pass-b.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.194
+render_ms = 2.863
+render_min_ms = 2.708
+render_max_ms = 3.01
+encode_ms = 1.044
+encode_min_ms = 0.981
+encode_max_ms = 1.081
+samples = 6
+
+[[page]]
+n = 124
+file = "tests/corpus/verapdf/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t03-pass-c.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.266
+render_ms = 2.994
+render_min_ms = 2.76
+render_max_ms = 3.208
+encode_ms = 1.107
+encode_min_ms = 1.032
+encode_max_ms = 1.173
+samples = 6
+
+[[page]]
+n = 125
+file = "tests/corpus/verapdf/PDF_A-1b/6.3 Fonts/6.3.3.2 CIDFonts/veraPDF test suite 6-3-3-2-t01-pass-b.pdf"
+index = 0
+width = 1400
+height = 1981
+open_ms = 0.229
+render_ms = 3.282
+render_min_ms = 3.043
+render_max_ms = 4.046
+encode_ms = 1.19
+encode_min_ms = 1.09
+encode_max_ms = 1.409
+samples = 6
+
+[[page]]
+n = 126
+file = "tests/corpus/verapdf/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-fail-f.pdf"
+index = 0
+width = 1400
+height = 1400
+open_ms = 0.218
+render_ms = 2.431
+render_min_ms = 2.271
+render_max_ms = 2.528
+encode_ms = 0.826
+encode_min_ms = 0.788
+encode_max_ms = 0.979
+samples = 6
+
+[[page]]
+n = 127
+file = "tests/corpus/verapdf/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-fail-d.pdf"
+index = 0
+width = 1400
+height = 1400
+open_ms = 0.198
+render_ms = 2.51
+render_min_ms = 2.221
+render_max_ms = 2.601
+encode_ms = 0.902
+encode_min_ms = 0.791
+encode_max_ms = 1.169
+samples = 6
+
+[[page]]
+n = 128
+file = "tests/corpus/verapdf/PDF_A-2b/6.1 File structure/6.1.10 Inline image dictionaries/veraPDF test suite 6-1-10-t01-fail-a.pdf"
+index = 0
+width = 1400
+height = 1400
+open_ms = 0.215
+render_ms = 2.233
+render_min_ms = 2.154
+render_max_ms = 2.572
+encode_ms = 0.781
+encode_min_ms = 0.753
+encode_max_ms = 0.916
+samples = 6
+
+[[page]]
+n = 129
+file = "tests/corpus/verapdf/PDF_A-2b/6.2 Graphics/6.2.10 Transparency/veraPDF test suite 6-2-10-t02-fail-a.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.205
+render_ms = 2.896
+render_min_ms = 2.703
+render_max_ms = 3.026
+encode_ms = 1.099
+encode_min_ms = 0.968
+encode_max_ms = 1.154
+samples = 6
+
+[[page]]
+n = 130
+file = "tests/corpus/verapdf/PDF_A-2b/6.2 Graphics/6.2.11 Fonts/6.2.11.4 Embedding/6.2.11.4.1 General/veraPDF test suite 6-2-11-4-1-t01-fail-a.pdf"
+index = 0
+width = 1400
+height = 1980
+open_ms = 0.199
+render_ms = 3.303
+render_min_ms = 3.208
+render_max_ms = 6.56
+encode_ms = 1.179
+encode_min_ms = 1.13
+encode_max_ms = 1.424
+samples = 6
+
+[[page]]
+n = 131
+file = "tests/corpus/verapdf/PDF_A-2b/6.2 Graphics/6.2.11 Fonts/6.2.11.4 Embedding/6.2.11.4.1 General/veraPDF test suite 6-2-11-4-1-t02-fail-b.pdf"
+index = 0
+width = 1400
+height = 1980
+open_ms = 0.199
+render_ms = 3.144
+render_min_ms = 2.996
+render_max_ms = 3.589
+encode_ms = 1.101
+encode_min_ms = 1.067
+encode_max_ms = 1.14
+samples = 6
+
+[[page]]
+n = 132
+file = "tests/corpus/verapdf/PDF_A-2b/6.2 Graphics/6.2.4.3 Uncalibrated -Device colour spaces/veraPDF test suite 6-2-4-3-t01-pass-g.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.206
+render_ms = 2.77
+render_min_ms = 2.728
+render_max_ms = 3.008
+encode_ms = 1.024
+encode_min_ms = 0.993
+encode_max_ms = 1.063
+samples = 6
+
+[[page]]
+n = 133
+file = "tests/corpus/verapdf/PDF_A-2b/6.2 Graphics/6.2.4.3 Uncalibrated -Device colour spaces/veraPDF test suite 6-2-4-3-t02-pass-d.pdf"
+index = 0
+width = 1400
+height = 1400
+open_ms = 0.24
+render_ms = 85.117
+render_min_ms = 80.939
+render_max_ms = 86.471
+encode_ms = 2.229
+encode_min_ms = 2.073
+encode_max_ms = 2.322
+samples = 6
+
+[[page]]
+n = 134
+file = "tests/corpus/verapdf/PDF_A-2b/6.2 Graphics/6.2.9 XObjects/6.2.9.3 PostScript XObjects/veraPDF test suite 6-2-9-3-t01-fail-a.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.196
+render_ms = 2.892
+render_min_ms = 2.788
+render_max_ms = 3.237
+encode_ms = 1.04
+encode_min_ms = 0.988
+encode_max_ms = 1.124
+samples = 6
+
+[[page]]
+n = 135
+file = "tests/corpus/verapdf/PDF_A-2b/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-a.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.202
+render_ms = 2.836
+render_min_ms = 2.76
+render_max_ms = 3.026
+encode_ms = 1.03
+encode_min_ms = 0.977
+encode_max_ms = 1.093
+samples = 6
+
+[[page]]
+n = 136
+file = "tests/corpus/verapdf/PDF_A-2b/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-b.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.199
+render_ms = 2.765
+render_min_ms = 2.685
+render_max_ms = 3.061
+encode_ms = 1.02
+encode_min_ms = 0.982
+encode_max_ms = 1.071
+samples = 6
+
+[[page]]
+n = 137
+file = "tests/corpus/verapdf/PDF_A-2b/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-d.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.199
+render_ms = 2.764
+render_min_ms = 2.705
+render_max_ms = 2.977
+encode_ms = 1.022
+encode_min_ms = 0.961
+encode_max_ms = 1.097
+samples = 6
+
+[[page]]
+n = 138
+file = "tests/corpus/verapdf/PDF_A-2b/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-e.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.201
+render_ms = 2.786
+render_min_ms = 2.707
+render_max_ms = 3.006
+encode_ms = 1.001
+encode_min_ms = 0.963
+encode_max_ms = 1.066
+samples = 6
+
+[[page]]
+n = 139
+file = "tests/corpus/verapdf/PDF_A-2b/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-f.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.187
+render_ms = 2.882
+render_min_ms = 2.717
+render_max_ms = 3.547
+encode_ms = 1.007
+encode_min_ms = 0.974
+encode_max_ms = 1.155
+samples = 6
+
+[[page]]
+n = 140
+file = "tests/corpus/verapdf/PDF_A-2b/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-j.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.2
+render_ms = 2.884
+render_min_ms = 2.756
+render_max_ms = 2.99
+encode_ms = 1.062
+encode_min_ms = 1.015
+encode_max_ms = 1.171
+samples = 6
+
+[[page]]
+n = 141
+file = "tests/corpus/verapdf/PDF_A-2b/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-k.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.202
+render_ms = 3.055
+render_min_ms = 2.947
+render_max_ms = 3.464
+encode_ms = 1.067
+encode_min_ms = 1.0
+encode_max_ms = 1.09
+samples = 6
+
+[[page]]
+n = 142
+file = "tests/corpus/verapdf/PDF_A-2b/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-m.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.243
+render_ms = 2.742
+render_min_ms = 2.712
+render_max_ms = 2.88
+encode_ms = 1.051
+encode_min_ms = 0.993
+encode_max_ms = 1.132
+samples = 6
+
+[[page]]
+n = 143
+file = "tests/corpus/verapdf/PDF_A-2b/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-n.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.223
+render_ms = 2.839
+render_min_ms = 2.734
+render_max_ms = 3.142
+encode_ms = 1.036
+encode_min_ms = 0.988
+encode_max_ms = 1.253
+samples = 6
+
+[[page]]
+n = 144
+file = "tests/corpus/verapdf/PDF_A-2b/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-o.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.181
+render_ms = 2.892
+render_min_ms = 2.797
+render_max_ms = 3.233
+encode_ms = 1.077
+encode_min_ms = 1.033
+encode_max_ms = 1.133
+samples = 6
+
+[[page]]
+n = 145
+file = "tests/corpus/verapdf/PDF_A-2b/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-p.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.197
+render_ms = 2.866
+render_min_ms = 2.775
+render_max_ms = 3.014
+encode_ms = 1.06
+encode_min_ms = 0.986
+encode_max_ms = 1.278
+samples = 6
+
+[[page]]
+n = 146
+file = "tests/corpus/verapdf/PDF_A-2b/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-q.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.225
+render_ms = 2.755
+render_min_ms = 2.701
+render_max_ms = 3.059
+encode_ms = 1.026
+encode_min_ms = 0.967
+encode_max_ms = 1.202
+samples = 6
+
+[[page]]
+n = 147
+file = "tests/corpus/verapdf/PDF_A-2b/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-pass-a.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.203
+render_ms = 2.933
+render_min_ms = 2.771
+render_max_ms = 3.095
+encode_ms = 1.055
+encode_min_ms = 0.999
+encode_max_ms = 1.139
+samples = 6
+
+[[page]]
+n = 148
+file = "tests/corpus/verapdf/PDF_A-2b/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t02-pass-b.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.204
+render_ms = 2.951
+render_min_ms = 2.796
+render_max_ms = 3.111
+encode_ms = 1.055
+encode_min_ms = 1.036
+encode_max_ms = 1.192
+samples = 6
+
+[[page]]
+n = 149
+file = "tests/corpus/verapdf/PDF_A-2b/6.6 Metadata/6.6.2 Metadata streams/6.6.2.3 Schemas/6.6.2.3.1 General/veraPDF test suite 6-6-2-3-1-t02-pass-o.pdf"
+index = 0
+width = 1400
+height = 1400
+open_ms = 0.22
+render_ms = 2.236
+render_min_ms = 2.171
+render_max_ms = 2.726
+encode_ms = 0.785
+encode_min_ms = 0.769
+encode_max_ms = 0.85
+samples = 6
+
+[[page]]
+n = 150
+file = "tests/corpus/verapdf/PDF_A-2b/6.6 Metadata/6.6.2 Metadata streams/6.6.2.3 Schemas/6.6.2.3.1 General/veraPDF test suite 6-6-2-3-1-t17-fail-o.pdf"
+index = 0
+width = 1400
+height = 1400
+open_ms = 0.21
+render_ms = 2.267
+render_min_ms = 2.179
+render_max_ms = 2.657
+encode_ms = 0.802
+encode_min_ms = 0.767
+encode_max_ms = 0.862
+samples = 6
+
+[[page]]
+n = 151
+file = "tests/corpus/verapdf/PDF_A-4/6.1 File structure/6.1.3 File trailer/veraPDF test suite 6-1-3-t02-fail-a.pdf"
+index = 0
+width = 1400
+height = 1400
+open_ms = 2.461
+render_ms = 2.168
+render_min_ms = 2.075
+render_max_ms = 2.271
+encode_ms = 0.773
+encode_min_ms = 0.744
+encode_max_ms = 0.831
+samples = 6
+
+[[page]]
+n = 152
+file = "tests/corpus/verapdf/PDF_A-4/6.1 File structure/6.1.9 Inline image dictionaries/veraPDF test suite 6-1-9-t01-fail-a.pdf"
+index = 0
+width = 1400
+height = 1400
+open_ms = 0.205
+render_ms = 2.232
+render_min_ms = 2.147
+render_max_ms = 2.386
+encode_ms = 0.803
+encode_min_ms = 0.756
+encode_max_ms = 0.86
+samples = 6
+
+[[page]]
+n = 153
+file = "tests/corpus/verapdf/PDF_A-4/6.2 Graphics/6.2.10 Fonts/6.2.10.4 Embedding/6.2.10.4.1 General/veraPDF test suite 6-2-10-4-1-t01-pass-a.pdf"
+index = 0
+width = 1400
+height = 1980
+open_ms = 0.208
+render_ms = 3.05
+render_min_ms = 2.99
+render_max_ms = 5.895
+encode_ms = 1.117
+encode_min_ms = 1.075
+encode_max_ms = 1.186
+samples = 6
+
+[[page]]
+n = 154
+file = "tests/corpus/verapdf/PDF_A-4/6.2 Graphics/6.2.10 Fonts/6.2.10.5 Font metrics/veraPDF test suite 6-2-10-5-t01-fail-g.pdf"
+index = 0
+width = 1400
+height = 1980
+open_ms = 0.205
+render_ms = 3.391
+render_min_ms = 3.23
+render_max_ms = 4.058
+encode_ms = 1.172
+encode_min_ms = 1.152
+encode_max_ms = 1.223
+samples = 6
+
+[[page]]
+n = 155
+file = "tests/corpus/verapdf/PDF_A-4/6.2 Graphics/6.2.4 Colour spaces/6.2.4.3 Uncalibrated -Device colour spaces/veraPDF test suite 6-2-4-3-t01-pass-c.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.196
+render_ms = 2.84
+render_min_ms = 2.786
+render_max_ms = 3.038
+encode_ms = 1.018
+encode_min_ms = 0.999
+encode_max_ms = 1.075
+samples = 6
+
+[[page]]
+n = 156
+file = "tests/corpus/verapdf/PDF_A-4/6.2 Graphics/6.2.9 Transparency/veraPDF test suite 6-2-9-t02-fail-a.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.207
+render_ms = 2.827
+render_min_ms = 2.715
+render_max_ms = 2.899
+encode_ms = 1.051
+encode_min_ms = 1.015
+encode_max_ms = 1.076
+samples = 6
+
+[[page]]
+n = 157
+file = "tests/corpus/verapdf/PDF_A-4/6.2 Graphics/6.2.9 Transparency/veraPDF test suite 6-2-9-t02-pass-a.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.204
+render_ms = 2.952
+render_min_ms = 2.805
+render_max_ms = 3.094
+encode_ms = 1.047
+encode_min_ms = 0.979
+encode_max_ms = 1.184
+samples = 6
+
+[[page]]
+n = 158
+file = "tests/corpus/verapdf/PDF_A-4/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-b.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.225
+render_ms = 2.736
+render_min_ms = 2.69
+render_max_ms = 3.038
+encode_ms = 1.003
+encode_min_ms = 0.946
+encode_max_ms = 1.064
+samples = 6
+
+[[page]]
+n = 159
+file = "tests/corpus/verapdf/PDF_A-4/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-m.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.243
+render_ms = 2.855
+render_min_ms = 2.715
+render_max_ms = 3.263
+encode_ms = 1.077
+encode_min_ms = 1.011
+encode_max_ms = 1.298
+samples = 6
+
+[[page]]
+n = 160
+file = "tests/corpus/verapdf/PDF_A-4/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-n.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.181
+render_ms = 2.821
+render_min_ms = 2.676
+render_max_ms = 3.074
+encode_ms = 1.059
+encode_min_ms = 0.957
+encode_max_ms = 1.284
+samples = 6
+
+[[page]]
+n = 161
+file = "tests/corpus/verapdf/PDF_A-4f/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-a.pdf"
+index = 0
+width = 1400
+height = 1812
+open_ms = 0.204
+render_ms = 3.199
+render_min_ms = 3.044
+render_max_ms = 5.037
+encode_ms = 1.036
+encode_min_ms = 0.996
+encode_max_ms = 1.139
+samples = 6
+
+[[page]]
+n = 162
+file = "tests/corpus/verapdf/TWG test files/TWG test suite A014-pdfa1-fail-a.pdf"
+index = 0
+width = 1400
+height = 1981
+open_ms = 0.286
+render_ms = 3.367
+render_min_ms = 3.184
+render_max_ms = 4.397
+encode_ms = 1.102
+encode_min_ms = 1.064
+encode_max_ms = 1.137
+samples = 6

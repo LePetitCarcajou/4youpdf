@@ -1,0 +1,990 @@
+# Jeu de pages de référence du banc de fidélité du rendu (docs/banc-rendu.md,
+# « Le jeu de pages »). Choisi par `fyp-render-bench select` le 2026-09-13, puis
+# versionné : ne pas le choisir de nouveau sans raison, deux exécutions ne se
+# comparent que sur le même jeu.
+#
+# Fixtures : toutes leurs pages (20). Corpus : 5934 pages candidates dans 4529 fichiers
+# (62 refusés par le noyau), 141 étiquettes ; 2 pages par étiquette au plus, 2 par
+# fichier au plus ; 8 pages tirées au hasard par lot (graine fixe), et les 16 plus
+# lourdes, une par fichier ; seulement des pages que pdfium rend en 3000 ms au plus
+# (142 essais, 0 écartées). Largeur : 1400 pixels.
+# Lot pdfjs : mozilla/pdf.js@fd453c2ce3e1.
+# Lot qpdf : qpdf/qpdf@54d6053af283.
+# Lot verapdf : veraPDF/veraPDF-corpus@01e40281d48e.
+
+format = 1
+width = 1400
+
+[[page]]
+file = "tests/fixtures/bad-offsets.pdf"
+sha256 = "1e1eaa2d354ddda3d46a57ed55c1d1509d3a2a6861c20dd7bc4c539055bf7159"
+index = 0
+why = ["fixture", "file:repaired"]
+
+[[page]]
+file = "tests/fixtures/encrypted-aes256.pdf"
+sha256 = "9d9d25066249768a7d9a4d8ebe35b782c317df21999c769edcc18c1422d879d3"
+index = 0
+why = ["fixture", "file:encrypted-aes256"]
+
+[[page]]
+file = "tests/fixtures/encrypted-rc4.pdf"
+sha256 = "b527e8ccf7d3db9a73375701fcfb852d3021dbde382e42a4305ab92f1b2537ba"
+index = 0
+why = ["fixture", "file:encrypted-rc4"]
+
+[[page]]
+file = "tests/fixtures/garbage-xref.pdf"
+sha256 = "bd609d1b31a4f31dd9802728cb0f20f5562419c15e57c95f0e0e5a93ebb18933"
+index = 0
+why = ["fixture", "file:repaired"]
+
+[[page]]
+file = "tests/fixtures/gen-65536.pdf"
+sha256 = "b3d364e9e37a6ddd2a152ed4417fc1f7a0ad9a859de064c3b706800095fe0771"
+index = 0
+why = ["fixture"]
+
+[[page]]
+file = "tests/fixtures/hybrid.pdf"
+sha256 = "a6c3375a90f5d60b5be5e3effe9bcf290df5ebf1201b724005b3b598133d7812"
+index = 0
+why = ["fixture"]
+
+[[page]]
+file = "tests/fixtures/incremental.pdf"
+sha256 = "14c67615cbf639eea59068f02a2e7776242655235ca4316fec0ae7ec4a23d146"
+index = 0
+why = ["fixture"]
+
+[[page]]
+file = "tests/fixtures/inuse-offset-zero.pdf"
+sha256 = "3ca59c64d4e087eb0e11cb9da0a985407932c451b4725e69d1020dbf26c3c76c"
+index = 0
+why = ["fixture"]
+
+[[page]]
+file = "tests/fixtures/minimal.pdf"
+sha256 = "540c0f817fa4fd05271a8fab69d4aefea792b3734c56bb19d71017356ba78980"
+index = 0
+why = ["fixture"]
+
+[[page]]
+file = "tests/fixtures/no-header-junk.pdf"
+sha256 = "51ffc2b6c4ad4c0209562dc44b081d9bba3cc0a55428d512f2f98d1e4fa1871c"
+index = 0
+why = ["fixture"]
+
+[[page]]
+file = "tests/fixtures/no-header.pdf"
+sha256 = "4f094ccf7c507ed01a4fceaed61788eb0dc9f2ebabec0ffd712ae5856ff36cdc"
+index = 0
+why = ["fixture"]
+
+[[page]]
+file = "tests/fixtures/no-minor-version.pdf"
+sha256 = "62e0cc9487670e871d1bd89e5b5e262959f06891756597c3b8cbc2de96f8e032"
+index = 0
+why = ["fixture"]
+
+[[page]]
+file = "tests/fixtures/no-startxref.pdf"
+sha256 = "aca8361a70bf6f5dd9bfef5c3d976bc1a22c10a94daeb501e5f8c0c9f93bf08f"
+index = 0
+why = ["fixture", "file:repaired"]
+
+[[page]]
+file = "tests/fixtures/object-zero.pdf"
+sha256 = "f1f415d28973e90af55bc6e9011002fa56b1548b44fd0f34b457d5e792747023"
+index = 0
+why = ["fixture"]
+
+[[page]]
+file = "tests/fixtures/objstm.pdf"
+sha256 = "c16670777c7f8d07a7e11d2998b7ce3e217b7a8550207fc5cc8ac7f02299e6e3"
+index = 0
+why = ["fixture"]
+
+[[page]]
+file = "tests/fixtures/prev-loop.pdf"
+sha256 = "535be4869716dee007ce71af39df5a1b248a2d88ecb1a407ddd8f37e01d397eb"
+index = 0
+why = ["fixture", "file:repaired"]
+
+[[page]]
+file = "tests/fixtures/root-dangling.pdf"
+sha256 = "17f198e40cb2bc2fe9bf6f02287002f933ba925ce59c6f5d0c67d8cd5eefb4d4"
+index = 0
+why = ["fixture", "file:repaired"]
+
+[[page]]
+file = "tests/fixtures/root-direct.pdf"
+sha256 = "c92e3e08851baf81828ac6b0f9ead9af53136e0a5261d1458815e4816420e726"
+index = 0
+why = ["fixture"]
+
+[[page]]
+file = "tests/fixtures/startxref-off.pdf"
+sha256 = "9e6d49f07286d4780784ef5c0ba59914af371f1ca2b91b3cd26c0af136377d39"
+index = 0
+why = ["fixture"]
+
+[[page]]
+file = "tests/fixtures/xrefstream.pdf"
+sha256 = "50859d2554460de5eab9d6d79c060a3f11f4a34b54fd12e4b8d261d48b819041"
+index = 0
+why = ["fixture"]
+
+[[page]]
+file = "tests/corpus/pdfjs/22060_A1_01_Plans.pdf"
+sha256 = "bd0203ede39cfe101c7d1ea6555e1c9fc408247627a47de549ebf2590f1b887b"
+index = 0
+why = ["heavy"]
+
+[[page]]
+file = "tests/corpus/pdfjs/annotation-polyline-polygon-without-appearance.pdf"
+sha256 = "710e7dbac4fcd2021e5a9cf7072e00284a1882d1ebacac43430b15c027902932"
+index = 0
+why = ["annotation:PolyLine-no-appearance", "annotation:Polygon-no-appearance"]
+
+[[page]]
+file = "tests/corpus/pdfjs/annotation-square-circle-without-appearance.pdf"
+sha256 = "d0a98bb14150b1bc2bc028876198098c99420ea10d30d43b4f9c5cb36bb023a7"
+index = 0
+why = ["annotation:Circle-no-appearance", "annotation:Square-no-appearance", "font:TrueType", "fontfile:TrueType"]
+
+[[page]]
+file = "tests/corpus/pdfjs/blendmode.pdf"
+sha256 = "39ce34c2d32738c7c94970fd76559ecb9efd671f5ab99e515a853674e7a824ce"
+index = 0
+why = ["blend:Color", "blend:ColorBurn", "blend:ColorDodge", "blend:Darken", "blend:Difference", "blend:Exclusion", "blend:HardLight", "blend:Hue", "blend:Lighten", "blend:Luminosity", "blend:Multiply", "blend:Overlay", "blend:Saturation", "blend:Screen", "blend:SoftLight", "colorspace:DeviceGray", "colorspace:DeviceRGB", "content-filter:FlateDecode", "content:text", "font:Type1", "font:standard-14-not-embedded", "image-filter:FlateDecode", "image:soft-mask", "text:render-mode-3", "transparency:page-group"]
+
+[[page]]
+file = "tests/corpus/pdfjs/bomb_giant.pdf"
+sha256 = "a33bc9ff49df11644e5790add536df87b702684b729999539df32ae655fd6dd1"
+index = 0
+why = ["content-filter:JBIG2Decode", "content:text", "content:undecodable", "font:Type1", "font:standard-14-not-embedded"]
+
+[[page]]
+file = "tests/corpus/pdfjs/bug1538111.pdf"
+sha256 = "9f9990be0b363fbb1ad344a6e3f1a0af0a79745a2061d51f8f2e95593aded286"
+index = 0
+why = ["annotation:Highlight-no-appearance", "annotation:Squiggly-no-appearance", "annotation:StrikeOut-no-appearance", "annotation:Underline-no-appearance", "content:none"]
+
+[[page]]
+file = "tests/corpus/pdfjs/bug1669099.pdf"
+sha256 = "ce40a4f30d332478930eea0318e4784db5b3d6e4956bfff8256bf765fa22181c"
+index = 0
+why = ["annotation:Widget", "annotation:Widget-no-appearance", "font:Type0:CIDFontType0", "font:Type0:CIDFontType2", "fontfile:CIDFontType0C", "image:explicit-mask", "image:stencil-mask"]
+
+[[page]]
+file = "tests/corpus/pdfjs/bug1795263.pdf"
+sha256 = "25ea0eaae9460dbc984c78cafb94e59ef0117d5d29ae96d251aab6079986da9c"
+index = 0
+why = ["heavy"]
+
+[[page]]
+file = "tests/corpus/pdfjs/bug1815476.pdf"
+sha256 = "0082e99f4205d82837c9fa1a5cd582184f9d147577dfd1ee02c970119ffe2efd"
+index = 0
+why = ["annotation:Widget", "annotation:Widget-no-appearance", "colorspace:Indexed", "file:encrypted-aes128", "font:TrueType", "font:not-embedded", "image-filter:CCITTFaxDecode", "image-filter:DCTDecode", "image:bpc-4", "image:stencil-mask"]
+
+[[page]]
+file = "tests/corpus/pdfjs/bug1865341.pdf"
+sha256 = "b8f33d34cc3a77f6ed403cbffd1bcddb31291f52ca1e104f77040be9b28f67cf"
+index = 0
+why = ["annotation:FreeText-no-appearance"]
+
+[[page]]
+file = "tests/corpus/pdfjs/bug1871353.1.pdf"
+sha256 = "914a3efa66d59b2e4939f08b3fad45a1fa461e5ab39cca7c04bcee6dcf8e38c2"
+index = 0
+why = ["sample:pdfjs"]
+
+[[page]]
+file = "tests/corpus/pdfjs/bug1871353.pdf"
+sha256 = "f772d1423fe36cc6200240f9b1298d1481891b3f6fd4a4902f207b69d84c2f0b"
+index = 0
+why = ["annotation:FreeText-no-appearance"]
+
+[[page]]
+file = "tests/corpus/pdfjs/bug878026.pdf"
+sha256 = "1a4fa12a5da26f53da5dede3f0fff19aaecea659f0db76f945d0b87f6d3df066"
+index = 0
+why = ["sample:pdfjs"]
+
+[[page]]
+file = "tests/corpus/pdfjs/colorkeymask.pdf"
+sha256 = "655a470881a3bc4fac682abe88522c86c11ff41d08ecf94fae2f53ecd0c2d27c"
+index = 0
+why = ["image-filter:none", "image:color-key-mask", "pattern:tiling"]
+
+[[page]]
+file = "tests/corpus/pdfjs/coons-allflags-withfunction.pdf"
+sha256 = "8651b10026886ec8e4dd8cad4b13b966aed6fe27bbcc34f8fe4931f0b0efe1ff"
+index = 0
+why = ["colorspace:Pattern", "shading:type-6"]
+
+[[page]]
+file = "tests/corpus/pdfjs/empty_protected.pdf"
+sha256 = "69556af04215faec7da3e93e823c64f1b74679e52fd10379176f0e0462dd4b6c"
+index = 0
+why = ["file:encrypted-aes256"]
+
+[[page]]
+file = "tests/corpus/pdfjs/endchar.pdf"
+sha256 = "8b049b9f5c17003444ace7ed3b383a0041ac507a3751d2821f6f4e10e1e9de05"
+index = 0
+why = ["graphics-state:halftone", "graphics-state:overprint"]
+
+[[page]]
+file = "tests/corpus/pdfjs/file_url_link.pdf"
+sha256 = "008215b7ccd2caa787789140de7321e36225b6a545442212a6650803c1b820df"
+index = 0
+why = ["sample:pdfjs"]
+
+[[page]]
+file = "tests/corpus/pdfjs/filled-background.pdf"
+sha256 = "26fd407cdfe12ec60bea574b04cb0202f065145bd53fbcdf5c0061bb7547843f"
+index = 0
+why = ["sample:pdfjs"]
+
+[[page]]
+file = "tests/corpus/pdfjs/freeculture.pdf"
+sha256 = "753441c619c529c8d0fc3e7e470f07c9547838fc7229bea8c1dcf854acee03b4"
+index = 4
+why = ["graphics-state:halftone", "graphics-state:overprint"]
+
+[[page]]
+file = "tests/corpus/pdfjs/function_based_shading_cmyk.pdf"
+sha256 = "c624d33b595af80746dd96f6440d335a30b1bee3e484d9b0b2cfb0cd54c62be3"
+index = 0
+why = ["colorspace:Separation", "function:type-0", "shading:type-1"]
+
+[[page]]
+file = "tests/corpus/pdfjs/glyph_accent.pdf"
+sha256 = "556da20f31754bcfabd6821b39e4d97ea569fd91363a19ef9b16cdec0f95a68e"
+index = 0
+why = ["encoding:differences", "fontfile:Type1C", "text:render-mode-4"]
+
+[[page]]
+file = "tests/corpus/pdfjs/images.pdf"
+sha256 = "f7a44ca650d951cfea007440cda297dabbf2cf0c8f77a948a580cc0e99496725"
+index = 0
+why = ["heavy"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue12213.pdf"
+sha256 = "73abd2a46c22afc6f67a035cc143c7e3fc0e111ed41c5cb627429d50bcefbd32"
+index = 0
+why = ["colorspace:unknown", "image-filter:JPXDecode"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue12841_reduced.pdf"
+sha256 = "0edad3c5bafa7f778580d838385830610423845ae26d4a93c1ef15dd60b6edcb"
+index = 0
+why = ["heavy"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue12963.pdf"
+sha256 = "bd61f8496b77a479301705c00558ae8cd9e1c24cc8ee01817875f3f8dffb7b7e"
+index = 0
+why = ["heavy"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue13447.pdf"
+sha256 = "55d9b23521ca06b9626206f78b37f23c7a145e82e1339db42a18d6b6a6422512"
+index = 0
+why = ["annotation:Highlight-no-appearance", "annotation:Ink-no-appearance", "annotation:Line-no-appearance", "annotation:PolyLine-no-appearance", "annotation:StrikeOut-no-appearance", "annotation:appearance", "transparency:constant-alpha"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue13520.pdf"
+sha256 = "2716c9b9e7f828b03f7bd79ad5d5b77b57e29869c16cf98813ee1397aacfe399"
+index = 0
+why = ["colorspace:DeviceN", "colorspace:NChannel", "content:optional-content", "function:type-4", "page:cropbox", "shading:type-3", "shading:type-7", "transparency:soft-mask:Luminosity"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue13931.pdf"
+sha256 = "c8548f91ccb744c81c00778ca6b93912756c5b70c5324acbcc198ccdfc198298"
+index = 0
+why = ["heavy"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue14438.pdf"
+sha256 = "58c0ee6cf2b2210f36f530d5e88bf12ee5f30c30a0e1c5c62c467395740c63d7"
+index = 0
+why = ["annotation:appearance", "cmap:predefined"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue17848.pdf"
+sha256 = "96b6f7c4bf701b837bfa4a2175b71301e74ad28b4a20d95652bb0214183a9f83"
+index = 0
+why = ["shading:type-4"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue18032.pdf"
+sha256 = "d6b82f30eb0ad60e5bf1fa64b2df7a4a3f7f0543f0373e27c7a8d313261521d3"
+index = 0
+why = ["blend:Color", "blend:HardLight", "blend:Multiply", "colorspace:DeviceCMYK", "colorspace:DeviceGray", "colorspace:DeviceN", "colorspace:NChannel", "colorspace:Separation", "content:optional-content", "content:sh", "encoding:differences", "font:not-embedded", "fontfile:Type1C", "function:type-2", "function:type-3", "function:type-4", "image-filter:DCTDecode", "image-filter:FlateDecode", "image:decode-array", "shading:type-2", "transparency:constant-alpha", "transparency:group", "transparency:knockout", "transparency:page-group", "transparency:soft-mask:Luminosity"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue18042.pdf"
+sha256 = "a410dc2964a6ffde68b9e5342a43b130e98cae010e2afc168223d8563270d5bf"
+index = 0
+why = ["heavy"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue18816.pdf"
+sha256 = "f76a4ede23d09190dd10a68ac1336dff3df1ebc4a0b2d531b4a29451e0bdb03f"
+index = 0
+why = ["pattern:shading", "shading:type-2", "shading:type-3", "shading:type-6", "shading:type-7"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue19176.pdf"
+sha256 = "5fafd5649ade0b3f5b12c647d877f7f3723fa14d4104648548aa25c9b1add122"
+index = 0
+why = ["page:user-unit"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue19517.pdf"
+sha256 = "908c133880c7148864102eab517224d524cdd32769d2ae0f1e6d69e75a0471d6"
+index = 0
+why = ["heavy"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue20062.pdf"
+sha256 = "3e672ffa739de89b375121387b971cebac0a14a4a661015ae5a2c072518094fa"
+index = 0
+why = ["annotation:Polygon-no-appearance", "content:none"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue20930.pdf"
+sha256 = "3a99c5b58d38e5e4c79f279e1a76062cd1b3085201bd9a1a780462c1c1f3705e"
+index = 0
+why = ["sample:pdfjs"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue3214.pdf"
+sha256 = "9d39b20224377279563a019808163105147486b63f09f7d37ee33f62d4fb11b5"
+index = 2
+why = ["sample:pdfjs"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue3584.pdf"
+sha256 = "b3fdd74779209c148220be77a21b4873d5c356e15f3f2895856177e05742e1b0"
+index = 0
+why = ["fontfile:Type1", "text:render-mode-7"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue4260_reduced.pdf"
+sha256 = "fe1cadeecb91bf1286c9e496a083349725a79396d0959a96b48a95f3d10ac1fa"
+index = 0
+why = ["sample:pdfjs"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue4379.pdf"
+sha256 = "6a6c99d02d3e45bdf9ad0418a17e777e07003673b00d60ec872faca1382faca6"
+index = 0
+why = ["image:bpc-1", "image:explicit-mask"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue4402_reduced.pdf"
+sha256 = "0031ffe9ea3bf005ca059798d5a204bb3332aeccf733dcd3245c3aa725236313"
+index = 0
+why = ["cmap:embedded", "text:render-mode-2"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue5044.pdf"
+sha256 = "451f60bc1a822e1d67ddb6e18952fa69c6f7508901a8f1f351bcdfba1c9a093e"
+index = 0
+why = ["colorspace:ICCBased-3", "transparency:soft-mask:Alpha"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue5747.pdf"
+sha256 = "f7083a6dcef36f41e31eb7fa36a1798fa9b1552d9cd773b1ec05becb47552070"
+index = 0
+why = ["colorspace:CalGray", "image:bpc-1", "page:rotate-270"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue6231_1.pdf"
+sha256 = "3f724f976fd3e83acbd3eee73f115b3611e1e3bb94a2c2c749d2702de1605e79"
+index = 0
+why = ["colorspace:DeviceRGB", "colorspace:Pattern", "content-filter:FlateDecode", "fontfile:Type1", "function:type-2", "function:type-3", "pattern:shading", "shading:type-5"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue6931_reduced.pdf"
+sha256 = "917373f97930fe07e955bd2123919eb5fee1c1754b8c19247ac2b36a160f2ad3"
+index = 0
+why = ["colorspace:ICCBased-3", "graphics-state:transfer-function"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue7101.pdf"
+sha256 = "efb6953b5a131c84fe4d04095e7d1f09a1aa8296d572c5859ac658e025ea9394"
+index = 0
+why = ["text:render-mode-4"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue7200.pdf"
+sha256 = "9ff3272be159d68d2b9d146955184778926d7f789f1f4f5517c8b0ecac2e2c20"
+index = 0
+why = ["cmap:identity", "font:Type0", "font:Type0:CIDFontType2", "fontfile:TrueType", "image:bpc-4"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue9713.pdf"
+sha256 = "f45a2bd81bab714096b72ce3b7f023ec903a85662536601e6558e31ee5bfe3a4"
+index = 0
+why = ["image-filter:ASCIIHexDecode", "image:decode-array", "page:cropbox"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue9915_reduced.pdf"
+sha256 = "3183fc50d942d86f6d73d8d241a85a7f271ed4a1418e16f49c9af0ff7061a31d"
+index = 0
+why = ["cmap:embedded", "fontfile:OpenType"]
+
+[[page]]
+file = "tests/corpus/pdfjs/issue9949.pdf"
+sha256 = "0bed9dd73c79c4b5ff1f74725f7ebfaae85981bb8e0c3c971c721a5371740cec"
+index = 0
+why = ["text:render-mode-1", "text:render-mode-2"]
+
+[[page]]
+file = "tests/corpus/pdfjs/jbig2_file_header.pdf"
+sha256 = "5edb6045fc86ee5fa8e837685a35a57014764d1f72518e136e5e8f13fcf92c8d"
+index = 0
+why = ["image-filter:JBIG2Decode"]
+
+[[page]]
+file = "tests/corpus/pdfjs/jbig2_symbol_offset.pdf"
+sha256 = "305b71c67829ef0bb8bddab9fa3ee763dcecd173f5fd996740d17212888fa97d"
+index = 0
+why = ["image-filter:JBIG2Decode"]
+
+[[page]]
+file = "tests/corpus/pdfjs/jpx_smaskindata.pdf"
+sha256 = "a82813559c74f074b0caf92c80875fc018acb737269a2af5508c7e083b2a5fd3"
+index = 0
+why = ["image-filter:JPXDecode"]
+
+[[page]]
+file = "tests/corpus/pdfjs/knockout_nonisolated_sparse.pdf"
+sha256 = "dba9f7e4267ed6f247f783e6f43916dfb0e6cc3ede56a1e7d27c425c16190709"
+index = 0
+why = ["transparency:knockout"]
+
+[[page]]
+file = "tests/corpus/pdfjs/large_jpeg_downscale.pdf"
+sha256 = "876d768b597e5176afb2bb35119916414f03851d544bc4589467a2491f8c86f5"
+index = 0
+why = ["heavy"]
+
+[[page]]
+file = "tests/corpus/pdfjs/mesh_shading_empty.pdf"
+sha256 = "90f2cdfedeb307e40806d6089b333bc276bf24fd7bba829572ce78ed129901f7"
+index = 0
+why = ["shading:type-4"]
+
+[[page]]
+file = "tests/corpus/pdfjs/multiple-filters-length-zero.pdf"
+sha256 = "7988a74a1a2a383c42a80631ce196d1a895ce88fe9b16d0bf9fdab9c6d63542f"
+index = 0
+why = ["heavy"]
+
+[[page]]
+file = "tests/corpus/pdfjs/poppler-90-0-fuzzed.pdf"
+sha256 = "233c39dc16ed862911668784739d07dc9a27ae844d63188de7019da4f012f942"
+index = 5
+why = ["content-filter:ASCII85Decode", "content-filter:ASCIIHexDecode", "content-filter:unknown", "file:repaired", "font:Type3", "image-filter:unknown"]
+
+[[page]]
+file = "tests/corpus/pdfjs/poppler-90-0-fuzzed.pdf"
+sha256 = "233c39dc16ed862911668784739d07dc9a27ae844d63188de7019da4f012f942"
+index = 7
+why = ["content-filter:ASCII85Decode", "content-filter:ASCIIHexDecode", "content-filter:unknown", "content:inline-image", "content:undecodable", "file:repaired", "font:Type3", "image-filter:CCITTFaxDecode", "image-filter:unknown"]
+
+[[page]]
+file = "tests/corpus/pdfjs/scan-bad.pdf"
+sha256 = "d40f31f182cf254ab134826d379875acacb1f7b48bf1a57bce2e30b38d16628e"
+index = 0
+why = ["heavy"]
+
+[[page]]
+file = "tests/corpus/pdfjs/text_clip_cff_cid.pdf"
+sha256 = "81aaf48f55c659d29d7a533cd913bd9d028ffad183b46580a2122eebe5187506"
+index = 0
+why = ["cmap:identity", "font:Type0", "font:Type0:CIDFontType0", "fontfile:CIDFontType0C", "text:render-mode-7"]
+
+[[page]]
+file = "tests/corpus/pdfjs/tracemonkey_with_annotations.pdf"
+sha256 = "4271377f0efc94e1405b0d2a5ce008daa697faf25d8fdfba2e22793d087d9862"
+index = 0
+why = ["sample:pdfjs"]
+
+[[page]]
+file = "tests/corpus/pdfjs/transfer_maps.pdf"
+sha256 = "3702eba6f3900ac96f7f913560f98db2675de1bdccfeb2272df374f1f0623e26"
+index = 0
+why = ["content:inline-image", "content:sh", "graphics-state:transfer-function", "image-filter:ASCIIHexDecode", "pattern:tiling", "pattern:uncolored", "transparency:group"]
+
+[[page]]
+file = "tests/corpus/qpdf/V4-aes-clearmeta.pdf"
+sha256 = "43610228275fe86819c9fc4f7106c25c60ea433a0ea7c9ddb58671c7a4c14ece"
+index = 0
+why = ["file:encrypted-aes128"]
+
+[[page]]
+file = "tests/corpus/qpdf/annotations-no-acroform-with-p.pdf"
+sha256 = "f174acb6b2c18ab660726245e13aab8250d2c7a59f2e9895c1df48c87cbd1a7b"
+index = 0
+why = ["sample:qpdf"]
+
+[[page]]
+file = "tests/corpus/qpdf/bad-data-out.pdf"
+sha256 = "ad361343262a06bfc3cb55e0d89bc27354a4784832967036c4f155373b362edc"
+index = 0
+why = ["content-filter:LZWDecode"]
+
+[[page]]
+file = "tests/corpus/qpdf/bad-data.pdf"
+sha256 = "919998d65cecd40f1c33cf56853a517acc0e18f438fcc098f4c17a086c875057"
+index = 0
+why = ["content-filter:LZWDecode"]
+
+[[page]]
+file = "tests/corpus/qpdf/bad11.pdf"
+sha256 = "345bdd78fa02d953f58636b211b633da0f0b1dee9124b14a5dbd9b07026ce0d6"
+index = 0
+why = ["sample:qpdf"]
+
+[[page]]
+file = "tests/corpus/qpdf/boxes.pdf"
+sha256 = "6b9daa0f7d9a31279a8606ad0617064a750cf45e8a19b3c7f3634596368d9cb0"
+index = 5
+why = ["page:origin-offset", "page:rotate-90"]
+
+[[page]]
+file = "tests/corpus/qpdf/boxes.pdf"
+sha256 = "6b9daa0f7d9a31279a8606ad0617064a750cf45e8a19b3c7f3634596368d9cb0"
+index = 7
+why = ["page:origin-offset", "page:rotate-270"]
+
+[[page]]
+file = "tests/corpus/qpdf/enc-XI-R6,V5,U=attachment,encrypted-attachments.pdf"
+sha256 = "814df59a61f34da60df347ab1a268b6375d2b0de9058d33200d00b4b34e59a66"
+index = 0
+password = "attachment"
+why = ["file:encrypted-identity", "file:user-password"]
+
+[[page]]
+file = "tests/corpus/qpdf/enc-XI-R6,V5,U=attachment,encrypted-attachments.pdf"
+sha256 = "814df59a61f34da60df347ab1a268b6375d2b0de9058d33200d00b4b34e59a66"
+index = 1
+password = "attachment"
+why = ["file:encrypted-identity", "file:user-password"]
+
+[[page]]
+file = "tests/corpus/qpdf/enc-XI-attachments-base.pdf"
+sha256 = "ed3695b5527855451f60f40caf6365a88f18860ae0cddc57a7de5b2e78c6d420"
+index = 3
+why = ["sample:qpdf"]
+
+[[page]]
+file = "tests/corpus/qpdf/fax-decode-parms.pdf"
+sha256 = "6cf3a42a79698eb9a6649d51a78647dccb05dd88dbc0b384b843618963f8755e"
+index = 3
+why = ["sample:qpdf"]
+
+[[page]]
+file = "tests/corpus/qpdf/fax-decode-parms.pdf"
+sha256 = "6cf3a42a79698eb9a6649d51a78647dccb05dd88dbc0b384b843618963f8755e"
+index = 7
+why = ["heavy"]
+
+[[page]]
+file = "tests/corpus/qpdf/form-filled-by-acrobat-out.pdf"
+sha256 = "63a27736851cde0b3318c21cb0ea36523d2c3cc828204a7e46d1e82eeabdeb86"
+index = 2
+why = ["image-filter:none", "image:color-key-mask"]
+
+[[page]]
+file = "tests/corpus/qpdf/form-xobjects-out.pdf"
+sha256 = "596fe70aaac7f86bd2cea929a5a785a7680e704aa8a0fdfe90a2f9445a02a811"
+index = 5
+why = ["page:rotate-90", "page:user-unit"]
+
+[[page]]
+file = "tests/corpus/qpdf/good17.pdf"
+sha256 = "7383ca2c3a1da7c0691e0b8a63ebee3c91b62041ee5a3433a69e721b6c48f190"
+index = 4
+why = ["sample:qpdf"]
+
+[[page]]
+file = "tests/corpus/qpdf/image-streams-small.pdf"
+sha256 = "37e3ffe9bfc79b79a954758a885a0dc0e91e5d95674a8b8e77c4e729dd6603c6"
+index = 2
+why = ["colorspace:DeviceCMYK", "image-filter:RunLengthDecode"]
+
+[[page]]
+file = "tests/corpus/qpdf/image-streams-small.pdf"
+sha256 = "37e3ffe9bfc79b79a954758a885a0dc0e91e5d95674a8b8e77c4e729dd6603c6"
+index = 5
+why = ["image-filter:RunLengthDecode"]
+
+[[page]]
+file = "tests/corpus/qpdf/invalid-id-xref.pdf"
+sha256 = "3ba3e9d562acd30caa668bab1e6bd80d2477baf128cafaeb0196a03519700954"
+index = 0
+why = ["file:encrypted-rc4"]
+
+[[page]]
+file = "tests/corpus/qpdf/lin-special.pdf"
+sha256 = "ab608a23b94ffa330ce9b5f7a080abd0e347f83e6ae3491455e4414ff02bb57c"
+index = 4
+why = ["page:rotate-180"]
+
+[[page]]
+file = "tests/corpus/qpdf/minimal-rotated.pdf"
+sha256 = "3db6303879174aa7aad038d10c0060388c9c24b1529edf97ab8e43dfb88f46db"
+index = 0
+why = ["page:rotate-180"]
+
+[[page]]
+file = "tests/corpus/qpdf/nested-images.pdf"
+sha256 = "331d7b2d3b71d75d8137e58a605e26022f50a52181ff88c2687a14da70ec2054"
+index = 0
+why = ["image:soft-mask", "transparency:soft-mask:Alpha"]
+
+[[page]]
+file = "tests/corpus/qpdf/numeric-and-string-1.pdf"
+sha256 = "3fce16d0382f1ee44613b726706cc4976fa587129906664c8892a40066a89720"
+index = 1
+why = ["heavy"]
+
+[[page]]
+file = "tests/corpus/qpdf/numeric-and-string-2.pdf"
+sha256 = "e2b54693b6b3e7a86d2001f1d150450951f1264ceb2b9ddf449db46c5e16b011"
+index = 1
+why = ["heavy"]
+
+[[page]]
+file = "tests/corpus/qpdf/page-labels-and-outlines.pdf"
+sha256 = "08b0f999c02abb75cae0854eb042f4ed75ad0b65017a0a584276b90d5e8194b7"
+index = 7
+why = ["sample:qpdf"]
+
+[[page]]
+file = "tests/corpus/qpdf/page_api_1-out2.pdf"
+sha256 = "ac64fd29f334eb3cdf1cadc0d12bb74cea456f40c289c51418f9d5354b9c3ff8"
+index = 1
+why = ["sample:qpdf"]
+
+[[page]]
+file = "tests/corpus/qpdf/pclm-in.pdf"
+sha256 = "47de13da41d9e9eba335dc6c0e81015b60ad4adef3921ea62c01d95ad102cde0"
+index = 0
+why = ["heavy"]
+
+[[page]]
+file = "tests/corpus/qpdf/pclm-out.pdf"
+sha256 = "1c9d4bbc10f94ed2aa494f21ca15958d6e4adef34a526f4605867edfe6ecf845"
+index = 0
+why = ["heavy"]
+
+[[page]]
+file = "tests/corpus/qpdf/png-filters-1-column.pdf"
+sha256 = "f1eb744655653d4a00c72117bdb969cead4aeb28d824ce46294309af1da90e92"
+index = 0
+why = ["image:bpc-16"]
+
+[[page]]
+file = "tests/corpus/qpdf/png-filters-decoded.pdf"
+sha256 = "2c562d27d4e3b4b239c4b64c1a2a3dedb6d32fad669e1b7091a3aa8aeb5c7c1b"
+index = 0
+why = ["image:bpc-16"]
+
+[[page]]
+file = "tests/corpus/qpdf/resource-from-dr-out.pdf"
+sha256 = "bf0344ffd0f239230cee781a34258a878f32b7f3f8129476131480b3db287941"
+index = 0
+why = ["sample:qpdf"]
+
+[[page]]
+file = "tests/corpus/verapdf/Isartor test files/PDFA-1b/6.1 File structure/6.1.3 File trailer/isartor-6-1-3-t02-fail-a.pdf"
+sha256 = "d784afdfa7c40f662e8d9915133387adfa06e041383228fd42cca17503fa93ef"
+index = 0
+why = ["file:encrypted-rc4"]
+
+[[page]]
+file = "tests/corpus/verapdf/Isartor test files/PDFA-1b/6.2 Graphics/6.2.3 Colour spaces/6.2.3.3 Uncalibrated colour spaces/isartor-6-2-3-3-t02-fail-g.pdf"
+sha256 = "2dabef22680a79c1b88253f15a58fc5d13bf72d1f159a9dd4d417d1186f66ae7"
+index = 0
+why = ["function:type-0", "shading:type-1"]
+
+[[page]]
+file = "tests/corpus/verapdf/Isartor test files/PDFA-1b/6.2 Graphics/6.2.7 PostScript XObjects/isartor-6-2-7-t01-fail-a.pdf"
+sha256 = "48f8ca9e483b97c00cba9afce8218991166f3a90287ea8c6befe05598bd73ce4"
+index = 0
+why = ["xobject:PS"]
+
+[[page]]
+file = "tests/corpus/verapdf/Isartor test files/PDFA-1b/6.3 Fonts/6.3.3 Composite fonts/6.3.3.3 CMaps/isartor-6-3-3-3-t01-fail-a.pdf"
+sha256 = "5e62d4a72a6b1a93110800be3b2ae47534d6564beea4baf2cd5501277ee17787"
+index = 0
+why = ["cmap:predefined", "colorspace:Lab"]
+
+[[page]]
+file = "tests/corpus/verapdf/Isartor test files/PDFA-1b/6.5 Annotations/6.5.2 Annotation types/isartor-6-5-2-t02-fail-b.pdf"
+sha256 = "6d0dadaf183179bdd71885d37d34c2a400ec8b72ea0586c9611c62c4e5711ef0"
+index = 0
+why = ["annotation:other-no-appearance"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t02-fail-f.pdf"
+sha256 = "5e2881c335117eba47a05b9e9b7ab10eae564baad11dd268df1822ea7aebec9c"
+index = 0
+why = ["sample:verapdf"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t01-fail-d.pdf"
+sha256 = "988a5225ff5f6fd045f45596c86387d74b9f1b55e8582c9cdb1f3aad31415ab2"
+index = 0
+why = ["sample:verapdf"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t03-pass-b.pdf"
+sha256 = "806ae0dd36986299bd42e78067b0966a6207495ea95baed951bb7455f8fed0f1"
+index = 0
+why = ["colorspace:CalRGB"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t03-pass-c.pdf"
+sha256 = "4e3fd6b9eafa2b20ae970056638ef858527037fb11eaf795da05c0cf52456f89"
+index = 0
+why = ["colorspace:ICCBased-4"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-1b/6.3 Fonts/6.3.3.2 CIDFonts/veraPDF test suite 6-3-3-2-t01-pass-b.pdf"
+sha256 = "a126ba65464759478be34b890dcfca4d26b8fba77877e4b060b78c772a77f8e6"
+index = 0
+why = ["sample:verapdf"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-fail-f.pdf"
+sha256 = "b2064653d351af118c109c38c8231eb25d3ee861da653e28681db54d7c30a8ae"
+index = 0
+why = ["sample:verapdf"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-fail-d.pdf"
+sha256 = "44240b77e18cbbd4534f3bc3eec071a6f0820de511b9a1f80f2bedd6a33f8451"
+index = 0
+why = ["sample:verapdf"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-2b/6.1 File structure/6.1.10 Inline image dictionaries/veraPDF test suite 6-1-10-t01-fail-a.pdf"
+sha256 = "a0e71dea9ab1983424cf369f8e2e316467069b7ca738482c1874a79df0b12477"
+index = 0
+why = ["image-filter:LZWDecode"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-2b/6.2 Graphics/6.2.10 Transparency/veraPDF test suite 6-2-10-t02-fail-a.pdf"
+sha256 = "ce43e739b24588bff9dff2fa40a921e91238f5f854336bcb59592c34bd2f7e44"
+index = 0
+why = ["blend:unknown"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-2b/6.2 Graphics/6.2.11 Fonts/6.2.11.4 Embedding/6.2.11.4.1 General/veraPDF test suite 6-2-11-4-1-t01-fail-a.pdf"
+sha256 = "64099ba965b0320a04c6245a48996e591aaf2e830cbdaa27399a2702a692e1db"
+index = 0
+why = ["colorspace:ICCBased-1", "fontfile:unknown"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-2b/6.2 Graphics/6.2.11 Fonts/6.2.11.4 Embedding/6.2.11.4.1 General/veraPDF test suite 6-2-11-4-1-t02-fail-b.pdf"
+sha256 = "1119a5624305c6cd213fdf37f7523eb8df40cc4d56cbb97040badd71a68f83c2"
+index = 0
+why = ["font:MMType1"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-2b/6.2 Graphics/6.2.4.3 Uncalibrated -Device colour spaces/veraPDF test suite 6-2-4-3-t01-pass-g.pdf"
+sha256 = "c335ce982d20cb5049aaa18ff24f26fcc56b313bb4aa7be920e95c63d9305d3e"
+index = 0
+why = ["colorspace:CalRGB"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-2b/6.2 Graphics/6.2.4.3 Uncalibrated -Device colour spaces/veraPDF test suite 6-2-4-3-t02-pass-d.pdf"
+sha256 = "ceea9589fd0de0df10e0f9901fa99fb648d481ca43a38244a18d864abf0355de"
+index = 0
+why = ["colorspace:ICCBased-4", "colorspace:unknown", "pattern:uncolored"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-2b/6.2 Graphics/6.2.9 XObjects/6.2.9.3 PostScript XObjects/veraPDF test suite 6-2-9-3-t01-fail-a.pdf"
+sha256 = "c439fc74c898f520ed15f828309ca7a715159df8dfa6c90f2b8d6dc02f36a3dd"
+index = 0
+why = ["colorspace:Indexed", "xobject:PS"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-2b/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-a.pdf"
+sha256 = "f99e9e76b5fa37ff7376d870da793662c2346aec1aa4be63d170f58a26bc0e3d"
+index = 0
+why = ["annotation:Text-no-appearance"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-2b/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-b.pdf"
+sha256 = "556a9ecda7ea32f90ba71c504236d9ffcf3cf967110b36cd53f00b89ff552a38"
+index = 0
+why = ["annotation:Redact-no-appearance"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-2b/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-d.pdf"
+sha256 = "1208d74912cfe4528ad4e359181d19cec03fed7857fcd74ae2fbb546e26e325b"
+index = 0
+why = ["annotation:Line-no-appearance"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-2b/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-e.pdf"
+sha256 = "a5aaca807d16980f7c11e5a06a9f610df3b2b3c61a25da7dc48444b527876805"
+index = 0
+why = ["annotation:Square-no-appearance"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-2b/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-f.pdf"
+sha256 = "9c9224d3a709b94661a687f0651c431948dd5110bd6477c84eb786de83533f58"
+index = 0
+why = ["annotation:Circle-no-appearance"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-2b/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-j.pdf"
+sha256 = "cb9bee2de4e0cf12e844f7a256fa69500e2dff61cc6673e172b48a8c99967a13"
+index = 0
+why = ["annotation:Underline-no-appearance"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-2b/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-k.pdf"
+sha256 = "7ba4ef244b2f43e53bae3d5d269b9bdf1a9844ac8edf293d8eec0a07e85fcc72"
+index = 0
+why = ["annotation:Squiggly-no-appearance"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-2b/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-m.pdf"
+sha256 = "ca275d206075ccace02a4f6bba367da83c7eaf1859b3a0f601e91475a6dce08c"
+index = 0
+why = ["annotation:Stamp-no-appearance"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-2b/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-n.pdf"
+sha256 = "5b1589fb3046f4ffe1c819e4a8a9acc6e5e314154983a4352dbacd866b11322c"
+index = 0
+why = ["annotation:Caret-no-appearance"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-2b/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-o.pdf"
+sha256 = "080c679f180b0e5c94152d96ac7a52f17f1cc1aeabd2447f47fae5c9e3ad31d4"
+index = 0
+why = ["annotation:Ink-no-appearance"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-2b/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-p.pdf"
+sha256 = "22c5fcf5553ed21c46ad7e4b6cd0ffa14063ab88f86dfff20ce3acb5f79233b1"
+index = 0
+why = ["annotation:FileAttachment-no-appearance"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-2b/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-q.pdf"
+sha256 = "30e568915d67e25db87a78f8e63ef9e765fcaf1bcc2ab172950cbe2305863f0f"
+index = 0
+why = ["annotation:other-no-appearance"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-2b/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-pass-a.pdf"
+sha256 = "93ac7ed7dfcd86d81e7a4865220fc77eb2284297370aca5a87c10e2d3e75d10b"
+index = 0
+why = ["annotation:Text-no-appearance"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-2b/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t02-pass-b.pdf"
+sha256 = "73cc155533961d00de8ebb96ebe8057ec2b2b2f4af4a49d56c92e4c7c7ae4ecc"
+index = 0
+why = ["colorspace:CalGray"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-2b/6.6 Metadata/6.6.2 Metadata streams/6.6.2.3 Schemas/6.6.2.3.1 General/veraPDF test suite 6-6-2-3-1-t02-pass-o.pdf"
+sha256 = "074d5d2ad0a1f1240597ed3018f34a9c30a5846166f8d2f146e2d3edf8438f62"
+index = 0
+why = ["sample:verapdf"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-2b/6.6 Metadata/6.6.2 Metadata streams/6.6.2.3 Schemas/6.6.2.3.1 General/veraPDF test suite 6-6-2-3-1-t17-fail-o.pdf"
+sha256 = "1cf88adaa8cf0a5ec798b82099a4c93289190f427e29e4331b7aab880b2a8a15"
+index = 0
+why = ["sample:verapdf"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-4/6.1 File structure/6.1.3 File trailer/veraPDF test suite 6-1-3-t02-fail-a.pdf"
+sha256 = "b190b24a72a9650e256118b1db2d937dbd81b30769935bc3c9293b12577d5ad4"
+index = 0
+why = ["file:encrypted-aes256"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-4/6.1 File structure/6.1.9 Inline image dictionaries/veraPDF test suite 6-1-9-t01-fail-a.pdf"
+sha256 = "c18809150462b06ab4d2da208e2a34501cfd9e42ba89b44aeed0c8dacee017d5"
+index = 0
+why = ["image-filter:LZWDecode"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-4/6.2 Graphics/6.2.10 Fonts/6.2.10.4 Embedding/6.2.10.4.1 General/veraPDF test suite 6-2-10-4-1-t01-pass-a.pdf"
+sha256 = "c40666123baf8020d0c40de6988565ff2c266e650719c2f5c2ce382d840c60d8"
+index = 0
+why = ["colorspace:ICCBased-1", "fontfile:unknown", "text:render-mode-3"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-4/6.2 Graphics/6.2.10 Fonts/6.2.10.5 Font metrics/veraPDF test suite 6-2-10-5-t01-fail-g.pdf"
+sha256 = "1be53a4187c1b9ead43e334d5b314345c0313e43b76f23a8279ed1b06b699e5b"
+index = 0
+why = ["font:MMType1", "text:render-mode-1"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-4/6.2 Graphics/6.2.4 Colour spaces/6.2.4.3 Uncalibrated -Device colour spaces/veraPDF test suite 6-2-4-3-t01-pass-c.pdf"
+sha256 = "581383624e7d178ca0fc42563559b3b54230589c659222bf6acc1777a1f272ee"
+index = 0
+why = ["sample:verapdf"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-4/6.2 Graphics/6.2.9 Transparency/veraPDF test suite 6-2-9-t02-fail-a.pdf"
+sha256 = "adb44564968fdfc631fab7b1838f82a643f256874455b3132e4c77266623bf70"
+index = 0
+why = ["blend:unknown"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-4/6.2 Graphics/6.2.9 Transparency/veraPDF test suite 6-2-9-t02-pass-a.pdf"
+sha256 = "a1c529476b11b698c359dade2302b2751f899193dcd46a3be2b9ff48d40d9f01"
+index = 0
+why = ["blend:ColorBurn", "blend:ColorDodge", "blend:Darken", "blend:Difference", "blend:Exclusion", "blend:Lighten", "blend:Overlay", "blend:Screen", "blend:SoftLight"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-4/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-b.pdf"
+sha256 = "f2dc006e119f82a63996d99875127132687640f3747f83f10aee583b2b661736"
+index = 0
+why = ["annotation:Redact-no-appearance"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-4/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-m.pdf"
+sha256 = "cb905c2d76b870409cc893948f818358ae5e5c21f1d21fc01166e3129ddb7234"
+index = 0
+why = ["annotation:Stamp-no-appearance"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-4/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-n.pdf"
+sha256 = "db559933c24c39ea1c5891da94b4fc1a0a4bda45435416535a8962bb7cf5a193"
+index = 0
+why = ["annotation:Caret-no-appearance"]
+
+[[page]]
+file = "tests/corpus/verapdf/PDF_A-4f/6.3 Annotations/6.3.3 Annotation appearances/veraPDF test suite 6-3-3-t01-fail-a.pdf"
+sha256 = "71b9a903039219ad6008732660297ab13e0d9f7c9f46099e208a16b808e79141"
+index = 0
+why = ["annotation:FileAttachment-no-appearance"]
+
+[[page]]
+file = "tests/corpus/verapdf/TWG test files/TWG test suite A014-pdfa1-fail-a.pdf"
+sha256 = "454f6ac2c6aee2c8469e237b408bf6c8703e76b0708976b6e97d4d9ce04db1b3"
+index = 0
+why = ["colorspace:Lab", "fontfile:OpenType"]

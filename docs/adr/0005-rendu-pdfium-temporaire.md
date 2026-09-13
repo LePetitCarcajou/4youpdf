@@ -81,6 +81,11 @@ Les bibliothèques disponibles depuis Rust :
   fixtures et le corpus.
 - **Critère de sortie.** PDFium est retiré quand notre moteur rend les
   fixtures et le corpus public avec une fidélité comparable, mesurée par
-  comparaison d'images sur un jeu de pages de référence. D'ici là, cet ADR
+  comparaison d'images sur un jeu de pages de référence. L'instrument de
+  cette mesure est le banc de fidélité du rendu (`tools/render_bench`,
+  `docs/banc-rendu.md`) : deux moteurs dessinent le même jeu de pages
+  versionné, et le banc donne pour chaque page l'écart entre leurs images et
+  leurs temps. Son moteur PDFium compile `app/src/render.rs` tel quel. Le
+  seuil d'une « fidélité comparable » reste à fixer. D'ici là, cet ADR
   est la seule raison pour laquelle du code non Rust s'exécute dans
   l'application.

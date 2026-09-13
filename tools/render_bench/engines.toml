@@ -1,0 +1,15 @@
+# Les moteurs de rendu que le banc sait lancer (docs/banc-rendu.md,
+# « Protocole des moteurs »). Un moteur est un programme : le banc le lance
+# une fois par document, lui écrit sa demande sur l'entrée standard et lit
+# ses réponses, une par ligne, sur la sortie standard. Ajouter un moteur,
+# c'est écrire ce programme et une table ici, sans toucher au banc.
+#
+# `build` est lancé depuis la racine du dépôt avant la première page, sauf
+# avec --no-build. Dans `build` et `command`, `{bin_dir}` est le dossier de
+# l'exécutable du banc, où Cargo range aussi les moteurs qu'il construit, et
+# `{root}` la racine du dépôt.
+
+[pdfium]
+description = "PDFium, par le module de rendu de l'application (app/src/render.rs, ADR 0005)"
+build = ["cargo", "build", "--release", "--quiet", "-p", "fyp-render-engine-pdfium"]
+command = ["{bin_dir}/fyp-render-engine-pdfium"]
