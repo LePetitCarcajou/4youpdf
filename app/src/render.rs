@@ -121,16 +121,21 @@ pub fn library_candidates(development: Option<PathBuf>) -> Vec<PathBuf> {
     dirs
 }
 
-/// The only place that knows about `pdfium-render`.
-mod pdfium {
+/// The only place that knows about `pdfium-render`. A request takes three
+/// steps: [`Renderer::open`], once per document, [`Loaded::draw`] and
+/// [`encode_png`]. The worker takes them in turn; the fidelity bench
+/// (`tools/render_bench`) takes them one by one, to time drawing apart from
+/// encoding.
+pub mod pdfium {
     use super::*;
     use image::codecs::png::{CompressionType, FilterType, PngEncoder};
+    use image::DynamicImage;
     use pdfium_render::prelude::*;
 
     /// Bind to the first library found, then serve requests until the
     /// sender is dropped.
     pub(super) fn worker(candidates: &[PathBuf], ready: &Sender<Status>, rx: &Receiver<Request>) {
-        let (pdfium, detail) = match bind(candidates) {
+        let (renderer, detail) = match Renderer::bind(candidates) {
             Ok(found) => found,
             Err(detail) => {
                 let _ = ready.send(Status {
@@ -145,9 +150,9 @@ mod pdfium {
             detail,
         });
         // The loaded document, kept while requests concern the same one.
-        let mut loaded: Option<(u64, PdfDocument<'_>)> = None;
+        let mut loaded: Option<(u64, Loaded<'_>)> = None;
         for request in rx {
-            let result = serve(&pdfium, &mut loaded, &request);
+            let result = serve(&renderer, &mut loaded, &request);
             let _ = request.reply.send(result);
         }
     }
@@ -187,34 +192,69 @@ mod pdfium {
     }
 
     fn serve<'a>(
-        pdfium: &'a Pdfium,
-        loaded: &mut Option<(u64, PdfDocument<'a>)>,
+        renderer: &'a Renderer,
+        loaded: &mut Option<(u64, Loaded<'a>)>,
         request: &Request,
     ) -> Result<Vec<u8>, String> {
         if loaded.as_ref().map(|(id, _)| *id) != Some(request.document_id) {
             *loaded = None;
-            let password = (!request.password.is_empty()).then_some(request.password.as_str());
-            let document = pdfium
-                .load_pdf_from_byte_vec((*request.bytes).clone(), password)
-                .map_err(|e| format!("PDFium ne peut pas ouvrir ce fichier : {e:?}"))?;
+            let document = renderer.open(&request.bytes, &request.password)?;
             *loaded = Some((request.document_id, document));
         }
         let Some((_, document)) = loaded.as_ref() else {
             return Err("document non chargé".into());
         };
-        let index = PdfPageIndex::try_from(request.page)
-            .map_err(|_| format!("page {} hors de portée", request.page))?;
-        let page = document
-            .pages()
-            .get(index)
-            .map_err(|e| format!("page {} : {e:?}", request.page))?;
-        let width = i32::try_from(request.width).unwrap_or(i32::MAX);
-        let bitmap = page
-            .render_with_config(&PdfRenderConfig::new().set_target_width(width))
-            .map_err(|e| format!("rendu de la page {} : {e:?}", request.page))?;
-        let image = bitmap
-            .as_image()
-            .map_err(|e| format!("image de la page {} : {e:?}", request.page))?;
+        encode_png(&document.draw(request.page, request.width)?)
+    }
+
+    /// PDFium bound to its library. Not thread-safe: the thread that binds
+    /// it is the only one to use it.
+    pub struct Renderer(Pdfium);
+
+    /// A document loaded by PDFium, from its own copy of the bytes.
+    pub struct Loaded<'a>(PdfDocument<'a>);
+
+    impl Renderer {
+        /// Bind to the library in the first of `candidates` that holds one
+        /// (see `bind`); the text says where it was found, or where it was
+        /// looked for.
+        pub fn bind(candidates: &[PathBuf]) -> Result<(Renderer, String), String> {
+            bind(candidates).map(|(pdfium, detail)| (Renderer(pdfium), detail))
+        }
+
+        /// Load `bytes`, deciphered with `password` unless it is empty.
+        pub fn open(&self, bytes: &[u8], password: &str) -> Result<Loaded<'_>, String> {
+            let password = (!password.is_empty()).then_some(password);
+            self.0
+                .load_pdf_from_byte_vec(bytes.to_vec(), password)
+                .map(Loaded)
+                .map_err(|e| format!("PDFium ne peut pas ouvrir ce fichier : {e:?}"))
+        }
+    }
+
+    impl Loaded<'_> {
+        /// Draw page `page` (0-based), `width` pixels wide, in the
+        /// proportions of the page as its `/Rotate` turns it.
+        pub fn draw(&self, page: usize, width: u32) -> Result<DynamicImage, String> {
+            let index =
+                PdfPageIndex::try_from(page).map_err(|_| format!("page {page} hors de portée"))?;
+            let pdf_page = self
+                .0
+                .pages()
+                .get(index)
+                .map_err(|e| format!("page {page} : {e:?}"))?;
+            let width = i32::try_from(width).unwrap_or(i32::MAX);
+            let bitmap = pdf_page
+                .render_with_config(&PdfRenderConfig::new().set_target_width(width))
+                .map_err(|e| format!("rendu de la page {page} : {e:?}"))?;
+            bitmap
+                .as_image()
+                .map_err(|e| format!("image de la page {page} : {e:?}"))
+        }
+    }
+
+    /// The PNG the interface receives for `image`.
+    pub fn encode_png(image: &DynamicImage) -> Result<Vec<u8>, String> {
         // A large image spends its time in PNG encoding, not in PDFium. The
         // `Up` filter suits pages, whose rows are mostly alike: over four
         // times faster than the adaptive default, for files 12 to 14 %
