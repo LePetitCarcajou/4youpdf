@@ -81,6 +81,16 @@ et confirmées par l'utilisateur à la première exécution. `read_dir` et
 `write_dir` ne donnent accès qu'au dossier choisi au moment de l'exécution,
 jamais à un chemin fixé par le module.
 
+Pour `network` (ADR 0006), l'accord est gardé pour ce module et rien
+d'autre : son identifiant, l'empreinte de son `module.wasm`, sa version et
+les hôtes exacts de son manifeste. Un changement de l'un d'eux (autre
+binaire, nouvelle version, hôte ajouté ou modifié) redemande l'accord ;
+l'utilisateur peut le retirer à tout moment, et il ne vaut jamais pour un
+autre module ni pour le logiciel en général. L'hôte ouvre lui-même les
+connexions, vers ces seuls hôtes, et refuse tout autre hôte, y compris par
+redirection. Un module `native` n'obtient jamais cette permission, et la
+ligne de commande refuse les modules qui la demandent.
+
 `read_document` est nécessaire pour recevoir des documents,
 `write_document` pour que le document renvoyé soit accepté.
 

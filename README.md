@@ -1,12 +1,18 @@
 # 4YouPDF
 
 **Le VLC du PDF.** Un logiciel PDF libre, gratuit, sans compte, sans pub, sans
-envoi de fichiers sur Internet, et hors du contrôle de tout organisme lucratif.
+envoi de fichiers sur Internet depuis son cœur, et hors du contrôle de tout
+organisme lucratif.
 
 - Ouvre tout, même les PDF cassés — et explique pourquoi quand il ne peut pas.
 - Un noyau en Rust (`#![forbid(unsafe_code)]`), fuzzé en continu.
+- Un cœur, tout ce qui s'exécute hors de la sandbox des modules, qui n'accède
+  jamais au réseau : ni télémétrie, ni mise à jour automatique, ni réglage pour
+  l'activer.
 - Des modules sandboxés (WebAssembly) avec permissions explicites : un module de
-  fusion ne peut pas parler au réseau.
+  fusion ne peut pas parler au réseau, et un module qui en a besoin ne pourra
+  joindre que les serveurs exacts qu'il déclare, affichés et soumis à votre
+  accord (voir `docs/adr/0006-fonctionnement-local.md`).
 - Conformité visible en permanence : PDF/A, PDF/X, PDF/E, PDF/UA, PDF/VT, PAdES,
   avec correction assistée.
 - Écriture PDF 2.0 (ISO 32000-2:2020) native.
