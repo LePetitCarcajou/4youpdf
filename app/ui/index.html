@@ -19,14 +19,30 @@
 
   <section id="notices" class="notices" aria-live="polite"></section>
 
-  <main id="grid-root" class="grid-root">
-    <div id="empty" class="empty">
-      <p>Glissez un PDF ici, ou <button id="open-empty" type="button" class="link">choisissez un fichier</button>.</p>
-      <p class="hint">Réorganisez les pages en les faisant glisser ; supprimez-les avec le bouton de chaque vignette, la touche Suppr ou le clic droit.</p>
-    </div>
-    <div id="grid" class="grid" role="list" aria-label="Pages" hidden></div>
-    <div id="drop-marker" class="drop-marker" hidden></div>
-  </main>
+  <div class="workspace">
+    <main id="grid-root" class="grid-root">
+      <div id="empty" class="empty">
+        <p>Glissez un PDF ici, ou <button id="open-empty" type="button" class="link">choisissez un fichier</button>.</p>
+        <p class="hint">Réorganisez les pages en les faisant glisser ; supprimez-les avec le bouton de chaque vignette, la touche Suppr ou le clic droit. Double-cliquez sur une page pour la voir en grand.</p>
+      </div>
+      <div id="grid" class="grid" role="list" aria-label="Pages" hidden></div>
+      <div id="drop-marker" class="drop-marker" hidden></div>
+    </main>
+
+    <section id="viewer" class="viewer" tabindex="-1" aria-label="Page en grand" hidden>
+      <div class="viewer-bar">
+        <span id="viewer-caption" class="viewer-caption" aria-live="polite"></span>
+        <span class="viewer-hint">← → ou molette : page précédente ou suivante · Échap ou clic hors de la page : retour à la grille</span>
+        <span class="spacer"></span>
+        <button id="viewer-close" type="button" title="Revenir à la grille (Échap)">Grille</button>
+      </div>
+      <div id="viewer-stage" class="viewer-stage">
+        <button id="viewer-prev" type="button" class="viewer-nav prev" title="Page précédente (←)" aria-label="Page précédente">‹</button>
+        <div id="viewer-page" class="viewer-page"></div>
+        <button id="viewer-next" type="button" class="viewer-nav next" title="Page suivante (→)" aria-label="Page suivante">›</button>
+      </div>
+    </section>
+  </div>
 
   <footer class="status" id="status" aria-live="polite">
     <span id="status-text">Prêt.</span>

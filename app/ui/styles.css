@@ -152,6 +152,15 @@ button.link {
   padding: 2px 8px;
 }
 
+/* The grid and, over it while a page is opened, the page view. */
+.workspace {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
 .grid-root {
   flex: 1;
   overflow: auto;
@@ -278,6 +287,115 @@ button.link {
   transform: translate(-50%, -50%) rotate(2deg);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
   border-radius: 8px;
+}
+
+/* Page view: over the grid only, so the toolbar, the notices (repaired or
+   encrypted file) and the status bar stay visible. A state of the window,
+   not a dialog (ADR 0004). */
+.viewer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  background: rgba(31, 41, 51, 0.94);
+  color: #fff;
+  outline: none;
+}
+
+.viewer-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.viewer-caption {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.viewer-hint {
+  min-width: 0;
+  color: rgba(255, 255, 255, 0.65);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The page is sized by viewer.ts to fit the content box. */
+.viewer-stage {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 64px 20px;
+}
+
+.viewer-page {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.viewer-page img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.viewer-page .placeholder {
+  padding: 1em;
+  color: var(--muted);
+  text-align: center;
+}
+
+.viewer-page.failed {
+  outline: 2px dashed var(--border);
+  outline-offset: -10px;
+}
+
+.viewer-page.failed .placeholder {
+  color: var(--danger);
+}
+
+.viewer-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 40px;
+  height: 64px;
+  padding: 0;
+  font-size: 28px;
+  line-height: 1;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: transparent;
+}
+
+.viewer-nav.prev {
+  left: 12px;
+}
+
+.viewer-nav.next {
+  right: 12px;
+}
+
+.viewer-nav:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: transparent;
+}
+
+.viewer-nav:disabled {
+  opacity: 0.2;
 }
 
 .status {

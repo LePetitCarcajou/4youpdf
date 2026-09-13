@@ -13,7 +13,7 @@
 mod render;
 mod session;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -57,7 +57,7 @@ impl From<fyp_core::Error> for AppError {
 }
 
 /// Shared state: the open document and the renderer (shared with the
-/// blocking tasks that wait for thumbnails).
+/// blocking tasks that wait for page images).
 struct AppState {
     session: Mutex<Option<Session>>,
     render: Arc<RenderService>,
@@ -68,20 +68,27 @@ impl AppState {
     fn session(&self) -> std::sync::MutexGuard<'_, Option<Session>> {
         self.session.lock().unwrap_or_else(PoisonError::into_inner)
     }
+
+    /// Open `path` and make it the current document. The current document
+    /// is replaced only once the new one is open: when opening fails, it
+    /// stays current, as the interface keeps showing it.
+    fn open(&self, path: &Path, password: &str) -> Result<DocumentInfo, AppError> {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let session = Session::open(id, path, password)?;
+        let info = session.info.clone();
+        *self.session() = Some(session);
+        Ok(info)
+    }
 }
 
-/// Open `path` and make it the current document.
+/// Open `path` and make it the current document (see `AppState::open`).
 #[tauri::command]
 fn open_document(
     state: State<'_, AppState>,
     path: String,
     password: Option<String>,
 ) -> Result<DocumentInfo, AppError> {
-    let id = state.next_id.fetch_add(1, Ordering::Relaxed);
-    let session = Session::open(id, &PathBuf::from(&path), password.as_deref().unwrap_or(""))?;
-    let info = session.info.clone();
-    *state.session() = Some(session);
-    Ok(info)
+    state.open(Path::new(&path), password.as_deref().unwrap_or(""))
 }
 
 /// Forget the current document.
@@ -96,8 +103,9 @@ fn renderer_status(state: State<'_, AppState>) -> render::Status {
     state.render.status().clone()
 }
 
-/// Thumbnail of page `page` (0-based) of the current document, `width`
-/// pixels wide, as a `data:image/png;base64,…` URL.
+/// Image of page `page` (0-based) of the current document, `width` pixels
+/// wide (a thumbnail, or the page view sized to the window), as a
+/// `data:image/png;base64,…` URL.
 #[tauri::command]
 async fn render_page(
     state: State<'_, AppState>,
@@ -202,5 +210,58 @@ fn main() {
     if let Err(e) = result {
         eprintln!("4YouPDF: {e}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    fn fixture(name: &str) -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/fixtures")
+            .join(name)
+    }
+
+    /// When a file does not open, the interface keeps showing the current
+    /// document and its notices (`ui/tests/notices.test.ts`): it must stay
+    /// open here as well, for its pages to render and to be saved.
+    #[test]
+    fn a_failed_open_keeps_the_current_document() {
+        let state = AppState {
+            session: Mutex::new(None),
+            render: Arc::new(RenderService::start(&[])),
+            next_id: AtomicU64::new(1),
+        };
+        let current = || {
+            state
+                .session()
+                .as_ref()
+                .map(|s| (s.id, s.info.path.clone()))
+        };
+        let damaged = state.open(&fixture("bad-offsets.pdf"), "").expect("open");
+        assert!(damaged.reconstructed.is_some());
+        let before = current();
+        assert!(before.is_some());
+
+        let not_pdf = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        assert!(matches!(
+            state.open(&not_pdf, ""),
+            Err(AppError::Other { .. })
+        ));
+        assert!(matches!(
+            state.open(&fixture("absent.pdf"), ""),
+            Err(AppError::Other { .. })
+        ));
+        assert!(matches!(
+            state.open(&fixture("encrypted-aes256.pdf"), "nope"),
+            Err(AppError::WrongPassword)
+        ));
+        assert_eq!(current(), before);
+
+        // A file that opens does replace it.
+        let clean = state.open(&fixture("minimal.pdf"), "").expect("open");
+        assert_eq!(current().map(|(_, path)| path), Some(clean.path));
     }
 }

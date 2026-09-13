@@ -1,7 +1,8 @@
 // The window: open a PDF (dialog, drop, Ctrl+O), show its pages as
-// tiles, reorder them by dragging, delete them, undo and redo, save
-// through `fyp_core::ops` on the Rust side. One window, no modal dialog
-// but the system file pickers; every message appears in place (ADR 0004).
+// tiles, reorder them by dragging, delete them, undo and redo, look at
+// one page at a time over the grid, save through `fyp_core::ops` on the
+// Rust side. One window, no modal dialog but the system file pickers;
+// every message appears in place (ADR 0004).
 
 import {
   asAppError,
@@ -18,7 +19,9 @@ import {
   type DocumentInfo,
 } from "./api.js";
 import { OrderHistory } from "./history.js";
+import { attemptOpen, NoticeBoard, type Notice, type NoticeKind } from "./notices.js";
 import { ThumbnailLoader } from "./thumbnails.js";
+import { PageViewer, pageRatio } from "./viewer.js";
 
 const THUMB_WIDTH = 160;
 
@@ -47,6 +50,13 @@ const ui = {
   rendererStatus: element<HTMLSpanElement>("renderer-status"),
   contextMenu: element<HTMLElement>("context-menu"),
   dropOverlay: element<HTMLElement>("drop-overlay"),
+  viewer: element<HTMLElement>("viewer"),
+  viewerStage: element<HTMLElement>("viewer-stage"),
+  viewerPage: element<HTMLElement>("viewer-page"),
+  viewerCaption: element<HTMLSpanElement>("viewer-caption"),
+  viewerPrev: element<HTMLButtonElement>("viewer-prev"),
+  viewerNext: element<HTMLButtonElement>("viewer-next"),
+  viewerClose: element<HTMLButtonElement>("viewer-close"),
 };
 
 interface State {
@@ -65,43 +75,101 @@ const state: State = {
 
 const thumbnails = new ThumbnailLoader(ui.gridRoot, THUMB_WIDTH, false);
 
+const viewer = new PageViewer(
+  {
+    root: ui.viewer,
+    stage: ui.viewerStage,
+    page: ui.viewerPage,
+    caption: ui.viewerCaption,
+    prev: ui.viewerPrev,
+    next: ui.viewerNext,
+    close: ui.viewerClose,
+  },
+  {
+    thumbnail: (page) => thumbnails.cached(page),
+    closed: viewerClosed,
+  },
+);
+
 // ---------------------------------------------------------------------------
 // Notices and status
 // ---------------------------------------------------------------------------
 
-type NoticeKind = "info" | "warn" | "error";
+/// The notices above the grid, as data (notices.ts), and the box drawn for
+/// each one on screen.
+const notices = new NoticeBoard();
+const noticeBoxes = new Map<number, HTMLElement>();
 
-function notice(kind: NoticeKind, text: string, extra?: HTMLElement): HTMLElement {
+/// Draw the notices of the board. A box stays in place as long as its
+/// notice does (a password being typed keeps its field); the board adds
+/// notices at the end only, so new boxes go at the end.
+function renderNotices(): void {
+  const shown = new Set(notices.list.map((n) => n.id));
+  for (const [id, box] of noticeBoxes) {
+    if (!shown.has(id)) {
+      box.remove();
+      noticeBoxes.delete(id);
+    }
+  }
+  for (const n of notices.list) {
+    if (!noticeBoxes.has(n.id)) {
+      const box = noticeBox(n);
+      noticeBoxes.set(n.id, box);
+      ui.notices.append(box);
+      box.querySelector("input")?.focus();
+    }
+  }
+}
+
+function noticeBox(n: Notice): HTMLElement {
   const box = document.createElement("div");
-  box.className = `notice ${kind}`;
+  box.className = `notice ${n.kind}`;
   const span = document.createElement("span");
-  span.textContent = text;
+  span.textContent = n.text;
   box.append(span);
-  if (extra !== undefined) {
-    box.append(extra);
+  if (n.role === "password" && n.path !== null) {
+    box.append(passwordForm(n.path));
   }
   const close = document.createElement("button");
   close.type = "button";
   close.className = "close";
   close.textContent = "×";
   close.title = "Fermer";
-  close.addEventListener("click", () => box.remove());
+  close.addEventListener("click", () => {
+    notices.close(n.id);
+    renderNotices();
+  });
   box.append(close);
-  ui.notices.append(box);
   return box;
 }
 
-function clearNotices(): void {
-  ui.notices.replaceChildren();
+/// The password field of a request, in its notice, never a modal.
+function passwordForm(path: string): HTMLFormElement {
+  const form = document.createElement("form");
+  const input = document.createElement("input");
+  input.type = "password";
+  input.placeholder = "Mot de passe";
+  input.autocomplete = "off";
+  const submit = document.createElement("button");
+  submit.type = "submit";
+  submit.textContent = "Ouvrir";
+  form.append(input, submit);
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void open(path, input.value);
+  });
+  return form;
+}
+
+/// Report something that happened, in place, until closed or until a
+/// document opens.
+function notice(kind: NoticeKind, text: string): void {
+  notices.event(kind, text);
+  renderNotices();
 }
 
 function setStatus(text: string): void {
   ui.statusText.textContent = text;
-}
-
-/// Last component of a path, Windows or POSIX separators.
-function fileName(path: string): string {
-  return path.split(/[/\\]/).pop() ?? path;
 }
 
 function formatSize(bytes: number): string {
@@ -118,101 +186,32 @@ function formatSize(bytes: number): string {
 // Opening
 // ---------------------------------------------------------------------------
 
+/// Open `path`. The document on screen, its notices and the status bar
+/// change only once the new file is open; when it does not open, a notice
+/// says why or asks for its password, and the rest stays as it was.
 async function open(path: string, password?: string): Promise<void> {
-  clearNotices();
+  const status = ui.statusText.textContent ?? "";
   setStatus(`Ouverture de ${path}…`);
-  try {
-    const info = await openDocument(path, password);
-    loaded(info);
-  } catch (e: unknown) {
-    const error = asAppError(e);
-    if (error.kind === "wrong_password") {
-      await awaitingPassword(path);
-      askPassword(path, password !== undefined);
-      setStatus("Document chiffré : mot de passe requis.");
-      return;
-    }
-    notice("error", `Impossible d'ouvrir ${path} : ${error.message}`);
-    setStatus("Ouverture impossible.");
+  const opening = await attemptOpen(notices, openDocument, path, password);
+  if (opening.kind === "opened") {
+    loaded(opening.info);
+  } else {
+    setStatus(status);
   }
+  renderNotices();
 }
 
-/// The file at `path` needs a password before it can be shown. The
-/// previous document is closed on both sides: the toolbar and the window
-/// title name the file being opened, and no thumbnail of another document
-/// stays on screen while the password is asked for.
-async function awaitingPassword(path: string): Promise<void> {
-  state.info = null;
-  state.history = null;
-  state.selection.clear();
-  thumbnails.reset(state.rendererAvailable);
-  ui.grid.replaceChildren();
-  ui.grid.hidden = true;
-  ui.empty.hidden = false;
-  const name = fileName(path);
-  ui.docName.textContent = name;
-  void setWindowTitle(`${name} — 4YouPDF`);
-  refreshButtons();
-  try {
-    await closeDocument();
-  } catch {
-    // Nothing to close, or the Rust side already forgot it: same outcome.
-  }
-}
-
-/// A password field in the notices area, never a modal.
-function askPassword(path: string, wrong: boolean): void {
-  const form = document.createElement("form");
-  const input = document.createElement("input");
-  input.type = "password";
-  input.placeholder = "Mot de passe";
-  input.autocomplete = "off";
-  const submit = document.createElement("button");
-  submit.type = "submit";
-  submit.textContent = "Ouvrir";
-  form.append(input, submit);
-  form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    void open(path, input.value);
-  });
-  notice(
-    "warn",
-    wrong
-      ? "Ce mot de passe n'ouvre pas le fichier. Essayez le mot de passe utilisateur ou propriétaire."
-      : "Ce fichier est protégé par un mot de passe.",
-    form,
-  );
-  input.focus();
-}
-
+/// Show the document just opened; its notices are already on the board.
 function loaded(info: DocumentInfo): void {
   state.info = info;
   state.history = new OrderHistory(info.pages.length);
   state.selection.clear();
   thumbnails.reset(state.rendererAvailable);
+  resetViewer();
   ui.docName.textContent = info.name;
   void setWindowTitle(`${info.name} — 4YouPDF`);
   ui.empty.hidden = true;
   ui.grid.hidden = false;
-  if (info.reconstructed !== null) {
-    notice(
-      "warn",
-      `Fichier endommagé, table des objets reconstruite par analyse du fichier (${info.reconstructed}). ` +
-        "L'enregistrement produira un fichier sain.",
-    );
-  }
-  if (info.relocated_startxref !== null) {
-    notice(
-      "info",
-      `Le fichier annonce sa table à un mauvais endroit ; elle a été retrouvée à l'offset ${info.relocated_startxref}.`,
-    );
-  }
-  if (info.encryption !== null) {
-    notice(
-      "warn",
-      `Fichier chiffré (${info.encryption}). L'enregistrement produira un fichier EN CLAIR, sans protection.`,
-    );
-  }
   renderGrid();
   setStatus(
     `${info.name} — ${info.pages.length} page${info.pages.length > 1 ? "s" : ""}, PDF ${info.version}, ${formatSize(info.size)}`,
@@ -238,9 +237,7 @@ function renderGrid(): void {
   }
   const tiles: HTMLElement[] = [];
   history.order.forEach((page, position) => {
-    const size = info.pages[page] ?? { width: 612, height: 792, rotate: 0 };
-    const landscape = size.rotate % 180 !== 0;
-    const ratio = landscape ? size.width / size.height : size.height / size.width;
+    const ratio = pageRatio(info.pages[page]);
 
     const tile = document.createElement("div");
     tile.className = "tile";
@@ -294,9 +291,11 @@ function renderGrid(): void {
 function refreshButtons(): void {
   const history = state.history;
   const hasDoc = history !== null;
-  ui.undo.disabled = !(hasDoc && history.canUndo);
-  ui.redo.disabled = !(hasDoc && history.canRedo);
-  ui.delete.disabled = !(hasDoc && state.selection.size > 0);
+  // Pages are edited on the grid; the page view only shows them.
+  const editable = hasDoc && !viewer.isOpen;
+  ui.undo.disabled = !(editable && history.canUndo);
+  ui.redo.disabled = !(editable && history.canRedo);
+  ui.delete.disabled = !(editable && state.selection.size > 0);
   ui.save.disabled = !hasDoc;
   ui.docName.classList.toggle("modified", hasDoc && history.modified);
 }
@@ -335,6 +334,77 @@ function select(position: number, extend: boolean, range: boolean): void {
   }
   refreshButtons();
 }
+
+// ---------------------------------------------------------------------------
+// Page view: one page over the grid, a state of the window (ADR 0004)
+// ---------------------------------------------------------------------------
+
+/// Position the view was opened at: on the way back, the page seen last
+/// becomes the selection only if it is another one.
+let viewerOpenedAt = -1;
+
+function openViewer(position: number): void {
+  const info = state.info;
+  const history = state.history;
+  if (info === null || history === null || viewer.isOpen || position < 0 || position >= history.order.length) {
+    return;
+  }
+  hideMenu();
+  viewerOpenedAt = position;
+  // The renderer draws one page at a time: the page on screen goes first.
+  thumbnails.pause();
+  ui.gridRoot.inert = true;
+  viewer.open(info.pages, history.order, position, state.rendererAvailable);
+  refreshButtons();
+}
+
+/// Back to the grid, on the page seen last: it gets the focus, and becomes
+/// the selection unless it is the page the view was opened on (the
+/// selection then stays as it was).
+function viewerClosed(position: number): void {
+  ui.gridRoot.inert = false;
+  thumbnails.resume();
+  if (position !== viewerOpenedAt) {
+    select(position, false, false);
+  }
+  const tile = ui.grid.querySelector<HTMLElement>(`.tile[data-position="${position}"]`);
+  tile?.focus({ preventScroll: true });
+  tile?.scrollIntoView({ block: "nearest" });
+  refreshButtons();
+}
+
+/// Another document: leave the view without going back to a page. Called
+/// after `thumbnails.reset`, so that resuming finds an empty queue.
+function resetViewer(): void {
+  viewer.reset();
+  ui.gridRoot.inert = false;
+  thumbnails.resume();
+}
+
+/// The page Enter opens: the focused tile, else the first selected page.
+function enterTarget(target: EventTarget | null): number | null {
+  if (target instanceof HTMLElement && target.classList.contains("tile")) {
+    return positionOf(target);
+  }
+  if (target === document.body && state.selection.size > 0) {
+    return Math.min(...state.selection);
+  }
+  return null;
+}
+
+// The grid captures the pointer while a button is down (to drag), which
+// can make the grid itself the target of a double-click: the tile is the
+// one under the pointer.
+ui.grid.addEventListener("dblclick", (event) => {
+  const target = document.elementFromPoint(event.clientX, event.clientY);
+  if (target === null || target.closest("button") !== null) {
+    return;
+  }
+  const position = positionOf(target);
+  if (position !== null) {
+    openViewer(position);
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Editing
@@ -624,6 +694,9 @@ document.addEventListener("pointerdown", (event) => {
 
 document.addEventListener("keydown", (event) => {
   const inField = event.target instanceof HTMLInputElement;
+  if (!inField && viewer.handleKey(event)) {
+    return;
+  }
   if (event.key === "Escape") {
     hideMenu();
     if (drag !== null) {
@@ -641,6 +714,8 @@ document.addEventListener("keydown", (event) => {
   } else if (ctrl && event.key.toLowerCase() === "s") {
     event.preventDefault();
     void save();
+  } else if (viewer.isOpen) {
+    // The keys below edit the grid, which the page view covers.
   } else if (ctrl && event.key.toLowerCase() === "z" && !event.shiftKey) {
     event.preventDefault();
     undo();
@@ -655,6 +730,12 @@ document.addEventListener("keydown", (event) => {
     if (state.selection.size > 0) {
       event.preventDefault();
       deletePositions([...state.selection]);
+    }
+  } else if (event.key === "Enter" && !ctrl && !event.altKey) {
+    const position = enterTarget(event.target);
+    if (position !== null) {
+      event.preventDefault();
+      openViewer(position);
     }
   } else if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
     const count = state.history?.order.length ?? 0;

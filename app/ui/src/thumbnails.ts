@@ -12,6 +12,7 @@ export class ThumbnailLoader {
   private failed = new Map<number, string>();
   private queue: { page: number; tile: HTMLElement }[] = [];
   private running = 0;
+  private paused = false;
   private observer: IntersectionObserver;
   private width: number;
   private enabled: boolean;
@@ -43,6 +44,23 @@ export class ThumbnailLoader {
     this.failed.clear();
     this.queue = [];
     this.observer.disconnect();
+  }
+
+  /// Send no new request until `resume`; the ones already sent finish.
+  /// The page view pauses thumbnails so that the renderer, which serves
+  /// one request at a time, draws the page on screen first.
+  pause(): void {
+    this.paused = true;
+  }
+
+  resume(): void {
+    this.paused = false;
+    this.pump();
+  }
+
+  /// The thumbnail of source page `page`, if it is already drawn.
+  cached(page: number): string | undefined {
+    return this.cache.get(page);
   }
 
   /// Start watching a tile whose `data-page` is the source page index.
@@ -79,7 +97,7 @@ export class ThumbnailLoader {
   }
 
   private pump(): void {
-    while (this.running < CONCURRENCY) {
+    while (!this.paused && this.running < CONCURRENCY) {
       const next = this.queue.shift();
       if (next === undefined) {
         return;

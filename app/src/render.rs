@@ -1,13 +1,16 @@
-//! Page thumbnails. The interface asks for "page N of the open document,
-//! W pixels wide" and gets a PNG; nothing else about the renderer reaches
-//! it. Today the renderer is PDFium through `pdfium-render` (ADR 0005),
-//! loaded at run time when its shared library is found; without it the
-//! application still opens, reorders and saves, with blank placeholders.
+//! Page images: the thumbnails of the grid and the page view, sized to the
+//! window. The interface asks for "page N of the open document, W pixels
+//! wide" and gets a PNG; nothing else about the renderer reaches it. Today
+//! the renderer is PDFium through `pdfium-render` (ADR 0005), loaded at run
+//! time when its shared library is found; without it the application still
+//! opens, reorders and saves, with blank placeholders.
 //!
 //! PDFium is not thread-safe, so one worker thread owns the library and
 //! the loaded document and answers requests one by one through a channel.
-//! Requests are small (thumbnails), so this serialisation costs nothing
-//! visible; the interface asks for the visible pages first.
+//! A thumbnail is quick; a page as wide as the window is not, so the
+//! interface puts nothing in front of the page on screen: thumbnails wait
+//! while the page view is open, and the view sends one request at a time,
+//! its current page first.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
@@ -118,8 +121,8 @@ pub fn library_candidates() -> Vec<PathBuf> {
 /// The only place that knows about `pdfium-render`.
 mod pdfium {
     use super::*;
+    use image::codecs::png::{CompressionType, FilterType, PngEncoder};
     use pdfium_render::prelude::*;
-    use std::io::Cursor;
 
     /// Bind to the first library found, then serve requests until the
     /// sender is dropped.
@@ -205,9 +208,18 @@ mod pdfium {
         let image = bitmap
             .as_image()
             .map_err(|e| format!("image de la page {} : {e:?}", request.page))?;
+        // A large image spends its time in PNG encoding, not in PDFium. The
+        // `Up` filter suits pages, whose rows are mostly alike: over four
+        // times faster than the adaptive default, for files 12 to 14 %
+        // larger (a page 1400 pixels wide in a debug build: 190 ms instead
+        // of 810 ms).
         let mut png = Vec::new();
         image
-            .write_to(&mut Cursor::new(&mut png), image::ImageFormat::Png)
+            .write_with_encoder(PngEncoder::new_with_quality(
+                &mut png,
+                CompressionType::Fast,
+                FilterType::Up,
+            ))
             .map_err(|e| format!("encodage PNG : {e}"))?;
         Ok(png)
     }
@@ -253,7 +265,14 @@ mod tests {
         assert_eq!(image.width(), 120);
         assert!(image.height() > 120, "A4 is taller than wide");
         // Second request on the same document: served from the cache.
-        assert!(service.render(7, bytes, "", 0, 60).is_ok());
+        assert!(service.render(7, Arc::clone(&bytes), "", 0, 60).is_ok());
+        // The page view asks for the width of the window: the image has
+        // that width and the proportions of the page.
+        let large = service.render(7, bytes, "", 0, 1400).expect("render");
+        let image = image::load_from_memory(&large).expect("decode");
+        assert_eq!(image.width(), 1400);
+        let ratio = f64::from(image.height()) / f64::from(image.width());
+        assert!((ratio - 842.0 / 595.0).abs() < 0.01, "A4, got {ratio}");
         // Out-of-range page: an error, not a panic.
         assert!(service.render(7, Arc::new(Vec::new()), "", 9, 60).is_err());
     }

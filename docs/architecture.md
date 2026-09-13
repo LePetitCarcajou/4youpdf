@@ -392,13 +392,13 @@ table est faux, est désormais un `BTreeMap` construit au décodage
 ## Application desktop (`app/`)
 
 Tauri 2 côté Rust, interface en TypeScript et CSS sans framework, compilée
-par deux binaires autonomes (esbuild, tsgo) récupérés par
-`tools/fetch_ui_tools.py` : aucun Node.js requis. Voir `app/README.md`
-pour construire et lancer.
+et testée par trois binaires autonomes (esbuild, tsgo, QuickJS-ng)
+récupérés par `tools/fetch_ui_tools.py` : aucun Node.js requis. Voir
+`app/README.md` pour construire et lancer.
 
 Première étape du jalon 0.3 : une fenêtre qui ouvre un PDF, montre ses
-pages en vignettes, permet de les réordonner et de les supprimer, et
-enregistre le résultat. Répartition :
+pages en vignettes ou une par une en grand, permet de les réordonner et de
+les supprimer, et enregistre le résultat. Répartition :
 
 - **Côté Rust (`app/src/`)**, la seule partie qui touche au disque et au
   noyau. `session.rs` ouvre le fichier par `Document::open_with_password`,
@@ -407,12 +407,16 @@ enregistre le résultat. Répartition :
   `ops::extract_pages`, après relecture du résultat. `main.rs` expose
   sept commandes : ouvrir, fermer, état du rendu, rendre une page,
   enregistrer, et les deux sélecteurs de fichiers du système (appelés
-  depuis Rust par le plugin `dialog`, pas depuis l'interface).
+  depuis Rust par le plugin `dialog`, pas depuis l'interface). Une
+  ouverture qui échoue ne remplace pas le document en cours.
 - **Rendu (`app/src/render.rs`)** : PDFium par `pdfium-render`, chargé à
   l'exécution, sur un thread dédié qui sert les demandes une par une.
   Dépendance temporaire et confinée à ce module (ADR 0005) : l'interface
   ne voit qu'un service « page N, largeur W → PNG » et son état ; sans la
-  bibliothèque, tout fonctionne avec des vignettes vides.
+  bibliothèque, tout fonctionne avec des vignettes vides. Pour une page à
+  la taille de la fenêtre, le temps passe dans l'encodage PNG, pas dans
+  PDFium : le filtre `Up` est plus de quatre fois plus rapide que le filtre
+  adaptatif par défaut, pour des fichiers 12 à 14 % plus gros.
 - **Interface (`app/ui/`)** : l'ordre des pages et l'historique
   annuler/refaire vivent dans l'interface (`history.ts`) ; le côté Rust ne
   connaît que le document ouvert. Les vignettes se chargent au fil du
@@ -420,10 +424,21 @@ enregistre le résultat. Répartition :
   fois, pages visibles d'abord) et sont mises en cache par page source, si
   bien que réordonner ne redessine rien. Le glisser-déposer des vignettes
   passe par les événements de pointeur, pas par le glisser-déposer HTML5 :
-  Tauri l'intercepte pour le dépôt de fichiers natif, qui reste actif.
+  Tauri l'intercepte pour le dépôt de fichiers natif, qui reste actif. La
+  vue d'une page (`viewer.ts`) s'ouvre par-dessus la grille, qui reste en
+  place : la page courante est rendue à la largeur qu'elle occupe à l'écran,
+  puis ses deux voisines. Elle n'envoie qu'une demande à la fois et met les
+  vignettes en pause, si bien que la page affichée ne passe jamais derrière
+  une file d'attente du thread de rendu. Les bandeaux sont des données
+  (`notices.ts`) : ceux d'un document ne sont remplacés qu'à l'ouverture
+  réussie d'un autre fichier ; une tentative ratée, ou un fichier qui
+  attend son mot de passe, laisse le document affiché et ses bandeaux en
+  place. Cette logique, sans DOM, est testée dans `app/ui/tests/` par
+  QuickJS-ng, que lance `tools/build_ui.py`.
 - **ADR 0004 appliqué** : une seule fenêtre, aucune boîte modale (le mot
   de passe d'un fichier chiffré est demandé dans un bandeau, les erreurs et
-  les avertissements aussi), actions contextuelles sur les vignettes
+  les avertissements aussi ; la vue d'une page est un état de la fenêtre,
+  sous lequel ces bandeaux restent visibles), actions contextuelles sur les vignettes
   (bouton de suppression, menu du clic droit, clavier). Un document réparé
   ou chiffré est annoncé avec les mots de `fyp info`, et l'enregistrement
   d'un fichier chiffré est annoncé comme produisant un fichier en clair.
@@ -538,7 +553,7 @@ d'abord les modules.
   re-validation, module de fusion réel et `fyp run`, faits ; restent les
   permissions de dossier, de réseau et de sous-processus.
 - **0.3** — application Tauri : ouvrir, organiser (fait : fenêtre,
-  vignettes, réordonner, supprimer, enregistrer), pipeline, panneau de
+  vignettes, vue d'une page, réordonner, supprimer, enregistrer), pipeline, panneau de
   conformité PDF/A (validation veraPDF externe puis moteur interne).
 - **0.4** — chiffrement à l'écriture (révision 6), PDF 2.0 en écriture, PDF/X.
 - **0.5** — OCR (module natif Tesseract), PAdES.
