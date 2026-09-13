@@ -8,6 +8,10 @@
 // neighbours once it is shown, so that turning to them is immediate. A page
 // skipped while turning quickly is never drawn. Images of the pages near
 // the current one are kept, the others dropped.
+//
+// The page on screen can be rotated (buttons, R and Shift+R). The view only
+// asks for it: `main.ts` has the Rust side turn the page, then tells the
+// view, which drops the images drawn before and draws the page again.
 
 import { asAppError, renderPage, type PageInfo } from "./api.js";
 
@@ -40,6 +44,8 @@ export interface ViewerElements {
   prev: HTMLButtonElement;
   next: HTMLButtonElement;
   close: HTMLButtonElement;
+  rotateLeft: HTMLButtonElement;
+  rotateRight: HTMLButtonElement;
 }
 
 export interface ViewerOptions {
@@ -48,6 +54,11 @@ export interface ViewerOptions {
   thumbnail(page: number): string | undefined;
   /// The user went back to the grid; `position` is the page shown last.
   closed(position: number): void;
+  /// The user asked to turn source page `page` by `degrees`, 90 clockwise
+  /// or -90 counter-clockwise.
+  rotate(page: number, degrees: number): void;
+  /// Whether source page `page` is being turned.
+  turning(page: number): boolean;
 }
 
 interface Size {
@@ -81,6 +92,9 @@ export class PageViewer {
   private failed = new Map<number, string>();
   private busy = false;
   private generation = 0;
+  /// How many times each source page was turned: a drawing counts for the
+  /// version of its page when it was asked for.
+  private versions = new Map<number, number>();
   private resizeTimer: number | undefined;
   private pressedOutside = false;
   private wheel = { last: Number.NEGATIVE_INFINITY, travel: 0, turned: false };
@@ -92,6 +106,8 @@ export class PageViewer {
     elements.prev.addEventListener("click", () => this.go(this.current - 1));
     elements.next.addEventListener("click", () => this.go(this.current + 1));
     elements.close.addEventListener("click", () => this.close());
+    elements.rotateLeft.addEventListener("click", () => this.rotate(-90));
+    elements.rotateRight.addEventListener("click", () => this.rotate(90));
     // A click outside the page goes back to the grid, if the button was
     // pressed outside too: pressing on the page and releasing beside it is
     // not a click outside.
@@ -112,7 +128,8 @@ export class PageViewer {
   }
 
   /// Show the page at `position` in `order` (indices into `pages`). The
-  /// order must not change while the view is open.
+  /// order must not change while the view is open; the pages may, when
+  /// one is turned (`pagesChanged`).
   open(pages: readonly PageInfo[], order: readonly number[], position: number, enabled: boolean): void {
     if (order.length === 0) {
       return;
@@ -143,7 +160,33 @@ export class PageViewer {
     this.generation += 1;
     this.drawn.clear();
     this.failed.clear();
+    this.versions.clear();
     this.el.page.replaceChildren();
+  }
+
+  /// The pages changed: `pages` describes them all, and the source pages
+  /// `turned` were turned, so their images are out of date. The page on
+  /// screen is shown again if it is one of them.
+  pagesChanged(pages: readonly PageInfo[], turned: readonly number[]): void {
+    this.pages = pages;
+    for (const page of turned) {
+      this.drawn.delete(page);
+      this.failed.delete(page);
+      this.versions.set(page, this.version(page) + 1);
+    }
+    const page = this.order[this.current];
+    if (this.opened && page !== undefined && turned.includes(page)) {
+      this.show();
+    } else {
+      this.refreshTurning();
+      this.pump();
+    }
+  }
+
+  /// Dim the page on screen while it is being turned.
+  refreshTurning(): void {
+    const page = this.order[this.current];
+    this.el.page.classList.toggle("turning", this.opened && page !== undefined && this.options.turning(page));
   }
 
   /// The keys of the view; `true` when `event` was one of them.
@@ -169,6 +212,12 @@ export class PageViewer {
       case "End":
         this.go(this.order.length - 1);
         break;
+      case "r":
+      case "R":
+        if (!event.repeat) {
+          this.rotate(event.shiftKey ? -90 : 90);
+        }
+        break;
       default:
         return false;
     }
@@ -181,6 +230,14 @@ export class PageViewer {
     this.el.root.hidden = true;
     this.resizeObserver.disconnect();
     window.clearTimeout(this.resizeTimer);
+  }
+
+  /// Ask for the page on screen to be turned by `degrees`.
+  private rotate(degrees: number): void {
+    const page = this.order[this.current];
+    if (this.opened && page !== undefined) {
+      this.options.rotate(page, degrees);
+    }
   }
 
   private go(position: number): void {
@@ -222,6 +279,7 @@ export class PageViewer {
       this.message("…", false);
     }
     this.layout();
+    this.refreshTurning();
     this.pump();
   }
 
@@ -283,11 +341,14 @@ export class PageViewer {
   private async draw(page: number, width: number): Promise<void> {
     this.busy = true;
     const generation = this.generation;
+    const version = this.version(page);
+    // Not for another document, nor for the page as it was before a turn.
+    const current = (): boolean => generation === this.generation && version === this.version(page);
     try {
       const img = imageOf(await renderPage(page, width));
       // Decoded before it is shown: no blank frame when turning to it.
       await img.decode();
-      if (generation === this.generation) {
+      if (current()) {
         this.drawn.set(page, { img, width });
         if (this.opened && this.order[this.current] === page) {
           this.display(img);
@@ -295,7 +356,7 @@ export class PageViewer {
         }
       }
     } catch (e: unknown) {
-      if (generation === this.generation) {
+      if (current()) {
         const error = asAppError(e);
         const text = error.kind === "other" ? error.message : "mot de passe refusé";
         this.failed.set(page, text);
@@ -308,6 +369,10 @@ export class PageViewer {
       this.forgetFar();
       this.pump();
     }
+  }
+
+  private version(page: number): number {
+    return this.versions.get(page) ?? 0;
   }
 
   /// Drop the images of pages more than `KEEP_AROUND` positions away.

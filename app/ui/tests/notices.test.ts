@@ -9,6 +9,7 @@ import { equal, run, test } from "./check.js";
 /// A document as the Rust side describes it.
 function described(path: string, extra: Partial<DocumentInfo> = {}): DocumentInfo {
   return {
+    document: 1,
     path,
     name: path.split("\\").pop() ?? path,
     size: 4096,

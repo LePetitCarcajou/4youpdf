@@ -1,7 +1,8 @@
 // Progressive thumbnails: a tile asks for its image when it scrolls into
 // view, a small number of requests run at once, and a page that leaves
 // the view before its turn is simply not drawn. Images are cached per
-// source page, so reordering never draws twice.
+// source page, so reordering never draws twice; turning a page forgets its
+// image, and an answer drawn before the turn is ignored.
 
 import { renderPage } from "./api.js";
 
@@ -17,6 +18,9 @@ export class ThumbnailLoader {
   private width: number;
   private enabled: boolean;
   private generation = 0;
+  /// How many times each source page was turned: a request answers for
+  /// the version of its page when it was sent.
+  private versions = new Map<number, number>();
 
   constructor(root: HTMLElement, width: number, enabled: boolean) {
     this.width = width;
@@ -42,8 +46,21 @@ export class ThumbnailLoader {
     this.enabled = enabled;
     this.cache.clear();
     this.failed.clear();
+    this.versions.clear();
     this.queue = [];
     this.observer.disconnect();
+  }
+
+  /// Forget the images of the source pages `pages`, which were turned:
+  /// their tiles, built again, ask for new ones. A request still running
+  /// for one of them is ignored when it answers.
+  invalidate(pages: readonly number[]): void {
+    for (const page of pages) {
+      this.cache.delete(page);
+      this.failed.delete(page);
+      this.versions.set(page, this.version(page) + 1);
+    }
+    this.queue = this.queue.filter((q) => !pages.includes(q.page));
   }
 
   /// Send no new request until `resume`; the ones already sent finish.
@@ -104,16 +121,18 @@ export class ThumbnailLoader {
       }
       this.running += 1;
       const generation = this.generation;
+      const version = this.version(next.page);
+      const current = (): boolean => generation === this.generation && version === this.version(next.page);
       renderPage(next.page, this.width)
         .then((url) => {
-          if (generation !== this.generation) {
+          if (!current()) {
             return;
           }
           this.cache.set(next.page, url);
           show(next.tile, url);
         })
         .catch((e: unknown) => {
-          if (generation !== this.generation) {
+          if (!current()) {
             return;
           }
           const message = describe(e);
@@ -126,6 +145,10 @@ export class ThumbnailLoader {
           this.pump();
         });
     }
+  }
+
+  private version(page: number): number {
+    return this.versions.get(page) ?? 0;
   }
 }
 

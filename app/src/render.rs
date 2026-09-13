@@ -268,11 +268,26 @@ mod tests {
         assert!(service.render(7, Arc::clone(&bytes), "", 0, 60).is_ok());
         // The page view asks for the width of the window: the image has
         // that width and the proportions of the page.
-        let large = service.render(7, bytes, "", 0, 1400).expect("render");
+        let large = service
+            .render(7, Arc::clone(&bytes), "", 0, 1400)
+            .expect("render");
         let image = image::load_from_memory(&large).expect("decode");
         assert_eq!(image.width(), 1400);
         let ratio = f64::from(image.height()) / f64::from(image.width());
         assert!((ratio - 842.0 / 595.0).abs() < 0.01, "A4, got {ratio}");
+        // Once turned (`session::rotate`), the page is drawn on its side:
+        // the renderer follows the `/Rotate` of the rewrite.
+        let turned = crate::session::rotate(&bytes, "", &[0], 90).expect("rotate");
+        let png = service
+            .render(8, Arc::new(turned.bytes), "", 0, 120)
+            .expect("render");
+        let image = image::load_from_memory(&png).expect("decode");
+        assert_eq!(image.width(), 120);
+        let ratio = f64::from(image.height()) / f64::from(image.width());
+        assert!(
+            (ratio - 595.0 / 842.0).abs() < 0.01,
+            "A4 on its side, got {ratio}"
+        );
         // Out-of-range page: an error, not a panic.
         assert!(service.render(7, Arc::new(Vec::new()), "", 9, 60).is_err());
     }

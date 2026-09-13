@@ -68,6 +68,24 @@ button.primary {
   color: #fff;
 }
 
+/* A button that shows an icon, named by its title and aria-label. */
+button.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 9px;
+}
+
+button.icon svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 button.link {
   border: none;
   background: none;
@@ -242,6 +260,14 @@ button.link {
 
 .tile.failed .page {
   border-style: dashed;
+}
+
+/* A page being turned: the Rust side rewrites the document, then the page
+   is drawn again. Dimmed only if that takes long enough to notice. */
+.tile.turning .page,
+.viewer-page.turning {
+  opacity: 0.45;
+  transition: opacity 0.2s ease 0.15s;
 }
 
 .tile .label {

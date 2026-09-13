@@ -1,8 +1,8 @@
 // The window: open a PDF (dialog, drop, Ctrl+O), show its pages as
-// tiles, reorder them by dragging, delete them, undo and redo, look at
-// one page at a time over the grid, save through `fyp_core::ops` on the
-// Rust side. One window, no modal dialog but the system file pickers;
-// every message appears in place (ADR 0004).
+// tiles, reorder them by dragging, turn them, delete them, undo and redo,
+// look at one page at a time over the grid, save through `fyp_core::ops`
+// on the Rust side. One window, no modal dialog but the system file
+// pickers; every message appears in place (ADR 0004).
 
 import {
   asAppError,
@@ -14,11 +14,12 @@ import {
   pickOpenFile,
   pickSaveFile,
   rendererStatus,
+  rotatePages,
   saveDocument,
   setWindowTitle,
   type DocumentInfo,
 } from "./api.js";
-import { OrderHistory } from "./history.js";
+import { PageHistory, type Outcome } from "./history.js";
 import { attemptOpen, NoticeBoard, type Notice, type NoticeKind } from "./notices.js";
 import { ThumbnailLoader } from "./thumbnails.js";
 import { PageViewer, pageRatio } from "./viewer.js";
@@ -39,6 +40,8 @@ const ui = {
   docName: element<HTMLSpanElement>("doc-name"),
   undo: element<HTMLButtonElement>("undo"),
   redo: element<HTMLButtonElement>("redo"),
+  rotateLeft: element<HTMLButtonElement>("rotate-left"),
+  rotateRight: element<HTMLButtonElement>("rotate-right"),
   delete: element<HTMLButtonElement>("delete"),
   save: element<HTMLButtonElement>("save"),
   notices: element<HTMLElement>("notices"),
@@ -57,11 +60,13 @@ const ui = {
   viewerPrev: element<HTMLButtonElement>("viewer-prev"),
   viewerNext: element<HTMLButtonElement>("viewer-next"),
   viewerClose: element<HTMLButtonElement>("viewer-close"),
+  viewerRotateLeft: element<HTMLButtonElement>("viewer-rotate-left"),
+  viewerRotateRight: element<HTMLButtonElement>("viewer-rotate-right"),
 };
 
 interface State {
   info: DocumentInfo | null;
-  history: OrderHistory | null;
+  history: PageHistory | null;
   selection: Set<number>;
   rendererAvailable: boolean;
 }
@@ -84,10 +89,14 @@ const viewer = new PageViewer(
     prev: ui.viewerPrev,
     next: ui.viewerNext,
     close: ui.viewerClose,
+    rotateLeft: ui.viewerRotateLeft,
+    rotateRight: ui.viewerRotateRight,
   },
   {
     thumbnail: (page) => thumbnails.cached(page),
     closed: viewerClosed,
+    rotate: (page, degrees) => void turnPages([page], degrees, true),
+    turning: (page) => state.history?.isTurning(page) === true,
   },
 );
 
@@ -204,7 +213,7 @@ async function open(path: string, password?: string): Promise<void> {
 /// Show the document just opened; its notices are already on the board.
 function loaded(info: DocumentInfo): void {
   state.info = info;
-  state.history = new OrderHistory(info.pages.length);
+  state.history = new PageHistory(info.pages, (pages, degrees) => rotatePages(info.document, pages, degrees));
   state.selection.clear();
   thumbnails.reset(state.rendererAvailable);
   resetViewer();
@@ -230,14 +239,13 @@ async function chooseAndOpen(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 function renderGrid(): void {
-  const info = state.info;
   const history = state.history;
-  if (info === null || history === null) {
+  if (history === null) {
     return;
   }
   const tiles: HTMLElement[] = [];
   history.order.forEach((page, position) => {
-    const ratio = pageRatio(info.pages[page]);
+    const ratio = pageRatio(history.pages[page]);
 
     const tile = document.createElement("div");
     tile.className = "tile";
@@ -248,6 +256,9 @@ function renderGrid(): void {
     tile.setAttribute("aria-label", `Page ${position + 1} (page ${page + 1} du fichier)`);
     if (state.selection.has(position)) {
       tile.classList.add("selected");
+    }
+    if (history.isTurning(page)) {
+      tile.classList.add("turning");
     }
 
     const frame = document.createElement("div");
@@ -291,13 +302,39 @@ function renderGrid(): void {
 function refreshButtons(): void {
   const history = state.history;
   const hasDoc = history !== null;
-  // Pages are edited on the grid; the page view only shows them.
+  // Pages are edited on the grid; the page view only turns the page it
+  // shows, with its own buttons.
   const editable = hasDoc && !viewer.isOpen;
+  const selected = editable && state.selection.size > 0;
   ui.undo.disabled = !(editable && history.canUndo);
   ui.redo.disabled = !(editable && history.canRedo);
-  ui.delete.disabled = !(editable && state.selection.size > 0);
+  // Rotations wait for one another; deleting is refused until they are
+  // done (history.ts).
+  ui.delete.disabled = !(selected && !history.busy);
+  ui.rotateLeft.disabled = !selected;
+  ui.rotateRight.disabled = !selected;
   ui.save.disabled = !hasDoc;
   ui.docName.classList.toggle("modified", hasDoc && history.modified);
+}
+
+/// Build the grid again with the keyboard focus on the same position, for
+/// a rotation, which moves no page.
+function renderGridKeepingFocus(): void {
+  const focused = positionOf(document.activeElement);
+  renderGrid();
+  if (focused !== null) {
+    ui.grid.querySelector<HTMLElement>(`.tile[data-position="${focused}"]`)?.focus({ preventScroll: true });
+  }
+}
+
+/// Dim the pages being turned, in the grid and in the page view.
+function showTurning(): void {
+  const history = state.history;
+  for (const tile of ui.grid.querySelectorAll<HTMLElement>(".tile")) {
+    const page = Number(tile.dataset["page"] ?? "-1");
+    tile.classList.toggle("turning", history?.isTurning(page) === true);
+  }
+  viewer.refreshTurning();
 }
 
 function positionOf(target: EventTarget | null): number | null {
@@ -344,9 +381,8 @@ function select(position: number, extend: boolean, range: boolean): void {
 let viewerOpenedAt = -1;
 
 function openViewer(position: number): void {
-  const info = state.info;
   const history = state.history;
-  if (info === null || history === null || viewer.isOpen || position < 0 || position >= history.order.length) {
+  if (history === null || viewer.isOpen || position < 0 || position >= history.order.length) {
     return;
   }
   hideMenu();
@@ -354,7 +390,7 @@ function openViewer(position: number): void {
   // The renderer draws one page at a time: the page on screen goes first.
   thumbnails.pause();
   ui.gridRoot.inert = true;
-  viewer.open(info.pages, history.order, position, state.rendererAvailable);
+  viewer.open(history.pages, history.order, position, state.rendererAvailable);
   refreshButtons();
 }
 
@@ -412,7 +448,7 @@ ui.grid.addEventListener("dblclick", (event) => {
 
 function deletePositions(positions: number[]): void {
   const history = state.history;
-  if (history === null || positions.length === 0) {
+  if (history === null || positions.length === 0 || refusedWhileTurning()) {
     return;
   }
   if (positions.length >= history.order.length) {
@@ -430,7 +466,7 @@ function deletePositions(positions: number[]): void {
 
 function movePositions(positions: number[], target: number): void {
   const history = state.history;
-  if (history === null || positions.length === 0) {
+  if (history === null || positions.length === 0 || refusedWhileTurning()) {
     return;
   }
   const sorted = [...positions].sort((a, b) => a - b);
@@ -443,20 +479,124 @@ function movePositions(positions: number[], target: number): void {
   }
 }
 
-function undo(): void {
-  if (state.history?.undo() === true) {
-    state.selection.clear();
-    renderGrid();
-    setStatus("Annulé.");
+/// Whether a rotation is running, which moving, deleting, undoing and
+/// redoing wait for (`history.ts`); says so in the status bar.
+function refusedWhileTurning(): boolean {
+  if (state.history?.busy !== true) {
+    return false;
   }
+  setStatus("Rotation en cours : réessayez dans un instant.");
+  return true;
 }
 
-function redo(): void {
-  if (state.history?.redo() === true) {
-    state.selection.clear();
-    renderGrid();
+/// Turn the source pages `pages` by `degrees`, 90 clockwise or -90
+/// counter-clockwise. The Rust side applies it to the document through
+/// `ops::rotate`; the pages are then drawn again from the result.
+/// `fromViewer` when the page view asked for it.
+async function turnPages(pages: readonly number[], degrees: number, fromViewer: boolean): Promise<void> {
+  const history = state.history;
+  if (history === null || pages.length === 0) {
+    return;
+  }
+  hideMenu();
+  const running = history.rotate(pages, degrees);
+  setStatus(`Rotation ${pages.length > 1 ? `de ${pages.length} pages` : "de la page"}…`);
+  showTurning();
+  refreshButtons();
+  const outcome = await running;
+  if (state.history !== history) {
+    return;
+  }
+  if (outcome.kind === "rotation") {
+    const turned = pages.length > 1 ? `${pages.length} pages pivotées` : "Page pivotée";
+    const how = fromViewer ? "Ctrl+Z dans la grille" : "Ctrl+Z";
+    setStatus(`${turned} ${degrees > 0 ? "à droite" : "à gauche"} (${how} pour annuler).`);
+  } else if (outcome.kind === "failed") {
+    notice("error", `Rotation impossible : ${outcome.message}`);
+    setStatus("Rotation impossible.");
+  }
+  edited(outcome);
+}
+
+/// Turn the pages selected in the grid.
+function turnSelection(degrees: number): void {
+  const history = state.history;
+  if (history === null || viewer.isOpen) {
+    return;
+  }
+  const pages = [...state.selection]
+    .sort((a, b) => a - b)
+    .map((position) => history.order[position])
+    .filter((page): page is number => page !== undefined);
+  void turnPages(pages, degrees, false);
+}
+
+async function undo(): Promise<void> {
+  const history = state.history;
+  if (history === null || refusedWhileTurning()) {
+    return;
+  }
+  const running = history.undo();
+  if (history.busy) {
+    setStatus("Annulation de la rotation…");
+    showTurning();
+    refreshButtons();
+  }
+  const outcome = await running;
+  if (state.history !== history) {
+    return;
+  }
+  if (outcome.kind === "failed") {
+    notice("error", `Annulation impossible : ${outcome.message}`);
+    setStatus("Annulation impossible.");
+  } else if (outcome.kind !== "none") {
+    setStatus("Annulé.");
+  }
+  edited(outcome);
+}
+
+async function redo(): Promise<void> {
+  const history = state.history;
+  if (history === null || refusedWhileTurning()) {
+    return;
+  }
+  const running = history.redo();
+  if (history.busy) {
+    setStatus("Rétablissement de la rotation…");
+    showTurning();
+    refreshButtons();
+  }
+  const outcome = await running;
+  if (state.history !== history) {
+    return;
+  }
+  if (outcome.kind === "failed") {
+    notice("error", `Rétablissement impossible : ${outcome.message}`);
+    setStatus("Rétablissement impossible.");
+  } else if (outcome.kind !== "none") {
     setStatus("Refait.");
   }
+  edited(outcome);
+}
+
+/// Bring the window up to date after an edit that ended with `outcome`.
+/// Positions change only with the order: a rotation keeps the selection
+/// and the keyboard focus where they are.
+function edited(outcome: Outcome): void {
+  const history = state.history;
+  if (history === null) {
+    return;
+  }
+  if (outcome.kind === "order") {
+    state.selection.clear();
+    renderGrid();
+  } else if (outcome.kind === "rotation") {
+    thumbnails.invalidate(outcome.pages);
+    viewer.pagesChanged(history.pages, outcome.pages);
+    renderGridKeepingFocus();
+  }
+  showTurning();
+  refreshButtons();
 }
 
 async function save(): Promise<void> {
@@ -469,6 +609,14 @@ async function save(): Promise<void> {
   const path = await pickSaveFile(`${stem}-modifié.pdf`);
   if (path === null) {
     return;
+  }
+  if (history.busy) {
+    // The file saved must hold the rotations asked for.
+    setStatus("Enregistrement à la fin de la rotation en cours…");
+    await history.idle();
+    if (state.history !== history) {
+      return;
+    }
   }
   setStatus(`Enregistrement de ${path}…`);
   try {
@@ -718,14 +866,22 @@ document.addEventListener("keydown", (event) => {
     // The keys below edit the grid, which the page view covers.
   } else if (ctrl && event.key.toLowerCase() === "z" && !event.shiftKey) {
     event.preventDefault();
-    undo();
+    void undo();
   } else if ((ctrl && event.key.toLowerCase() === "y") || (ctrl && event.shiftKey && event.key.toLowerCase() === "z")) {
     event.preventDefault();
-    redo();
+    void redo();
   } else if (ctrl && event.key.toLowerCase() === "a" && state.history !== null) {
     event.preventDefault();
     state.selection = new Set(state.history.order.map((_, i) => i));
     renderGrid();
+  } else if (event.key.toLowerCase() === "r" && !ctrl && !event.altKey) {
+    // R turns the selected pages clockwise, Shift+R counter-clockwise.
+    if (state.selection.size > 0) {
+      event.preventDefault();
+      if (!event.repeat) {
+        turnSelection(event.shiftKey ? -90 : 90);
+      }
+    }
   } else if (event.key === "Delete" || event.key === "Backspace") {
     if (state.selection.size > 0) {
       event.preventDefault();
@@ -756,8 +912,10 @@ document.addEventListener("keydown", (event) => {
 
 ui.open.addEventListener("click", () => void chooseAndOpen());
 ui.openEmpty.addEventListener("click", () => void chooseAndOpen());
-ui.undo.addEventListener("click", undo);
-ui.redo.addEventListener("click", redo);
+ui.undo.addEventListener("click", () => void undo());
+ui.redo.addEventListener("click", () => void redo());
+ui.rotateLeft.addEventListener("click", () => turnSelection(-90));
+ui.rotateRight.addEventListener("click", () => turnSelection(90));
 ui.delete.addEventListener("click", () => deletePositions([...state.selection]));
 ui.save.addEventListener("click", () => void save());
 

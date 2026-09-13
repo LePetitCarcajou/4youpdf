@@ -1,11 +1,13 @@
 //! 4YouPDF desktop application (milestone 0.3, first step): one window
-//! that opens a PDF, shows its pages as thumbnails, lets the user reorder
-//! and delete them, and saves the result through `fyp_core::ops`.
+//! that opens a PDF, shows its pages as thumbnails, lets the user reorder,
+//! turn and delete them, and saves the result through `fyp_core::ops`.
 //!
 //! The interface (`ui/`, TypeScript) talks to this side through the
-//! commands below and nothing else: file dialogs, reading, rendering and
-//! writing all happen here. The page order and the undo history live in
-//! the interface; this side only knows the open document.
+//! commands below and nothing else: file dialogs, reading, rendering,
+//! turning pages and writing all happen here. The page order and the undo
+//! history live in the interface; this side only knows the open document,
+//! as turned so far: the interface undoes a rotation by asking for the
+//! opposite one.
 
 #![forbid(unsafe_code)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -19,11 +21,11 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use base64::Engine as _;
 use serde::Serialize;
-use tauri::State;
+use tauri::{Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
 use render::RenderService;
-use session::{DocumentInfo, SaveReport, Session};
+use session::{DocumentInfo, PageInfo, Rotated, SaveReport, Session};
 
 /// What a command reports when it fails. `WrongPassword` lets the
 /// interface ask for one in place; everything else is shown as text.
@@ -79,6 +81,71 @@ impl AppState {
         *self.session() = Some(session);
         Ok(info)
     }
+
+    /// The current document as rendering and rotating take it.
+    fn current(&self) -> Result<Current, AppError> {
+        let guard = self.session();
+        let session = guard
+            .as_ref()
+            .ok_or_else(|| AppError::other("aucun document ouvert"))?;
+        Ok(Current {
+            document: session.info.document,
+            id: session.id,
+            bytes: Arc::clone(&session.bytes),
+            password: session.password.clone(),
+        })
+    }
+
+    /// Turn the pages at `pages` of the opening `document` by `degrees`
+    /// clockwise (`session::rotate`) and make the result current; returns
+    /// every page as it now stands. The rewrite runs without holding the
+    /// document, so that pages keep rendering meanwhile.
+    fn rotate(
+        &self,
+        document: u64,
+        pages: &[usize],
+        degrees: i32,
+    ) -> Result<Vec<PageInfo>, AppError> {
+        let current = self.current()?;
+        if current.document != document {
+            return Err(changed());
+        }
+        let rotated = session::rotate(&current.bytes, &current.password, pages, degrees)?;
+        self.commit(document, current.id, rotated)
+    }
+
+    /// Make `rotated`, made from the bytes known as `from` of the opening
+    /// `document`, the current document. Refused when they are no longer
+    /// current (another file opened, the document closed or turned
+    /// meanwhile): a rotation is never applied to what it was not made from.
+    fn commit(
+        &self,
+        document: u64,
+        from: u64,
+        rotated: Rotated,
+    ) -> Result<Vec<PageInfo>, AppError> {
+        let mut guard = self.session();
+        match guard.as_mut() {
+            Some(session) if session.info.document == document && session.id == from => {
+                session.replace(self.next_id.fetch_add(1, Ordering::Relaxed), rotated)
+            }
+            _ => Err(changed()),
+        }
+    }
+}
+
+/// The current document as rendering and rotating take it.
+struct Current {
+    /// Its opening (`DocumentInfo::document`).
+    document: u64,
+    /// Its bytes for the renderer's cache (`Session::id`).
+    id: u64,
+    bytes: Arc<Vec<u8>>,
+    password: String,
+}
+
+fn changed() -> AppError {
+    AppError::other("le document a changé ; la rotation n'a pas été appliquée")
 }
 
 /// Open `path` and make it the current document (see `AppState::open`).
@@ -112,17 +179,12 @@ async fn render_page(
     page: usize,
     width: u32,
 ) -> Result<String, AppError> {
-    let (id, bytes, password) = {
-        let guard = state.session();
-        let session = guard
-            .as_ref()
-            .ok_or_else(|| AppError::other("aucun document ouvert"))?;
-        (
-            session.id,
-            Arc::clone(&session.bytes),
-            session.password.clone(),
-        )
-    };
+    let Current {
+        id,
+        bytes,
+        password,
+        ..
+    } = state.current()?;
     // The render service blocks until the worker answers: keep that off
     // the async runtime's threads.
     let service = Arc::clone(&state.render);
@@ -136,6 +198,29 @@ async fn render_page(
         "data:image/png;base64,{}",
         base64::engine::general_purpose::STANDARD.encode(png)
     ))
+}
+
+/// Turn the pages at `pages` (0-based indices into the open document) by
+/// `degrees` clockwise, relative to their rotation, through `ops::rotate`
+/// (see `AppState::rotate`): from then on they render and save turned.
+/// `document` is the opening the interface means (`DocumentInfo::document`).
+/// Returns every page as it now stands.
+#[tauri::command]
+async fn rotate_pages(
+    app: tauri::AppHandle,
+    document: u64,
+    pages: Vec<usize>,
+    degrees: i32,
+) -> Result<Vec<PageInfo>, AppError> {
+    // Rewriting a large document takes a while: off the async runtime's
+    // threads, like rendering.
+    tauri::async_runtime::spawn_blocking(move || {
+        app.try_state::<AppState>()
+            .ok_or_else(|| AppError::other("état de l'application indisponible"))?
+            .rotate(document, &pages, degrees)
+    })
+    .await
+    .map_err(|e| AppError::other(format!("rotation interrompue : {e}")))?
 }
 
 /// Write the pages at `order` (0-based indices into the open document,
@@ -202,6 +287,7 @@ fn main() {
             renderer_status,
             initial_file,
             render_page,
+            rotate_pages,
             save_document,
             pick_open_file,
             pick_save_file,
@@ -263,5 +349,40 @@ mod tests {
         // A file that opens does replace it.
         let clean = state.open(&fixture("minimal.pdf"), "").expect("open");
         assert_eq!(current().map(|(_, path)| path), Some(clean.path));
+    }
+
+    /// A rotation replaces the document it was made from, and only that
+    /// one: neither a file opened while it was computed, nor a file opened
+    /// before it was even asked for, is turned in place of the one meant.
+    #[test]
+    fn a_rotation_applies_only_to_the_document_it_was_meant_for() {
+        let state = AppState {
+            session: Mutex::new(None),
+            render: Arc::new(RenderService::start(&[])),
+            next_id: AtomicU64::new(1),
+        };
+        let bytes_of = |state: &AppState| state.current().map(|c| (c.id, c.bytes));
+        assert!(state.rotate(1, &[0], 90).is_err(), "no document open");
+        let first = state.open(&fixture("minimal.pdf"), "").expect("open");
+        let (id, bytes) = bytes_of(&state).unwrap();
+
+        let pages = state.rotate(first.document, &[0], 90).expect("rotate");
+        assert_eq!(pages[0].rotate, 90);
+        let (turned, turned_bytes) = bytes_of(&state).unwrap();
+        assert_ne!(turned, id, "the renderer must not reuse its images");
+        assert_ne!(turned_bytes, bytes);
+
+        // Computed from the first opening, committed after another one.
+        let late = session::rotate(&turned_bytes, "", &[0], 90).expect("rotate");
+        let second = state.open(&fixture("minimal.pdf"), "").expect("open again");
+        let reopened = bytes_of(&state).unwrap();
+        assert!(state.commit(first.document, turned, late).is_err());
+        // Asked for the first opening, once the second is current.
+        assert!(state.rotate(first.document, &[0], 90).is_err());
+        assert_eq!(bytes_of(&state).unwrap(), reopened);
+        assert_eq!(
+            state.rotate(second.document, &[0], -90).expect("rotate")[0].rotate,
+            270
+        );
     }
 }

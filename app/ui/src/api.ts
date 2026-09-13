@@ -8,6 +8,9 @@ export interface PageInfo {
 }
 
 export interface DocumentInfo {
+  /// This opening of the file: the commands that change the document name
+  /// it, so that one meant for a document replaced meanwhile is refused.
+  document: number;
   path: string;
   name: string;
   size: number;
@@ -78,6 +81,13 @@ export function rendererStatus(): Promise<RendererStatus> {
 
 export function renderPage(page: number, width: number): Promise<string> {
   return invoke<string>("render_page", { page, width });
+}
+
+/// Turn the pages at `pages` (0-based indices into the file opened as
+/// `document`) by `degrees` clockwise, relative to their rotation: done on
+/// the Rust side, which answers with every page as it now stands.
+export function rotatePages(document: number, pages: number[], degrees: number): Promise<PageInfo[]> {
+  return invoke<PageInfo[]>("rotate_pages", { document, pages, degrees });
 }
 
 export function saveDocument(path: string, order: number[]): Promise<SaveReport> {

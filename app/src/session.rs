@@ -1,6 +1,6 @@
 //! The open document: its bytes, what `fyp-core` says about it, and the
-//! two operations the window needs, listing pages and saving a new page
-//! order through `fyp_core::ops`.
+//! operations the window needs, all through `fyp_core::ops`: listing
+//! pages, turning some of them, saving a new page order.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -16,6 +16,10 @@ use crate::AppError;
 /// What the interface shows about the open document.
 #[derive(Debug, Clone, Serialize)]
 pub struct DocumentInfo {
+    /// Identifies this opening of the file. A command that changes the
+    /// document names it, so that one meant for a document replaced
+    /// meanwhile is refused instead of applied to the new one.
+    pub document: u64,
     /// Path as opened.
     pub path: String,
     /// File name alone, for the title bar.
@@ -59,14 +63,30 @@ pub struct SaveReport {
     pub pages: usize,
 }
 
-/// An open file. The bytes are shared with the renderer.
+/// An open file, as it stands after the rotations applied to it: the
+/// bytes read at first, then the rewrite made by each rotation
+/// ([`Session::replace`]). The bytes are shared with the renderer.
 #[derive(Debug)]
 pub struct Session {
-    /// Distinguishes documents for the renderer's cache.
+    /// Distinguishes the bytes for the renderer's cache: a new id whenever
+    /// they change.
     pub id: u64,
     pub bytes: Arc<Vec<u8>>,
+    /// Password of `bytes`: the one given when opening, empty once they
+    /// are a rewrite, which is in the clear.
     pub password: String,
+    /// What the interface was told when opening; `pages` follows the
+    /// rotations.
     pub info: DocumentInfo,
+}
+
+/// What a rotation produced: the whole document rewritten, and its pages.
+#[derive(Debug)]
+pub struct Rotated {
+    /// Written by `fyp-core`, in the clear.
+    pub bytes: Vec<u8>,
+    /// Read back from `bytes`.
+    pub pages: Vec<PageInfo>,
 }
 
 impl Session {
@@ -74,7 +94,7 @@ impl Session {
     pub fn open(id: u64, path: &Path, password: &str) -> Result<Session, AppError> {
         let bytes = std::fs::read(path)
             .map_err(|e| AppError::other(format!("{} : {e}", path.display())))?;
-        let info = describe(path, &bytes, password)?;
+        let info = describe(id, path, &bytes, password)?;
         Ok(Session {
             id,
             bytes: Arc::new(bytes),
@@ -110,16 +130,63 @@ impl Session {
             pages: order.len(),
         })
     }
+
+    /// Make `rotated` the document from now on, known to the renderer as
+    /// `id`, and return its pages. Refused when the page count changed:
+    /// the page indices the interface holds must stay valid.
+    pub fn replace(&mut self, id: u64, rotated: Rotated) -> Result<Vec<PageInfo>, AppError> {
+        if rotated.pages.len() != self.info.pages.len() {
+            return Err(AppError::other(format!(
+                "la rotation a produit {} pages au lieu de {} ; elle n'a pas été appliquée",
+                rotated.pages.len(),
+                self.info.pages.len()
+            )));
+        }
+        self.id = id;
+        self.bytes = Arc::new(rotated.bytes);
+        self.password.clear();
+        self.info.pages.clone_from(&rotated.pages);
+        Ok(rotated.pages)
+    }
 }
 
-/// Open the bytes and gather what the interface shows.
-pub fn describe(path: &Path, bytes: &[u8], password: &str) -> Result<DocumentInfo, AppError> {
+/// The document in `bytes`, opened with `password`, with the pages at
+/// `pages` (0-based) turned by `degrees` clockwise through [`ops::rotate`]:
+/// relative to the rotation of each page, inherited or not, normalised
+/// into `0..360`. Like a saved file, the result must read back without
+/// repair before it is returned.
+pub fn rotate(
+    bytes: &[u8],
+    password: &str,
+    pages: &[usize],
+    degrees: i32,
+) -> Result<Rotated, AppError> {
     let doc = Document::open_with_password(bytes, password.as_bytes())?;
-    let pages = ops::pages(&doc)?
-        .iter()
-        .map(|page| page_info(&doc, &page.dict))
-        .collect();
+    let out = ops::rotate(&doc, pages, degrees)?;
+    let pages = {
+        let check = Document::open(&out)?;
+        if let Some(reason) = check.reconstructed() {
+            return Err(AppError::other(format!(
+                "le document produit a dû être réparé à la relecture ({reason}) ; la rotation n'a pas été appliquée"
+            )));
+        }
+        page_infos(&check)?
+    };
+    Ok(Rotated { bytes: out, pages })
+}
+
+/// Open the bytes and gather what the interface shows about this opening,
+/// `document`.
+pub fn describe(
+    document: u64,
+    path: &Path,
+    bytes: &[u8],
+    password: &str,
+) -> Result<DocumentInfo, AppError> {
+    let doc = Document::open_with_password(bytes, password.as_bytes())?;
+    let pages = page_infos(&doc)?;
     Ok(DocumentInfo {
+        document,
         path: path.display().to_string(),
         name: path
             .file_name()
@@ -132,6 +199,14 @@ pub fn describe(path: &Path, bytes: &[u8], password: &str) -> Result<DocumentInf
         relocated_startxref: doc.relocated_startxref(),
         encryption: doc.encryption().map(|e| describe_encryption(&e)),
     })
+}
+
+/// Width, height and rotation of every page of `doc`, in reading order.
+fn page_infos(doc: &Document<'_>) -> Result<Vec<PageInfo>, AppError> {
+    Ok(ops::pages(doc)?
+        .iter()
+        .map(|page| page_info(doc, &page.dict))
+        .collect())
 }
 
 /// Width, height and rotation of a page whose inheritable attributes are
@@ -243,12 +318,12 @@ mod tests {
     fn wrong_password_is_its_own_error() {
         let bytes = std::fs::read(fixture("encrypted-aes256.pdf")).unwrap();
         assert!(matches!(
-            describe(Path::new("x.pdf"), &bytes, "nope"),
+            describe(1, Path::new("x.pdf"), &bytes, "nope"),
             Err(AppError::WrongPassword)
         ));
-        assert!(describe(Path::new("x.pdf"), &bytes, "owner").is_ok());
+        assert!(describe(1, Path::new("x.pdf"), &bytes, "owner").is_ok());
         assert!(matches!(
-            describe(Path::new("x.pdf"), b"not a pdf", ""),
+            describe(1, Path::new("x.pdf"), b"not a pdf", ""),
             Err(AppError::Other { .. })
         ));
     }
@@ -270,5 +345,132 @@ mod tests {
         assert!(session.save(&[3], &dir.join("never.pdf")).is_err());
         assert!(!dir.join("never.pdf").exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A one-section PDF whose `objects[i]` is object `i + 1`, the catalog
+    /// first.
+    fn hand_built(objects: &[&str]) -> Vec<u8> {
+        let mut out = b"%PDF-1.7\n".to_vec();
+        let mut offsets = Vec::new();
+        for (i, body) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", i + 1).as_bytes());
+        }
+        let startxref = out.len();
+        let size = offsets.len() + 1;
+        out.extend_from_slice(format!("xref\n0 {size}\n0000000000 65535 f \n").as_bytes());
+        for offset in &offsets {
+            out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        out.extend_from_slice(
+            format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{startxref}\n%%EOF\n")
+                .as_bytes(),
+        );
+        out
+    }
+
+    /// Three A4 pages: the first inherits `/Rotate 90` from the page tree
+    /// (ISO 32000-2, 7.7.3.4), the second says 180, the third -90.
+    fn three_pages() -> Vec<u8> {
+        hand_built(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 /MediaBox [0 0 595 842] /Rotate 90 >>",
+            "<< /Type /Page /Parent 2 0 R >>",
+            "<< /Type /Page /Parent 2 0 R /Rotate 180 >>",
+            "<< /Type /Page /Parent 2 0 R /Rotate -90 >>",
+        ])
+    }
+
+    fn rotations(pages: &[PageInfo]) -> Vec<i32> {
+        pages.iter().map(|page| page.rotate).collect()
+    }
+
+    /// Turn `pages` of `session` by `degrees`, as the application does.
+    fn turn(session: &mut Session, pages: &[usize], degrees: i32) -> Vec<i32> {
+        let rotated = rotate(&session.bytes, &session.password, pages, degrees).expect("rotate");
+        let id = session.id + 1;
+        rotations(&session.replace(id, rotated).expect("replace"))
+    }
+
+    #[test]
+    fn rotation_is_relative_to_each_page_and_normalised() {
+        let dir = std::env::temp_dir().join(format!("fyp-app-rotate-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("three.pdf");
+        std::fs::write(&path, three_pages()).unwrap();
+        let mut session = Session::open(10, &path, "").expect("open");
+        assert_eq!(rotations(&session.info.pages), [90, 180, 270]);
+
+        // Each page turns from its own rotation, inherited or not.
+        assert_eq!(turn(&mut session, &[0, 2], 90), [180, 180, 0]);
+        assert_eq!(session.id, 11);
+        assert_eq!(rotations(&session.info.pages), [180, 180, 0]);
+        // Counter-clockwise from 0 is 270, not -90.
+        assert_eq!(turn(&mut session, &[1, 2], -90), [180, 90, 270]);
+        // The size is that of the media box, whatever the rotation.
+        assert_eq!(
+            session.info.pages[1],
+            PageInfo {
+                width: 595.0,
+                height: 842.0,
+                rotate: 90
+            }
+        );
+        // The opposite rotations bring back those of the file.
+        assert_eq!(turn(&mut session, &[1, 2], 90), [180, 180, 0]);
+        assert_eq!(turn(&mut session, &[0, 2], -90), [90, 180, 270]);
+
+        // What is saved is the document as it stands, in the order asked.
+        assert_eq!(turn(&mut session, &[0], 90), [180, 180, 270]);
+        let out = dir.join("out.pdf");
+        session.save(&[2, 0], &out).expect("save");
+        let bytes = std::fs::read(&out).unwrap();
+        let saved = Document::open(&bytes).unwrap();
+        let key = Name::new("Rotate");
+        let saved: Vec<Option<Object>> = ops::pages(&saved)
+            .unwrap()
+            .iter()
+            .map(|page| page.dict.get(&key).cloned())
+            .collect();
+        assert_eq!(
+            saved,
+            [Some(Object::Integer(270)), Some(Object::Integer(180))]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_encrypted_document_is_turned_in_the_clear() {
+        let mut session =
+            Session::open(20, &fixture("encrypted-aes256.pdf"), "owner").expect("open");
+        assert_eq!(turn(&mut session, &[0], 90), [90]);
+        // The rewrite needs no password: the next rotation, the renderer
+        // and saving take it as it is.
+        assert_eq!(session.password, "");
+        let doc = Document::open(&session.bytes).expect("open the rewrite");
+        assert!(doc.encryption().is_none());
+        assert_eq!(turn(&mut session, &[0], 90), [180]);
+    }
+
+    #[test]
+    fn a_refused_rotation_changes_nothing() {
+        let mut session = Session::open(30, &fixture("minimal.pdf"), "").expect("open");
+        let before = Arc::clone(&session.bytes);
+        // No second page, not a multiple of 90, a page given twice.
+        for (pages, degrees) in [(&[1][..], 90), (&[0][..], 45), (&[0, 0][..], 90)] {
+            assert!(
+                matches!(
+                    rotate(&session.bytes, "", pages, degrees),
+                    Err(AppError::Other { .. })
+                ),
+                "{pages:?} by {degrees}"
+            );
+        }
+        // A rewrite with another page count is not taken.
+        let other = rotate(&three_pages(), "", &[0], 90).expect("rotate");
+        assert!(session.replace(31, other).is_err());
+        assert_eq!(session.id, 30);
+        assert!(Arc::ptr_eq(&session.bytes, &before));
+        assert_eq!(rotations(&session.info.pages), [0]);
     }
 }

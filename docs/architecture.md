@@ -397,15 +397,20 @@ récupérés par `tools/fetch_ui_tools.py` : aucun Node.js requis. Voir
 `app/README.md` pour construire et lancer.
 
 Première étape du jalon 0.3 : une fenêtre qui ouvre un PDF, montre ses
-pages en vignettes ou une par une en grand, permet de les réordonner et de
-les supprimer, et enregistre le résultat. Répartition :
+pages en vignettes ou une par une en grand, permet de les réordonner, de
+les faire pivoter et de les supprimer, et enregistre le résultat.
+Répartition :
 
 - **Côté Rust (`app/src/`)**, la seule partie qui touche au disque et au
   noyau. `session.rs` ouvre le fichier par `Document::open_with_password`,
   liste les pages par `ops::pages` (taille et rotation pour une vignette
   vide au bon format, avant l'image) et enregistre par
-  `ops::extract_pages`, après relecture du résultat. `main.rs` expose
-  sept commandes : ouvrir, fermer, état du rendu, rendre une page,
+  `ops::extract_pages`, après relecture du résultat. Une rotation passe
+  par `ops::rotate` : le document gardé en mémoire est réécrit, relu sans
+  réparation (et en clair s'il était chiffré), puis rendu et enregistré
+  tel quel. Elle nomme l'ouverture qu'elle vise et n'est jamais appliquée
+  à un autre fichier ouvert entre-temps. `main.rs` expose huit commandes :
+  ouvrir, fermer, état du rendu, rendre une page, faire pivoter des pages,
   enregistrer, et les deux sélecteurs de fichiers du système (appelés
   depuis Rust par le plugin `dialog`, pas depuis l'interface). Une
   ouverture qui échoue ne remplace pas le document en cours.
@@ -419,8 +424,12 @@ les supprimer, et enregistre le résultat. Répartition :
   adaptatif par défaut, pour des fichiers 12 à 14 % plus gros.
 - **Interface (`app/ui/`)** : l'ordre des pages et l'historique
   annuler/refaire vivent dans l'interface (`history.ts`) ; le côté Rust ne
-  connaît que le document ouvert. Les vignettes se chargent au fil du
-  défilement (`thumbnails.ts`, `IntersectionObserver`, trois demandes à la
+  connaît que le document ouvert, tourné au fil des rotations. L'interface
+  ne calcule aucune rotation : elle garde la taille et la rotation des
+  pages que le côté Rust lui renvoie, annule une rotation en demandant la
+  rotation inverse, et fait passer les rotations une par une, les autres
+  modifications étant refusées jusqu'à la fin. Les vignettes se chargent
+  au fil du défilement (`thumbnails.ts`, `IntersectionObserver`, trois demandes à la
   fois, pages visibles d'abord) et sont mises en cache par page source, si
   bien que réordonner ne redessine rien. Le glisser-déposer des vignettes
   passe par les événements de pointeur, pas par le glisser-déposer HTML5 :
@@ -553,7 +562,7 @@ d'abord les modules.
   re-validation, module de fusion réel et `fyp run`, faits ; restent les
   permissions de dossier, de réseau et de sous-processus.
 - **0.3** — application Tauri : ouvrir, organiser (fait : fenêtre,
-  vignettes, vue d'une page, réordonner, supprimer, enregistrer), pipeline, panneau de
+  vignettes, vue d'une page, réordonner, faire pivoter, supprimer, enregistrer), pipeline, panneau de
   conformité PDF/A (validation veraPDF externe puis moteur interne).
 - **0.4** — chiffrement à l'écriture (révision 6), PDF 2.0 en écriture, PDF/X.
 - **0.5** — OCR (module natif Tesseract), PAdES.

@@ -13,6 +13,12 @@
     <span class="spacer"></span>
     <button id="undo" type="button" title="Annuler (Ctrl+Z)" disabled>Annuler</button>
     <button id="redo" type="button" title="Refaire (Ctrl+Y)" disabled>Refaire</button>
+    <button id="rotate-left" type="button" class="icon" title="Faire pivoter à gauche les pages sélectionnées (Maj+R)" aria-label="Faire pivoter à gauche les pages sélectionnées" disabled>
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 13A6 6 0 0 0 4 13"/><path d="M1.5 10.5 4 13l2.5-2.5"/></svg>
+    </button>
+    <button id="rotate-right" type="button" class="icon" title="Faire pivoter à droite les pages sélectionnées (R)" aria-label="Faire pivoter à droite les pages sélectionnées" disabled>
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 13A6 6 0 0 1 16 13"/><path d="M13.5 10.5 16 13l2.5-2.5"/></svg>
+    </button>
     <button id="delete" type="button" title="Supprimer les pages sélectionnées (Suppr)" disabled>Supprimer</button>
     <button id="save" type="button" class="primary" title="Enregistrer sous… (Ctrl+S)" disabled>Enregistrer sous…</button>
   </header>
@@ -23,7 +29,7 @@
     <main id="grid-root" class="grid-root">
       <div id="empty" class="empty">
         <p>Glissez un PDF ici, ou <button id="open-empty" type="button" class="link">choisissez un fichier</button>.</p>
-        <p class="hint">Réorganisez les pages en les faisant glisser ; supprimez-les avec le bouton de chaque vignette, la touche Suppr ou le clic droit. Double-cliquez sur une page pour la voir en grand.</p>
+        <p class="hint">Réorganisez les pages en les faisant glisser ; faites-les pivoter avec R et Maj+R ; supprimez-les avec le bouton de chaque vignette, la touche Suppr ou le clic droit. Double-cliquez sur une page pour la voir en grand.</p>
       </div>
       <div id="grid" class="grid" role="list" aria-label="Pages" hidden></div>
       <div id="drop-marker" class="drop-marker" hidden></div>
@@ -32,8 +38,14 @@
     <section id="viewer" class="viewer" tabindex="-1" aria-label="Page en grand" hidden>
       <div class="viewer-bar">
         <span id="viewer-caption" class="viewer-caption" aria-live="polite"></span>
-        <span class="viewer-hint">← → ou molette : page précédente ou suivante · Échap ou clic hors de la page : retour à la grille</span>
+        <span class="viewer-hint">← → ou molette : page précédente ou suivante · R, Maj+R : pivoter · Échap ou clic hors de la page : retour à la grille</span>
         <span class="spacer"></span>
+        <button id="viewer-rotate-left" type="button" class="icon" title="Faire pivoter la page à gauche (Maj+R)" aria-label="Faire pivoter la page à gauche">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 13A6 6 0 0 0 4 13"/><path d="M1.5 10.5 4 13l2.5-2.5"/></svg>
+        </button>
+        <button id="viewer-rotate-right" type="button" class="icon" title="Faire pivoter la page à droite (R)" aria-label="Faire pivoter la page à droite">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 13A6 6 0 0 1 16 13"/><path d="M13.5 10.5 16 13l2.5-2.5"/></svg>
+        </button>
         <button id="viewer-close" type="button" title="Revenir à la grille (Échap)">Grille</button>
       </div>
       <div id="viewer-stage" class="viewer-stage">
