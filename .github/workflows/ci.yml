@@ -167,8 +167,9 @@ jobs:
   # written, not active. The bench draws the reference page set with two
   # engines and exits with code 3 when a page of B is further from A than
   # the threshold, when B fails where A draws, or when a page cannot be
-  # measured. Today B can only be PDFium itself, against which the only
-  # threshold already known is zero. Missing before `if: false` goes: the
+  # measured. B can be PDFium itself, against which the only threshold known
+  # is zero, or hayro, against which none is set (docs/mesure-hayro.md).
+  # Missing before `if: false` goes: the
   # engine to guard; a threshold measured against it on this runner, whose
   # system fonts are not those of the machine that chose the set; the public
   # corpus, fetched from three repositories, cached; a run that fits a job.
