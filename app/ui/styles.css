@@ -15,6 +15,9 @@
   --info-bg: #e7f0fa;
   --info-text: #1f4e79;
   --thumb-width: 160px;
+  /* One column of tiles: their padding and border, the padding of the grid,
+     a scrollbar and the border of the panel. */
+  --panel-width: calc(var(--thumb-width) + 68px);
   color-scheme: light;
 }
 
@@ -94,6 +97,26 @@ button.link {
   text-decoration: underline;
 }
 
+/* A button that stays pressed while what it shows is shown. */
+button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Read out, not shown. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .toolbar {
   display: flex;
   align-items: center;
@@ -170,7 +193,8 @@ button.link {
   padding: 2px 8px;
 }
 
-/* The grid and, over it while a page is opened, the page view. */
+/* The grid and, while a page is opened, the page view: over the grid, or
+   beside it with the panel. */
 .workspace {
   flex: 1;
   min-height: 0;
@@ -315,9 +339,41 @@ button.link {
   border-radius: 8px;
 }
 
-/* Page view: over the grid only, so the toolbar, the notices (repaired or
-   encrypted file) and the status bar stay visible. A state of the window,
-   not a dialog (ADR 0004). */
+/* Beside the page view, the grid is a panel one tile wide, where a click
+   shows a page and nothing is edited (main.ts): no delete button, and the
+   tile of the page shown is marked instead of the selection. */
+.workspace.with-panel .grid-root {
+  width: var(--panel-width);
+  border-right: 1px solid var(--border);
+}
+
+.workspace.with-panel .tile {
+  cursor: pointer;
+  scroll-margin: 16px;
+}
+
+.workspace.with-panel .tile .remove {
+  display: none;
+}
+
+.workspace.with-panel .tile.selected {
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+.workspace.with-panel .tile.current {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent);
+}
+
+.workspace.with-panel .tile.current .label {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Page view: over the grid or beside it only, so the toolbar, the notices
+   (repaired or encrypted file) and the status bar stay visible. A state of
+   the window, not a dialog (ADR 0004). */
 .viewer {
   position: absolute;
   inset: 0;
@@ -329,6 +385,10 @@ button.link {
   outline: none;
 }
 
+.workspace.with-panel .viewer {
+  left: var(--panel-width);
+}
+
 .viewer-bar {
   display: flex;
   align-items: center;
@@ -337,9 +397,48 @@ button.link {
   font-size: 13px;
 }
 
-.viewer-caption {
+/* The number of the page shown, typed over to go to another. */
+.viewer-number {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-weight: 600;
   white-space: nowrap;
+}
+
+.viewer-number input {
+  font: inherit;
+  text-align: center;
+  padding: 1px 4px;
+  color: var(--text);
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  user-select: text;
+}
+
+.viewer-number input:focus {
+  outline: 2px solid var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.viewer-number input[aria-invalid="true"] {
+  border-color: var(--danger);
+  outline-color: #f5c2c2;
+}
+
+/* In place of the keys while a number is typed: what it expects, or why it
+   went nowhere. */
+.viewer-help {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viewer-help.refused {
+  color: #ffc9c9;
+  font-weight: 600;
 }
 
 .viewer-hint {

@@ -16,16 +16,6 @@ noyau. Relevé du 13 septembre 2026, à la version 0.3.3 : aucune n'est faite
 ni commencée. Chaque point sera cadré au moment de le prendre, et sortira de
 la liste une fois fait.
 
-- [ ] **Basculer l'affichage du panneau de vignettes.** La grille de
-  vignettes occupe aujourd'hui toute la zone de travail et la vue plein
-  cadre la recouvre entièrement ; il s'agit de pouvoir afficher ou masquer
-  les vignettes, par exemple en panneau à côté de la page affichée, la forme
-  restant à choisir.
-- [ ] **Aller à une page en tapant son numéro.** On ne se déplace
-  aujourd'hui que de proche en proche (flèches, Pg préc./suiv., Début/Fin,
-  molette) ou en faisant défiler la grille ; il faudra préciser si le numéro
-  tapé désigne la position dans l'ordre courant ou la page du fichier
-  d'origine, que la légende de la vue distingue déjà.
 - [ ] **Ctrl+molette pour zoomer dans la vue plein cadre.** La vue ajuste
   toujours la page à la fenêtre et `viewer.ts` ignore aujourd'hui la molette
   quand Ctrl est enfoncé ; zoomer demandera de rendre la page à la taille

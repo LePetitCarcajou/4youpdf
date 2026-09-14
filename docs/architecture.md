@@ -441,26 +441,34 @@ résultat ; pour Windows, un installeur et une archive portable. Répartition :
   bien que réordonner ne redessine rien. Le glisser-déposer des vignettes
   passe par les événements de pointeur, pas par le glisser-déposer HTML5 :
   Tauri l'intercepte pour le dépôt de fichiers natif, qui reste actif. La
-  vue d'une page (`viewer.ts`) s'ouvre par-dessus la grille, qui reste en
-  place : la page courante est rendue à la largeur qu'elle occupe à l'écran,
-  puis ses deux voisines. Elle n'envoie qu'une demande à la fois et met les
-  vignettes en pause, si bien que la page affichée ne passe jamais derrière
-  une file d'attente du thread de rendu. Les bandeaux sont des données
-  (`notices.ts`) : ceux d'un document ne sont remplacés qu'à l'ouverture
-  réussie d'un autre fichier ; une tentative ratée, ou un fichier qui
-  attend son mot de passe, laisse le document affiché et ses bandeaux en
-  place. Cette logique, sans DOM, est testée dans `app/ui/tests/` par
-  QuickJS-ng, que lance `tools/build_ui.py`.
+  vue d'une page (`viewer.ts`) s'ouvre à côté de la grille, réduite à un
+  panneau de vignettes d'une colonne, ou par-dessus quand le panneau est
+  masqué : la page courante est rendue à la largeur qu'elle occupe à
+  l'écran, puis ses deux voisines. Elle n'envoie qu'une demande à la fois,
+  et les vignettes attendent qu'elle n'ait plus rien à dessiner pour passer,
+  une à la fois et panneau affiché seulement (`thumbnailSlots`) : passées
+  les vignettes que la grille avait déjà demandées à l'ouverture de la vue,
+  une page demandée en naviguant ne passe jamais derrière une file
+  d'attente du thread de rendu, au plus derrière une demande, une voisine en
+  cours ou une vignette. Le numéro tapé pour aller à une page est une
+  position dans l'ordre actuel, celle que donnent la légende et les
+  vignettes, pas un numéro du fichier d'origine (`pagenumber.ts`). Les
+  bandeaux sont des données (`notices.ts`) : ceux d'un document ne sont
+  remplacés qu'à l'ouverture réussie d'un autre fichier ; une tentative
+  ratée, ou un fichier qui attend son mot de passe, laisse le document
+  affiché et ses bandeaux en place. Cette logique, sans DOM, est testée dans
+  `app/ui/tests/` par QuickJS-ng, que lance `tools/build_ui.py`.
 - **ADR 0004 appliqué** : une seule fenêtre, aucune boîte modale hors des
   sélecteurs de fichiers du système et du message qui dit quoi installer
   quand WebView2 manque (le mot de passe d'un fichier chiffré est demandé
   dans un bandeau, les erreurs et les avertissements aussi ; la vue d'une
-  page est un état de la fenêtre, sous lequel ces bandeaux restent
-  visibles), actions contextuelles sur les vignettes (bouton de
-  suppression, menu du clic droit, clavier). Un document réparé ou chiffré
-  est annoncé avec la cause et la description du chiffrement que donne
-  aussi `fyp info`, et l'enregistrement d'un fichier chiffré est annoncé
-  comme produisant un fichier en clair.
+  page et son panneau de vignettes sont des états de la fenêtre, sous
+  lesquels ces bandeaux restent visibles, et un numéro de page refusé le dit
+  dans la barre de la vue), actions contextuelles sur les vignettes (bouton
+  de suppression, menu du clic droit, clavier). Un document réparé ou
+  chiffré est annoncé avec la cause et la description du chiffrement que
+  donne aussi `fyp info`, et l'enregistrement d'un fichier chiffré est
+  annoncé comme produisant un fichier en clair.
 - **Distribution (Windows)** : un installeur NSIS, pour l'utilisateur
   courant et sans droits d'administrateur, et une archive portable, tous
   deux avec PDFium et les licences, non signés, construits par
@@ -594,7 +602,9 @@ Fait :
   empaquetage Windows (installeur NSIS, archive portable) ; versions et
   identité re-basées (workspace 0.3.3, `org.fouryoupdf.desktop`, Rust 1.95 au
   minimum, `tools/check_version.py`) ; banc de fidélité du rendu
-  (`tools/render_bench`, `docs/banc-rendu.md`).
+  (`tools/render_bench`, `docs/banc-rendu.md`) ; dans l'application, panneau
+  de vignettes à côté de la vue d'une page et accès à une page par son
+  numéro.
 
 Ensuite :
 

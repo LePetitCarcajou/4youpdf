@@ -1,8 +1,9 @@
 // The window: open a PDF (dialog, drop, Ctrl+O), show its pages as
 // tiles, reorder them by dragging, turn them, delete them, undo and redo,
-// look at one page at a time over the grid, save through `fyp_core::ops`
-// on the Rust side. One window, no modal dialog but the system file
-// pickers; every message appears in place (ADR 0004).
+// look at one page at a time, beside the grid reduced to a panel of
+// thumbnails or over it, save through `fyp_core::ops` on the Rust side.
+// One window, no modal dialog but the system file pickers; every message
+// appears in place (ADR 0004).
 
 import {
   asAppError,
@@ -21,7 +22,7 @@ import {
 } from "./api.js";
 import { PageHistory, type Outcome } from "./history.js";
 import { attemptOpen, NoticeBoard, type Notice, type NoticeKind } from "./notices.js";
-import { ThumbnailLoader } from "./thumbnails.js";
+import { ThumbnailLoader, thumbnailSlots } from "./thumbnails.js";
 import { PageViewer, pageRatio } from "./viewer.js";
 
 const THUMB_WIDTH = 160;
@@ -45,6 +46,7 @@ const ui = {
   delete: element<HTMLButtonElement>("delete"),
   save: element<HTMLButtonElement>("save"),
   notices: element<HTMLElement>("notices"),
+  workspace: element<HTMLElement>("workspace"),
   gridRoot: element<HTMLElement>("grid-root"),
   grid: element<HTMLElement>("grid"),
   empty: element<HTMLElement>("empty"),
@@ -56,7 +58,13 @@ const ui = {
   viewer: element<HTMLElement>("viewer"),
   viewerStage: element<HTMLElement>("viewer-stage"),
   viewerPage: element<HTMLElement>("viewer-page"),
+  viewerPanel: element<HTMLButtonElement>("viewer-panel"),
   viewerCaption: element<HTMLSpanElement>("viewer-caption"),
+  viewerNumberForm: element<HTMLFormElement>("viewer-number-form"),
+  viewerNumber: element<HTMLInputElement>("viewer-number"),
+  viewerNumberAfter: element<HTMLSpanElement>("viewer-number-after"),
+  viewerHint: element<HTMLSpanElement>("viewer-hint"),
+  viewerHelp: element<HTMLSpanElement>("viewer-help"),
   viewerPrev: element<HTMLButtonElement>("viewer-prev"),
   viewerNext: element<HTMLButtonElement>("viewer-next"),
   viewerClose: element<HTMLButtonElement>("viewer-close"),
@@ -69,6 +77,11 @@ interface State {
   history: PageHistory | null;
   selection: Set<number>;
   rendererAvailable: boolean;
+  /// Whether the page view keeps the grid beside it as a panel of
+  /// thumbnails (F4, button `Vignettes`). A state of the window, not of the
+  /// document (ADR 0004): it stays as it is from one page to the next, from
+  /// one opening of the view to the next, and for another document.
+  panel: boolean;
 }
 
 const state: State = {
@@ -76,9 +89,12 @@ const state: State = {
   history: null,
   selection: new Set(),
   rendererAvailable: false,
+  panel: true,
 };
 
-const thumbnails = new ThumbnailLoader(ui.gridRoot, THUMB_WIDTH, false);
+const thumbnails = new ThumbnailLoader(ui.gridRoot, THUMB_WIDTH, false, () =>
+  thumbnailSlots({ open: viewer.isOpen, panel: state.panel, drawing: viewer.isDrawing }),
+);
 
 const viewer = new PageViewer(
   {
@@ -86,6 +102,11 @@ const viewer = new PageViewer(
     stage: ui.viewerStage,
     page: ui.viewerPage,
     caption: ui.viewerCaption,
+    numberForm: ui.viewerNumberForm,
+    number: ui.viewerNumber,
+    numberAfter: ui.viewerNumberAfter,
+    hint: ui.viewerHint,
+    help: ui.viewerHelp,
     prev: ui.viewerPrev,
     next: ui.viewerNext,
     close: ui.viewerClose,
@@ -97,6 +118,8 @@ const viewer = new PageViewer(
     closed: viewerClosed,
     rotate: (page, degrees) => void turnPages([page], degrees, true),
     turning: (page) => state.history?.isTurning(page) === true,
+    shown: markShown,
+    idle: () => thumbnails.wake(),
   },
 );
 
@@ -296,6 +319,7 @@ function renderGrid(): void {
   for (const tile of tiles) {
     thumbnails.watch(tile);
   }
+  markShown();
   refreshButtons();
 }
 
@@ -373,7 +397,8 @@ function select(position: number, extend: boolean, range: boolean): void {
 }
 
 // ---------------------------------------------------------------------------
-// Page view: one page over the grid, a state of the window (ADR 0004)
+// Page view: one page beside the grid, reduced to a panel of thumbnails, or
+// over it; a state of the window (ADR 0004)
 // ---------------------------------------------------------------------------
 
 /// Position the view was opened at: on the way back, the page seen last
@@ -387,9 +412,9 @@ function openViewer(position: number): void {
   }
   hideMenu();
   viewerOpenedAt = position;
-  // The renderer draws one page at a time: the page on screen goes first.
-  thumbnails.pause();
-  ui.gridRoot.inert = true;
+  // Laid out first: the view fits the page in the room the panel leaves.
+  // The thumbnails wait for the page on screen (`thumbnailSlots`).
+  layOut(true);
   viewer.open(history.pages, history.order, position, state.rendererAvailable);
   refreshButtons();
 }
@@ -398,8 +423,9 @@ function openViewer(position: number): void {
 /// the selection unless it is the page the view was opened on (the
 /// selection then stays as it was).
 function viewerClosed(position: number): void {
-  ui.gridRoot.inert = false;
-  thumbnails.resume();
+  layOut(false);
+  markShown();
+  thumbnails.wake();
   if (position !== viewerOpenedAt) {
     select(position, false, false);
   }
@@ -410,11 +436,58 @@ function viewerClosed(position: number): void {
 }
 
 /// Another document: leave the view without going back to a page. Called
-/// after `thumbnails.reset`, so that resuming finds an empty queue.
+/// after `thumbnails.reset`, so that waking finds an empty queue.
 function resetViewer(): void {
   viewer.reset();
-  ui.gridRoot.inert = false;
-  thumbnails.resume();
+  layOut(false);
+  thumbnails.wake();
+}
+
+/// Lay out the workspace for a page view `open` or not: the grid alone; the
+/// view over the grid, left inert underneath; or, with the panel, the view
+/// beside the grid, then one column of thumbnails where a click shows a
+/// page and nothing is edited.
+function layOut(open: boolean): void {
+  ui.workspace.classList.toggle("with-panel", open && state.panel);
+  ui.gridRoot.inert = open && !state.panel;
+  ui.viewerPanel.setAttribute("aria-pressed", String(state.panel));
+}
+
+/// Show or hide the panel beside the page view (F4, button `Vignettes`).
+function togglePanel(): void {
+  if (!viewer.isOpen) {
+    return;
+  }
+  state.panel = !state.panel;
+  // A tile that has the keyboard gives it back to the view before the grid
+  // goes inert.
+  if (!state.panel && ui.gridRoot.contains(document.activeElement)) {
+    viewer.focus();
+  }
+  layOut(true);
+  markShown();
+  thumbnails.wake();
+}
+
+/// Mark the tile of the page the view shows, and keep it in sight while the
+/// grid is the panel beside the view.
+function markShown(): void {
+  for (const tile of ui.grid.querySelectorAll<HTMLElement>(".tile.current")) {
+    tile.classList.remove("current");
+    tile.removeAttribute("aria-current");
+  }
+  if (!viewer.isOpen) {
+    return;
+  }
+  const tile = ui.grid.querySelector<HTMLElement>(`.tile[data-position="${viewer.position}"]`);
+  if (tile === null) {
+    return;
+  }
+  tile.classList.add("current");
+  tile.setAttribute("aria-current", "page");
+  if (state.panel) {
+    tile.scrollIntoView({ block: "nearest" });
+  }
 }
 
 /// The page Enter opens: the focused tile, else the first selected page.
@@ -442,13 +515,27 @@ ui.grid.addEventListener("dblclick", (event) => {
   }
 });
 
+// Beside the page view, the grid is a panel: a click on a tile shows its
+// page. Nothing is selected, dragged or deleted there.
+ui.grid.addEventListener("click", (event) => {
+  if (!viewer.isOpen) {
+    return;
+  }
+  const position = positionOf(event.target);
+  if (position !== null) {
+    viewer.go(position);
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Editing
 // ---------------------------------------------------------------------------
 
 function deletePositions(positions: number[]): void {
   const history = state.history;
-  if (history === null || positions.length === 0 || refusedWhileTurning()) {
+  // Not while the page view is open, whose order must not change; beside
+  // it, the panel edits nothing.
+  if (history === null || viewer.isOpen || positions.length === 0 || refusedWhileTurning()) {
     return;
   }
   if (positions.length >= history.order.length) {
@@ -466,7 +553,8 @@ function deletePositions(positions: number[]): void {
 
 function movePositions(positions: number[], target: number): void {
   const history = state.history;
-  if (history === null || positions.length === 0 || refusedWhileTurning()) {
+  // Not while the page view is open (see `deletePositions`).
+  if (history === null || viewer.isOpen || positions.length === 0 || refusedWhileTurning()) {
     return;
   }
   const sorted = [...positions].sort((a, b) => a - b);
@@ -699,7 +787,8 @@ function showDropMarker(target: number): void {
 }
 
 ui.grid.addEventListener("pointerdown", (event) => {
-  if (event.button !== 0) {
+  // Beside the page view, a tile of the panel is only clicked (page view).
+  if (event.button !== 0 || viewer.isOpen) {
     return;
   }
   if (event.target instanceof Element && event.target.closest("button") !== null) {
@@ -794,6 +883,10 @@ ui.grid.addEventListener("contextmenu", (event) => {
     return;
   }
   event.preventDefault();
+  if (viewer.isOpen) {
+    // Beside the page view, the panel edits nothing: no menu.
+    return;
+  }
   if (!state.selection.has(position)) {
     select(position, false, false);
   }
@@ -863,7 +956,21 @@ document.addEventListener("keydown", (event) => {
     event.preventDefault();
     void save();
   } else if (viewer.isOpen) {
-    // The keys below edit the grid, which the page view covers.
+    // The keys below edit the grid, which the page view covers or reduces
+    // to a panel. There, F4 shows or hides the panel, and Enter on a tile
+    // shows its page.
+    if (event.key === "F4" && !ctrl && !event.altKey && !event.shiftKey) {
+      event.preventDefault();
+      if (!event.repeat) {
+        togglePanel();
+      }
+    } else if (event.key === "Enter" && !ctrl && !event.altKey && event.target instanceof HTMLElement) {
+      const position = event.target.classList.contains("tile") ? positionOf(event.target) : null;
+      if (position !== null) {
+        event.preventDefault();
+        viewer.go(position);
+      }
+    }
   } else if (ctrl && event.key.toLowerCase() === "z" && !event.shiftKey) {
     event.preventDefault();
     void undo();
@@ -918,6 +1025,7 @@ ui.rotateLeft.addEventListener("click", () => turnSelection(-90));
 ui.rotateRight.addEventListener("click", () => turnSelection(90));
 ui.delete.addEventListener("click", () => deletePositions([...state.selection]));
 ui.save.addEventListener("click", () => void save());
+ui.viewerPanel.addEventListener("click", togglePanel);
 
 async function start(): Promise<void> {
   if (!hasTauri()) {

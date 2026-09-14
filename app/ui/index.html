@@ -25,7 +25,7 @@
 
   <section id="notices" class="notices" aria-live="polite"></section>
 
-  <div class="workspace">
+  <div id="workspace" class="workspace">
     <main id="grid-root" class="grid-root">
       <div id="empty" class="empty">
         <p>Glissez un PDF ici, ou <button id="open-empty" type="button" class="link">choisissez un fichier</button>.</p>
@@ -37,8 +37,14 @@
 
     <section id="viewer" class="viewer" tabindex="-1" aria-label="Page en grand" hidden>
       <div class="viewer-bar">
-        <span id="viewer-caption" class="viewer-caption" aria-live="polite"></span>
-        <span class="viewer-hint">← → ou molette : page précédente ou suivante · R, Maj+R : pivoter · Échap ou clic hors de la page : retour à la grille</span>
+        <form id="viewer-number-form" class="viewer-number">
+          <label for="viewer-number">Page</label>
+          <input id="viewer-number" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" title="Numéro de la page dans l'ordre actuel : tapez-en un autre, puis Entrée, pour y aller" aria-describedby="viewer-number-after viewer-help">
+          <span id="viewer-number-after"></span>
+        </form>
+        <span id="viewer-caption" class="visually-hidden" aria-live="polite"></span>
+        <span id="viewer-help" class="viewer-help" aria-live="polite" hidden></span>
+        <span id="viewer-hint" class="viewer-hint">← → ou molette : page précédente ou suivante · un numéro puis Entrée : aller à la page · F4 : vignettes · R, Maj+R : pivoter · Échap ou clic hors de la page : retour à la grille</span>
         <span class="spacer"></span>
         <button id="viewer-rotate-left" type="button" class="icon" title="Faire pivoter la page à gauche (Maj+R)" aria-label="Faire pivoter la page à gauche">
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 13A6 6 0 0 0 4 13"/><path d="M1.5 10.5 4 13l2.5-2.5"/></svg>
@@ -46,6 +52,7 @@
         <button id="viewer-rotate-right" type="button" class="icon" title="Faire pivoter la page à droite (R)" aria-label="Faire pivoter la page à droite">
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 13A6 6 0 0 1 16 13"/><path d="M13.5 10.5 16 13l2.5-2.5"/></svg>
         </button>
+        <button id="viewer-panel" type="button" aria-pressed="true" title="Afficher ou masquer les vignettes (F4)">Vignettes</button>
         <button id="viewer-close" type="button" title="Revenir à la grille (Échap)">Grille</button>
       </div>
       <div id="viewer-stage" class="viewer-stage">

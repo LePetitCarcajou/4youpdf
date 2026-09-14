@@ -244,11 +244,12 @@ ici).
 | `src/main.rs` | commandes exposées à l'interface : ouvrir, fermer, état du rendu, fichier passé en ligne de commande, rendre une page, faire pivoter des pages, enregistrer, dialogues de fichiers ; ouverture de la fenêtre (profil WebView2 d'une copie portable) ; message et arrêt si WebView2 manque |
 | `src/session.rs` | le document ouvert vu par `fyp-core` : pages, réparation, chiffrement ; rotation par `ops::rotate`, qui réécrit le document gardé en mémoire ; enregistrement par `ops::extract_pages` |
 | `src/render.rs` | images des pages (vignettes, vue d'une page) : thread dédié qui charge PDFium et sert les demandes une à une ; où chercher la bibliothèque ; seul endroit qui connaît `pdfium-render`. Le banc de fidélité du rendu (`tools/render_bench`) compile ce fichier tel quel et appelle ses trois étapes une à une : ouvrir, dessiner, encoder |
-| `ui/src/main.ts` | la fenêtre : grille, glisser-déposer, sélection, menu contextuel, clavier, avis en place |
+| `ui/src/main.ts` | la fenêtre : grille, glisser-déposer, sélection, menu contextuel, panneau de vignettes à côté de la vue d'une page, clavier, avis en place |
 | `ui/src/history.ts` | ordre et rotation des pages, avec annuler et refaire ; une rotation est faite par le côté Rust, une à la fois |
 | `ui/src/notices.ts` | bandeaux au-dessus de la grille, sans DOM : seule une ouverture réussie les remplace |
-| `ui/src/thumbnails.ts` | chargement progressif : une page visible est demandée avant les autres ; en pause pendant la vue d'une page |
-| `ui/src/viewer.ts` | vue d'une page par-dessus la grille : navigation, largeur de rendu adaptée à la fenêtre, page affichée puis ses voisines |
+| `ui/src/pagenumber.ts` | numéros de la vue d'une page, sans DOM : légende, lecture du numéro tapé pour aller à une page (une position dans l'ordre actuel), aide et refus |
+| `ui/src/thumbnails.ts` | chargement progressif : une page visible est demandée avant les autres ; pendant la vue d'une page, aucune demande tant qu'elle dessine, puis une à la fois pour le panneau |
+| `ui/src/viewer.ts` | vue d'une page à côté du panneau de vignettes ou par-dessus la grille : navigation, numéro de page à taper, largeur de rendu adaptée à la fenêtre, page affichée puis ses voisines |
 | `ui/src/api.ts` | façade typée des commandes ; `tauri.d.ts` décrit le sous-ensemble de l'API globale de Tauri utilisé |
 | `ui/tests/` | tests de la logique sans DOM, exécutés par QuickJS-ng ; `check.ts` est leur harnais |
 | `tauri.conf.json`, `capabilities/` | fenêtre unique, ouverte par `main.rs`, `withGlobalTauri`, permissions `core:default` et `dialog:default`, plus larges que ce que l'interface utilise (`docs/backlog-technique.md`) ; identité de l'application, icônes, réglages de l'installeur et de WebView2 |
@@ -291,17 +292,22 @@ ici).
 ### Vue d'une page
 
 Double-clic sur une vignette, ou Entrée sur la vignette qui a le focus (à
-défaut, sur la première page sélectionnée) : la page occupe toute la zone de
-la grille. Ce n'est ni une fenêtre ni une boîte modale (ADR 0004) mais un
-état de la fenêtre : la grille reste dessous, à sa place, et la barre
-d'outils, les bandeaux et la barre d'état restent visibles, si bien qu'un
-fichier réparé ou chiffré reste annoncé de la même façon.
+défaut, sur la première page sélectionnée) : la page s'affiche à côté du
+panneau de vignettes (voir « Panneau de vignettes ») ou, panneau masqué,
+dans toute la zone de la grille. Ce n'est ni une fenêtre ni une boîte
+modale (ADR 0004) mais un état de la fenêtre : la grille reste là, réduite
+au panneau ou dessous, et la barre d'outils, les bandeaux et la barre d'état
+restent visibles, si bien qu'un fichier réparé ou chiffré reste annoncé de la
+même façon.
 
 | Action | Clavier | Souris |
 |---|---|---|
 | Page suivante | → ou Pg suiv. | molette vers le bas ou vers la droite, bouton `›` |
 | Page précédente | ← ou Pg préc. | molette vers le haut ou vers la gauche, bouton `‹` |
 | Première, dernière page | Début, Fin | |
+| Aller à une page | son numéro, puis Entrée (voir « Aller à une page ») | clic sur le numéro de la légende |
+| Aller à la page d'une vignette du panneau | Entrée sur la vignette | clic sur la vignette |
+| Afficher, masquer les vignettes | F4 | bouton `Vignettes` |
 | Faire pivoter la page à droite, à gauche | R, Maj+R | boutons ↷, ↶ |
 | Retour à la grille | Échap | clic en dehors de la page, bouton `Grille` |
 
@@ -314,18 +320,85 @@ fichier réparé ou chiffré reste annoncé de la même façon.
   sélection reste celle d'avant.
 - Annuler, Refaire, Supprimer et les boutons de rotation de la barre
   d'outils sont inactifs tant que la vue est ouverte : on réordonne et on
-  supprime dans la grille. Seule la page affichée peut pivoter, par les
-  boutons et les touches de la vue ; la rotation entre dans l'historique et
-  s'annule dans la grille (Ctrl+Z), ou par la rotation inverse. Ouvrir…
-  (Ctrl+O) et Enregistrer sous… (Ctrl+S) restent disponibles.
+  supprime dans la grille, pas dans le panneau. Seule la page affichée peut
+  pivoter, par les boutons et les touches de la vue ; la rotation entre dans
+  l'historique et s'annule dans la grille (Ctrl+Z), ou par la rotation
+  inverse. Ouvrir… (Ctrl+O) et Enregistrer sous… (Ctrl+S) restent
+  disponibles.
 - La page est rendue à la largeur qu'elle occupe à l'écran, densité de
   pixels comprise, par paliers de 200 pixels (4096 au plus). La page
   affichée passe d'abord, sa vignette agrandie en attendant, puis ses deux
   voisines, pour que la navigation soit immédiate. Le moteur de rendu sert
-  les demandes une par une : la vue n'en envoie qu'une à la fois et les
-  vignettes attendent qu'elle soit fermée. Une page sautée en naviguant vite
-  n'est pas dessinée ; agrandir la fenêtre redessine la page à la nouvelle
-  taille.
+  les demandes une par une : la vue n'en envoie qu'une à la fois, et les
+  vignettes attendent qu'elle n'ait plus rien à dessiner (voir « Panneau de
+  vignettes »). Une page sautée en naviguant vite n'est pas dessinée ;
+  agrandir la fenêtre redessine la page à la nouvelle taille.
+
+### Panneau de vignettes
+
+Le panneau est la grille elle-même, réduite à une colonne à gauche de la
+page affichée : les mêmes vignettes, avec les mêmes numéros (« 3 (était
+5) »). F4, ou le bouton `Vignettes` de la barre de la vue, l'affiche ou le
+masque. Le bouton est à droite de la barre, à côté de `Grille`, parce que la
+gauche de la barre se décale avec la vue quand le panneau s'affiche ou se
+masque : un second clic au même endroit tomberait à côté du bouton, et un
+clic hors de la page ramène à la grille.
+
+- Il est affiché à la première ouverture de la vue. Son état est un état de
+  la fenêtre (ADR 0004) : il reste le même d'une page à l'autre, d'une
+  ouverture de la vue à la suivante et pour un autre document, jusqu'à la
+  fermeture de l'application, qui ne l'enregistre pas.
+- La vignette de la page affichée y est encadrée et gardée visible : le
+  panneau défile jusqu'à elle à chaque changement de page, et quand il
+  s'affiche.
+- Un clic sur une vignette, ou Entrée sur celle qui a le focus, affiche sa
+  page. Rien ne s'y modifie : ni sélection, ni glisser-déposer, ni bouton
+  `×`, ni menu du clic droit. La sélection de la grille est gardée, mais le
+  panneau ne la montre pas.
+- Ses vignettes passent après la page affichée : aucune n'est demandée tant
+  que la vue dessine, puis une seule à la fois. Passées celles que la grille
+  avait déjà demandées à l'ouverture de la vue (trois au plus), une page
+  demandée en naviguant n'attend donc au plus qu'une demande, une page
+  voisine en cours ou une vignette. Panneau masqué, aucune n'est demandée
+  avant le retour à la grille.
+
+Pourquoi F4 : c'est la touche du panneau latéral de pdf.js, le lecteur PDF de
+Firefox, qui l'a reprise d'Adobe Reader
+([mozilla/pdf.js#10358](https://github.com/mozilla/pdf.js/pull/10358)). Elle
+ne sert à rien d'autre dans l'application, et ne figure pas dans la liste,
+non exhaustive, des raccourcis de navigateur que donne la documentation de
+WebView2 (`AreBrowserAcceleratorKeysEnabled`).
+
+### Aller à une page
+
+La légende de la vue commence par le numéro de la page affichée, dans un
+champ : « Page [3] sur 12 ». Taper un chiffre n'importe où dans la vue, ou
+cliquer sur ce numéro, permet d'en taper un autre ; Entrée y va, Échap
+annule.
+
+Le numéro tapé est la **position de la page dans l'ordre actuel**, pas son
+numéro dans le fichier d'origine. C'est la numérotation du fichier que
+produira `Enregistrer sous…`, celle que la légende et chaque vignette donnent
+en premier et que borne le « sur 12 » ; le numéro d'origine, donné en second
+(« (page 5 du fichier) », « (était 5) »), peut ne plus désigner aucune page
+après une suppression. Pendant la saisie, la barre de la vue le dit à la
+place de ses raccourcis : « Numéro dans l'ordre actuel (1 à 12) ».
+
+- Un numéro hors de portée (0, ou plus que le nombre de pages) et ce qui
+  n'est pas un numéro (lettres, signe, virgule, champ vide) ne changent
+  rien : la page reste affichée, le champ est encadré de rouge, son contenu
+  sélectionné, et la barre dit pourquoi (« Aucune page ne porte ce numéro
+  dans l'ordre actuel (1 à 12) »). Seuls comptent les chiffres de 0 à 9 ;
+  les espaces autour et les zéros en tête sont ignorés.
+- Le champ reprend le numéro de la page affichée dès qu'il perd le focus :
+  après Entrée, après Échap, ou sur un clic ailleurs.
+- Sur un clavier AZERTY, les chiffres de la rangée du haut demandent Maj ou
+  le verrouillage des majuscules ; ceux du pavé numérique, non.
+
+Pourquoi les chiffres plutôt que Ctrl+G : aucun chiffre n'est un raccourci
+de l'application, alors que Ctrl+G est « rechercher le suivant » dans les
+navigateurs et dans pdf.js, un sens que la recherche de texte prévue au
+backlog pourrait vouloir lui garder.
 
 ### Rotation
 
@@ -390,6 +463,11 @@ page tournée, dessinée couchée.
 tests de `ui/tests/` : chaque `*.test.ts` est assemblé par esbuild et lancé
 par QuickJS-ng, sans DOM ni Node ; `--check` s'arrête là. Ils portent sur
 la logique qui se passe du DOM : les bandeaux à l'ouverture d'un fichier
-(échec, mot de passe, succès) et l'historique des pages (déplacements et
+(échec, mot de passe, succès), l'historique des pages (déplacements et
 suppressions annulés sur place, rotations faites et annulées par un côté
-Rust simulé, une à la fois, rotation refusée sans effet).
+Rust simulé, une à la fois, rotation refusée sans effet), le numéro tapé
+pour aller à une page (position dans l'ordre actuel, y compris après
+déplacements et suppressions ; numéro hors de portée ou qui n'en est pas un ;
+légende, aide et refus) et le nombre de vignettes demandées à la fois selon
+ce que fait la vue d'une page. Le panneau lui-même (disposition, défilement,
+clics) et le champ du numéro passent par le DOM : ils n'y sont pas testés.

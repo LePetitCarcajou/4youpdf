@@ -3,28 +3,55 @@
 // the view before its turn is simply not drawn. Images are cached per
 // source page, so reordering never draws twice; turning a page forgets its
 // image, and an answer drawn before the turn is ignored.
+//
+// The renderer serves one request at a time, and the page view goes first:
+// how many thumbnails may be drawn at once depends on it (`thumbnailSlots`).
 
 import { renderPage } from "./api.js";
 
 const CONCURRENCY = 3;
+
+/// The page view, as the thumbnails see it: whether it is open, keeps the
+/// grid beside it as a panel of thumbnails, and has a page being drawn.
+export interface ViewState {
+  open: boolean;
+  panel: boolean;
+  drawing: boolean;
+}
+
+/// How many thumbnails may be drawn at once: `CONCURRENCY` with the grid on
+/// screen. With the page view open, none while it draws a page, so that the
+/// page on screen comes before them, nor without the panel, whose tiles are
+/// then covered; otherwise one, so that the next page the view asks for
+/// waits for one thumbnail at most, once those asked for over the grid
+/// before the view opened are done.
+export function thumbnailSlots(view: ViewState): number {
+  if (!view.open) {
+    return CONCURRENCY;
+  }
+  return view.panel && !view.drawing ? 1 : 0;
+}
 
 export class ThumbnailLoader {
   private cache = new Map<number, string>();
   private failed = new Map<number, string>();
   private queue: { page: number; tile: HTMLElement }[] = [];
   private running = 0;
-  private paused = false;
   private observer: IntersectionObserver;
   private width: number;
   private enabled: boolean;
+  /// How many requests may run now (`thumbnailSlots`): asked before each
+  /// one is sent.
+  private readonly slots: () => number;
   private generation = 0;
   /// How many times each source page was turned: a request answers for
   /// the version of its page when it was sent.
   private versions = new Map<number, number>();
 
-  constructor(root: HTMLElement, width: number, enabled: boolean) {
+  constructor(root: HTMLElement, width: number, enabled: boolean, slots: () => number) {
     this.width = width;
     this.enabled = enabled;
+    this.slots = slots;
     this.observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
@@ -63,15 +90,9 @@ export class ThumbnailLoader {
     this.queue = this.queue.filter((q) => !pages.includes(q.page));
   }
 
-  /// Send no new request until `resume`; the ones already sent finish.
-  /// The page view pauses thumbnails so that the renderer, which serves
-  /// one request at a time, draws the page on screen first.
-  pause(): void {
-    this.paused = true;
-  }
-
-  resume(): void {
-    this.paused = false;
+  /// More requests may run than `slots` allowed when last asked: send those
+  /// that wait. Requests already sent always finish.
+  wake(): void {
     this.pump();
   }
 
@@ -114,7 +135,7 @@ export class ThumbnailLoader {
   }
 
   private pump(): void {
-    while (!this.paused && this.running < CONCURRENCY) {
+    while (this.running < this.slots()) {
       const next = this.queue.shift();
       if (next === undefined) {
         return;

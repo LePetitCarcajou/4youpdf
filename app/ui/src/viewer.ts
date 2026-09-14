@@ -1,6 +1,6 @@
-// The page view: one page as large as the window allows, drawn over the
-// grid, which stays in place underneath. It is a state of the window, not
-// a dialog (ADR 0004): the toolbar, the notices and the status bar stay
+// The page view: one page as large as the window allows, drawn beside the
+// grid or over it, the grid staying in place. It is a state of the window,
+// not a dialog (ADR 0004): the toolbar, the notices and the status bar stay
 // visible.
 //
 // The renderer serves one request at a time, so the view keeps at most one
@@ -12,8 +12,17 @@
 // The page on screen can be rotated (buttons, R and Shift+R). The view only
 // asks for it: `main.ts` has the Rust side turn the page, then tells the
 // view, which drops the images drawn before and draws the page again.
+//
+// `main.ts` can keep the grid beside the view, as a panel of thumbnails.
+// The view tells it which page it shows, and when it has nothing left to
+// draw: the thumbnails of the panel take their turn only then.
+//
+// The number in the caption is the position of the page in the order.
+// Typed over, or typed anywhere in the view, it goes to another page
+// (`pagenumber.ts`).
 
 import { asAppError, renderPage, type PageInfo } from "./api.js";
+import { pageCaption, pageNumberHelp, pageNumberRefusal, readPageNumber } from "./pagenumber.js";
 
 /// Widest image the renderer draws (`RenderService::render` clamps to it).
 const MAX_WIDTH = 4096;
@@ -34,13 +43,22 @@ const WHEEL_PAGE = 800;
 const RESIZE_DELAY = 200;
 
 export interface ViewerElements {
-  /// The view, over the grid.
+  /// The view, beside the grid or over it.
   root: HTMLElement;
   /// The area the page is fitted in: its content box.
   stage: HTMLElement;
   /// The page itself, an image or a message, sized by the view.
   page: HTMLElement;
+  /// The caption as a sentence, read out when the page changes.
   caption: HTMLElement;
+  /// The number of the page shown, in its form, and what follows it.
+  numberForm: HTMLFormElement;
+  number: HTMLInputElement;
+  numberAfter: HTMLElement;
+  /// The keys of the view, and in their place, while a number is typed,
+  /// what it expects or why it went nowhere.
+  hint: HTMLElement;
+  help: HTMLElement;
   prev: HTMLButtonElement;
   next: HTMLButtonElement;
   close: HTMLButtonElement;
@@ -59,6 +77,10 @@ export interface ViewerOptions {
   rotate(page: number, degrees: number): void;
   /// Whether source page `page` is being turned.
   turning(page: number): boolean;
+  /// A page is shown: another one, or the same one again.
+  shown(): void;
+  /// The view has nothing left to draw for now.
+  idle(): void;
 }
 
 interface Size {
@@ -121,10 +143,52 @@ export class PageViewer {
       this.pressedOutside = false;
     });
     elements.root.addEventListener("wheel", (event) => this.wheeled(event), { passive: false });
+
+    const number = elements.number;
+    elements.numberForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      this.goToNumber();
+    });
+    // A click in the number selects it, so that typing replaces it; a click
+    // in a number being typed places the caret.
+    number.addEventListener("mousedown", (event) => {
+      if (event.button === 0 && document.activeElement !== number) {
+        event.preventDefault();
+        number.focus();
+        number.select();
+      }
+    });
+    number.addEventListener("focus", () => this.numberHelp());
+    number.addEventListener("input", () => this.numberHelp());
+    number.addEventListener("blur", () => this.leaveNumber());
+    number.addEventListener("keydown", (event) => {
+      // Escape drops what was typed: the keys are those of the view again.
+      if (event.key === "Escape") {
+        event.preventDefault();
+        this.focus();
+      }
+    });
   }
 
   get isOpen(): boolean {
     return this.opened;
+  }
+
+  /// Position in the order of the page shown, or shown last.
+  get position(): number {
+    return this.current;
+  }
+
+  /// Whether a page is being drawn for the view.
+  get isDrawing(): boolean {
+    return this.busy;
+  }
+
+  /// Give the keyboard to the view.
+  focus(): void {
+    if (this.opened) {
+      this.el.root.focus({ preventScroll: true });
+    }
   }
 
   /// Show the page at `position` in `order` (indices into `pages`). The
@@ -139,6 +203,8 @@ export class PageViewer {
     this.enabled = enabled;
     this.opened = true;
     this.current = clamp(position, 0, order.length - 1);
+    // Wide enough for the largest number.
+    this.el.number.style.width = `calc(${String(order.length).length + 1}ch + 10px)`;
     this.el.root.hidden = false;
     this.resizeObserver.observe(this.el.stage);
     this.show();
@@ -219,14 +285,32 @@ export class PageViewer {
         }
         break;
       default:
-        return false;
+        // A digit starts the number of a page to go to.
+        if (!/^[0-9]$/.test(event.key)) {
+          return false;
+        }
+        this.startNumber(event.key);
     }
     event.preventDefault();
     return true;
   }
 
+  /// Show the page at `position` in the order, or the nearest one there is.
+  go(position: number): void {
+    const target = clamp(position, 0, this.order.length - 1);
+    if (this.opened && target !== this.current) {
+      this.current = target;
+      this.show();
+    }
+  }
+
   private hide(): void {
     this.opened = false;
+    // A number being typed goes with the view, and the keys go back to the
+    // grid.
+    if (document.activeElement === this.el.number) {
+      this.el.number.blur();
+    }
     this.el.root.hidden = true;
     this.resizeObserver.disconnect();
     window.clearTimeout(this.resizeTimer);
@@ -240,12 +324,54 @@ export class PageViewer {
     }
   }
 
-  private go(position: number): void {
-    const target = clamp(position, 0, this.order.length - 1);
-    if (this.opened && target !== this.current) {
-      this.current = target;
-      this.show();
+  /// A digit typed in the view: the number of a page to go to begins.
+  private startNumber(digit: string): void {
+    const number = this.el.number;
+    number.value = digit;
+    number.focus();
+    number.setSelectionRange(digit.length, digit.length);
+  }
+
+  /// Go to the page whose number was typed. A number that names no page
+  /// changes nothing: the view says what it expects, and the number stays,
+  /// selected, to be typed again.
+  private goToNumber(): void {
+    const count = this.order.length;
+    const typed = readPageNumber(this.el.number.value, count);
+    if (typed.kind !== "page") {
+      this.el.number.setAttribute("aria-invalid", "true");
+      this.el.number.select();
+      this.say(pageNumberRefusal(typed, count), true);
+      return;
     }
+    this.go(typed.position);
+    this.focus();
+  }
+
+  /// While a number is typed: what it expects, in place of the keys.
+  private numberHelp(): void {
+    if (this.el.help.hidden || this.el.number.hasAttribute("aria-invalid")) {
+      this.el.number.removeAttribute("aria-invalid");
+      this.say(pageNumberHelp(this.order.length), false);
+    }
+  }
+
+  /// The number is no longer typed: it is that of the page shown again, and
+  /// the keys of the view come back.
+  private leaveNumber(): void {
+    this.el.number.value = String(this.current + 1);
+    this.el.number.removeAttribute("aria-invalid");
+    this.el.help.hidden = true;
+    this.el.hint.hidden = false;
+  }
+
+  /// Put `text` in place of the keys: what the number expects or, when
+  /// `refused`, why it went nowhere.
+  private say(text: string, refused: boolean): void {
+    this.el.help.textContent = text;
+    this.el.help.classList.toggle("refused", refused);
+    this.el.help.hidden = false;
+    this.el.hint.hidden = true;
   }
 
   /// Caption, buttons and the best image at hand for the current page,
@@ -257,10 +383,13 @@ export class PageViewer {
       return;
     }
     const count = this.order.length;
-    this.el.caption.textContent =
-      page === position
-        ? `Page ${position + 1} / ${count}`
-        : `Page ${position + 1} / ${count} (page ${page + 1} du fichier)`;
+    const caption = pageCaption(position, page, count);
+    this.el.caption.textContent = caption.spoken;
+    this.el.numberAfter.textContent = caption.after;
+    // Not over a number being typed.
+    if (document.activeElement !== this.el.number) {
+      this.el.number.value = String(position + 1);
+    }
     this.el.prev.disabled = position === 0;
     this.el.next.disabled = position === count - 1;
     this.forgetFar();
@@ -280,6 +409,7 @@ export class PageViewer {
     }
     this.layout();
     this.refreshTurning();
+    this.options.shown();
     this.pump();
   }
 
@@ -315,15 +445,29 @@ export class PageViewer {
     return pageRatio(this.pages[page]);
   }
 
-  /// Start the next drawing, if any and if none is running: the current
-  /// page, then the next one, then the previous one.
+  /// Start the next drawing, if none is running; with nothing left to draw,
+  /// say that the renderer is free.
   private pump(): void {
-    if (!this.opened || !this.enabled || this.busy) {
+    if (this.busy) {
       return;
+    }
+    const next = this.nextDrawing();
+    if (next === null) {
+      this.options.idle();
+    } else {
+      void this.draw(next.page, next.width);
+    }
+  }
+
+  /// The drawing to start next, if any: the current page, then the next
+  /// one, then the previous one, each as wide as it is shown.
+  private nextDrawing(): { page: number; width: number } | null {
+    if (!this.opened || !this.enabled) {
+      return null;
     }
     const area = this.area();
     if (area.width === 0 || area.height === 0) {
-      return;
+      return null;
     }
     for (const position of [this.current, this.current + 1, this.current - 1]) {
       const page = this.order[position];
@@ -332,10 +476,10 @@ export class PageViewer {
       }
       const width = renderWidth(fit(area, this.ratio(page)).width);
       if ((this.drawn.get(page)?.width ?? 0) < width) {
-        void this.draw(page, width);
-        return;
+        return { page, width };
       }
     }
+    return null;
   }
 
   private async draw(page: number, width: number): Promise<void> {
@@ -405,12 +549,12 @@ export class PageViewer {
     this.resizeTimer = window.setTimeout(() => this.pump(), RESIZE_DELAY);
   }
 
-  /// Neither on the page nor on a button of the view.
+  /// Neither on the page, nor on a button or the page number of the view.
   private outside(target: EventTarget | null): boolean {
     if (!(target instanceof Element)) {
       return false;
     }
-    return !this.el.page.contains(target) && target.closest("button") === null;
+    return !this.el.page.contains(target) && target.closest("button, form") === null;
   }
 
   /// One page per wheel gesture (see `WHEEL_GAP`), in the direction of the
