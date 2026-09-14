@@ -146,3 +146,18 @@ diffère ; seul l'épinglage des actions par SHA est entamé (`ci.yml`).
   du temps de rendu et d'encodage : 213 ms contre 3 779 ms, 11,6 ms au plus
   pour une page (`docs/banc-rendu.md`, « Temps de référence »). Or
   l'application empaquetée est un build release.
+- [ ] **Corriger le renvoi à la section « Protocole des moteurs » de
+  `docs/banc-rendu.md`** (consigné le 14 septembre 2026, en ajoutant le moteur
+  hayro). `tools/render_bench/engines.toml`, `tools/render_bench/src/protocol.rs`
+  et `tools/render_bench/engines/pdfium/src/main.rs` y renvoient, mais la
+  section s'appelle « Les moteurs ».
+- [ ] **L'application n'affiche pas les champs de formulaire d'un document
+  sans `/AcroForm`** (consigné le 14 septembre 2026, par le banc de fidélité,
+  PDFium contre hayro). Les annotations `/Widget` de ces documents ont une
+  apparence (`/AP /N`), que PDFium ne dessine pas tel que `app/src/render.rs`
+  l'appelle : pas d'environnement de formulaire sans `/AcroForm`, donc pas de
+  dessin des widgets. Vu sur `pdfjs/issue12963.pdf`, page 1 (le nom rempli
+  « СУВОРОВ » manque) et `qpdf/annotations-no-acroform-with-p.pdf`, page 1
+  (textes des deux champs) ; hayro les dessine. La norme demande de dessiner
+  l'apparence d'une annotation visible (ISO 32000-2, 12.5.5), qu'il y ait un
+  formulaire ou non.

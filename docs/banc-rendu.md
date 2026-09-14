@@ -5,9 +5,10 @@ fixtures et le corpus public « avec une fidélité comparable, mesurée par
 comparaison d'images sur un jeu de pages de référence ». Le banc est
 l'instrument de cette mesure. Deux moteurs dessinent les mêmes pages à la même
 largeur ; le banc donne, pour chaque page, l'écart entre les deux images et le
-temps de chaque moteur, dessin et encodage PNG séparés. Aujourd'hui, le seul
-moteur est PDFium ; le suivant s'ajoute sans toucher au banc (« Ajouter un
-moteur »).
+temps de chaque moteur, dessin et encodage PNG séparés. Il connaît deux
+moteurs : PDFium, celui de l'application, et hayro, un moteur écrit en Rust
+ajouté pour être mesuré contre lui (`docs/mesure-hayro.md`). Un autre s'ajoute
+sans toucher au banc (« Ajouter un moteur »).
 
 Le banc est en Rust (`tools/render_bench`). Il doit exécuter le code même de
 `app/src/render.rs`, compilé avec les versions exactes du `Cargo.lock` de
@@ -112,6 +113,20 @@ version le contenu du fichier `RELEASE` que `tools/fetch_pdfium.py` écrit à
 côté de la bibliothèque, et le début de l'empreinte de celle-ci. Un test
 (`tests/engine.rs`) vérifie qu'il compile `render.rs` avec les dépendances et
 les fonctionnalités de `app/Cargo.toml`.
+
+Le moteur hayro (`tools/render_bench/engines/hayro`) dessine avec hayro 0.7.1,
+épinglé, et ses crates `hayro-interpret` et `hayro-syntax`. Son module
+`src/render.rs` a la forme du service de pages de l'application : ouvrir,
+dessiner, encoder. Le document est ouvert par `fyp-core` avec le mot de passe ;
+hayro lit ensuite les octets du fichier ou, si le fichier est chiffré, la
+réécriture en clair qu'en fait le noyau : le mot de passe ne lui parvient
+jamais. hayro ne rend pas d'erreur pendant le dessin et peut paniquer : chaque
+appel est fait sous `catch_unwind`, si bien qu'une panique fait échouer une
+page, pas le document. La hauteur de l'image est arrondie comme le fait
+PDFium. Ses tests (`tests/engine.rs`) vérifient qu'il encode le PNG avec les
+réglages du service de pages et la même crate `image`, qu'il refuse un mauvais
+mot de passe au noyau, et que la version qu'il annonce est celle de
+`Cargo.lock`.
 
 Le moteur factice (`fyp-render-engine-fake`) sert aux tests du banc. Il suit le
 même protocole sans lire le document, et peut planter, se taire, répondre du
@@ -308,8 +323,9 @@ Le job `render-fidelity` de `.github/workflows/ci.yml` est écrit mais inactif
 (`if: false`). Il récupère PDFium et le corpus, lance le banc avec
 `--fail-above`, et publie le rapport. Le banc sort avec le code 3 si une page
 dépasse la distance, si B échoue là où A réussit, si une page n'est pas
-mesurée, ou si le jeu est partiel (`--limit`). Aujourd'hui, B ne peut être
-que PDFium lui-même, contre qui le seul seuil connu est zéro.
+mesurée, ou si le jeu est partiel (`--limit`). B peut être PDFium lui-même,
+contre qui le seul seuil connu est zéro, ou hayro, contre qui aucun seuil n'est
+fixé (`docs/mesure-hayro.md`).
 
 Pour l'activer, il manque :
 

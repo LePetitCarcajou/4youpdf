@@ -94,3 +94,14 @@ la liste une fois fait.
   `main.ts` ignore le refus. Seule la barre d'outils nomme le document.
   Constaté par script : lancée avec `minimal.pdf` en argument, la fenêtre
   s'appelle encore « 4YouPDF » quinze secondes plus tard.
+- [ ] **Bug : les champs remplis d'un formulaire sans `/AcroForm` ne
+  s'affichent pas** (consigné le 14 septembre 2026, par le banc de fidélité).
+  PDFium contre hayro. Les annotations `/Widget` de ces documents ont une
+  apparence (`/AP /N`), que PDFium ne dessine pas tel que `app/src/render.rs`
+  l'appelle : pas d'environnement de formulaire sans `/AcroForm`, donc pas de
+  dessin des widgets. Vu sur `pdfjs/issue12963.pdf`, page 1 (le nom rempli
+  « СУВОРОВ » manque) et `qpdf/annotations-no-acroform-with-p.pdf`, page 1
+  (textes des deux champs) ; hayro les dessine. La norme demande de dessiner
+  l'apparence d'une annotation visible (ISO 32000-2, 12.5.5), qu'il y ait un
+  formulaire ou non.
+   
