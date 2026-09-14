@@ -161,3 +161,20 @@ diffère ; seul l'épinglage des actions par SHA est entamé (`ci.yml`).
   (textes des deux champs) ; hayro les dessine. La norme demande de dessiner
   l'apparence d'une annotation visible (ISO 32000-2, 12.5.5), qu'il y ait un
   formulaire ou non.
+- [ ] **Vérifier l'interface dans la CI** (consigné le 14 septembre 2026, en
+  ajoutant le panneau de vignettes). `ci.yml` ne lance ni
+  `tools/fetch_ui_tools.py` ni `tools/build_ui.py` : la vérification des
+  types de `app/ui/` (tsgo) et ses tests QuickJS-ng (`app/ui/tests/`) ne
+  tournent sur aucun push ni aucune pull request, et `cargo test --workspace`
+  y compile l'application avec la page d'attente qu'écrit `app/build.rs`
+  quand `app/dist/` manque. Seul `release.yml` les exécute, sur un tag, par
+  `tools/package_app.py`.
+- [ ] **Mettre à jour le commentaire de tête de `app/src/render.rs`**
+  (consigné le 14 septembre 2026, en ajoutant le panneau de vignettes). Il
+  dit que l'interface ne met rien devant la page affichée parce que
+  « thumbnails wait while the page view is open ». Depuis le panneau, les
+  vignettes attendent que la vue n'ait plus rien à dessiner, puis passent
+  une à une tant que le panneau est affiché (`thumbnailSlots`, dans
+  `app/ui/src/thumbnails.ts`) : une page demandée en naviguant peut attendre
+  une vignette. La session du panneau excluait toute modification de
+  `render.rs`.
