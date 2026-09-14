@@ -13,3 +13,8 @@
 description = "PDFium, par le module de rendu de l'application (app/src/render.rs, ADR 0005)"
 build = ["cargo", "build", "--release", "--quiet", "-p", "fyp-render-engine-pdfium"]
 command = ["{bin_dir}/fyp-render-engine-pdfium"]
+
+[hayro]
+description = "hayro, rastériseur PDF écrit en Rust, sur les documents qu'ouvre fyp-core : le mot de passe va au noyau, jamais à hayro"
+build = ["cargo", "build", "--release", "--quiet", "-p", "fyp-render-engine-hayro"]
+command = ["{bin_dir}/fyp-render-engine-hayro"]

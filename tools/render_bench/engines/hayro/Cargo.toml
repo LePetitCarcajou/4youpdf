@@ -1,0 +1,34 @@
+[package]
+name = "fyp-render-engine-hayro"
+description = "hayro engine of the rendering fidelity bench: pages drawn by hayro, a PDF rasterizer written in Rust, from documents fyp-core opens"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+# A program the bench runs, like the PDFium engine; tests/engine.rs runs the
+# built program.
+[[bin]]
+name = "fyp-render-engine-hayro"
+path = "src/main.rs"
+
+[dependencies]
+fyp-core = { workspace = true }
+fyp-render-bench = { path = "../.." }
+serde_json = { workspace = true }
+# One version is measured, and the engine names it (tests/engine.rs checks
+# the name against Cargo.lock). Default features: the substitutes of the 14
+# standard fonts and the predefined CMaps, which PDFium also carries.
+hayro = "=0.7.1"
+# The application's `image` and features (app/Cargo.toml): the PNG is
+# encoded as its page service encodes it (tests/engine.rs compares both).
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[dev-dependencies]
+toml = { workspace = true }
+
+[lints]
+workspace = true

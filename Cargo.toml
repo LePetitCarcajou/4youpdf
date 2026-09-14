@@ -9,11 +9,13 @@ members = [
     "crates/fyp-cli",
     "plugins/merge",
     "app",
-    # The rendering fidelity bench and its PDFium engine: in the workspace,
-    # so that the engine compiles app/src/render.rs against the very crates
-    # of the application's lockfile.
+    # The rendering fidelity bench and its engines: in the workspace, so that
+    # the PDFium engine compiles app/src/render.rs against the very crates of
+    # the application's lockfile, and the hayro engine opens documents with
+    # the same fyp-core.
     "tools/render_bench",
     "tools/render_bench/engines/pdfium",
+    "tools/render_bench/engines/hayro",
 ]
 exclude = ["fuzz", "tools/bench_host"]
 
