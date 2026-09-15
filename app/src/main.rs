@@ -497,4 +497,36 @@ mod tests {
         assert_eq!(main["create"], false);
         assert!(config.get("version").is_none());
     }
+
+    /// Ctrl+wheel, Ctrl+plus and Ctrl+minus would zoom the interface itself.
+    /// Tauri keeps the zoom of WebView2 off, keys, wheel and pinch, unless a
+    /// window sets `zoomHotkeysEnabled`, false by default: in
+    /// `tauri.conf.json`, in `tauri.bundle.json`, which the packaging merges
+    /// into it, or in a configuration file for Windows, which Tauri merges
+    /// too. The interface prevents the zoom keys as well, but not the wheel,
+    /// whose listener would make every scroll of the grid wait for it
+    /// (app/README.md, « Raccourcis du navigateur neutralisés »).
+    #[test]
+    fn the_configuration_keeps_the_zoom_of_the_webview_off() {
+        let config: tauri::utils::config::Config =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert!(!config.app.windows.is_empty());
+        for window in &config.app.windows {
+            assert!(!window.zoom_hotkeys_enabled, "window {}", window.label);
+        }
+        let bundle: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.bundle.json")).unwrap();
+        assert!(
+            bundle.get("app").is_none(),
+            "tauri.bundle.json sets windows"
+        );
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        for name in [
+            "tauri.windows.conf.json",
+            "tauri.windows.conf.json5",
+            "Tauri.windows.toml",
+        ] {
+            assert!(!dir.join(name).exists(), "{name}");
+        }
+    }
 }

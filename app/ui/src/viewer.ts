@@ -118,7 +118,6 @@ export class PageViewer {
   /// version of its page when it was asked for.
   private versions = new Map<number, number>();
   private resizeTimer: number | undefined;
-  private pressedOutside = false;
   private wheel = { last: Number.NEGATIVE_INFINITY, travel: 0, turned: false };
 
   constructor(elements: ViewerElements, options: ViewerOptions) {
@@ -127,21 +126,14 @@ export class PageViewer {
     this.resizeObserver = new ResizeObserver(() => this.resized());
     elements.prev.addEventListener("click", () => this.go(this.current - 1));
     elements.next.addEventListener("click", () => this.go(this.current + 1));
+    // Of what the view offers, only this button and Escape go back to the
+    // grid. Beside the panel, the
+    // dark ground around the page is part of the view: a click that strays
+    // there must not lose the place, and a double-click on the page is kept
+    // for selecting a word, once pages have their text.
     elements.close.addEventListener("click", () => this.close());
     elements.rotateLeft.addEventListener("click", () => this.rotate(-90));
     elements.rotateRight.addEventListener("click", () => this.rotate(90));
-    // A click outside the page goes back to the grid, if the button was
-    // pressed outside too: pressing on the page and releasing beside it is
-    // not a click outside.
-    elements.root.addEventListener("pointerdown", (event) => {
-      this.pressedOutside = event.button === 0 && this.outside(event.target);
-    });
-    elements.root.addEventListener("click", (event) => {
-      if (this.pressedOutside && this.outside(event.target)) {
-        this.close();
-      }
-      this.pressedOutside = false;
-    });
     elements.root.addEventListener("wheel", (event) => this.wheeled(event), { passive: false });
 
     const number = elements.number;
@@ -547,14 +539,6 @@ export class PageViewer {
     this.layout();
     window.clearTimeout(this.resizeTimer);
     this.resizeTimer = window.setTimeout(() => this.pump(), RESIZE_DELAY);
-  }
-
-  /// Neither on the page, nor on a button or the page number of the view.
-  private outside(target: EventTarget | null): boolean {
-    if (!(target instanceof Element)) {
-      return false;
-    }
-    return !this.el.page.contains(target) && target.closest("button, form") === null;
   }
 
   /// One page per wheel gesture (see `WHEEL_GAP`), in the direction of the

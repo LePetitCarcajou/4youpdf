@@ -450,13 +450,28 @@ résultat ; pour Windows, un installeur et une archive portable. Répartition :
   les vignettes que la grille avait déjà demandées à l'ouverture de la vue,
   une page demandée en naviguant ne passe jamais derrière une file
   d'attente du thread de rendu, au plus derrière une demande, une voisine en
-  cours ou une vignette. Le numéro tapé pour aller à une page est une
-  position dans l'ordre actuel, celle que donnent la légende et les
+  cours ou une vignette. Un clic à côté de la page, sur un fond qui fait
+  partie de la vue, ne la referme pas : Échap et son bouton `Grille`
+  ramènent à la grille, et ouvrir un autre document la ferme. Le numéro
+  tapé pour aller à une page est une position dans l'ordre actuel, celle
+  que donnent la légende et les
   vignettes, pas un numéro du fichier d'origine (`pagenumber.ts`). Les
   bandeaux sont des données (`notices.ts`) : ceux d'un document ne sont
   remplacés qu'à l'ouverture réussie d'un autre fichier ; une tentative
   ratée, ou un fichier qui attend son mot de passe, laisse le document
-  affiché et ses bandeaux en place. Cette logique, sans DOM, est testée dans
+  affiché et ses bandeaux en place. Les raccourcis de navigateur que wry
+  laisse actifs dans WebView2 sont neutralisés par l'interface
+  (`shortcuts.ts`), qui empêche leur action par défaut : F5 y rechargeait la
+  page, et le travail non enregistré partait avec son historique. WebView2
+  n'y donne plus suite, mesuré pour F5, F12 et F3 envoyés comme messages de
+  fenêtre ; les combinaisons avec Ctrl ou Alt restent à essayer au clavier
+  (`app/README.md`, « Raccourcis du navigateur neutralisés »). L'événement
+  n'est pas arrêté et reste aux écouteurs de l'application, sauf pour les
+  raccourcis des outils de développement, dont Ctrl+Maj+I et les touches
+  qu'un écouteur ajouté par Tauri prend pour lui, et qui ouvriraient sinon
+  les outils dans un build de développement ; le zoom de WebView2 reste
+  coupé par la configuration de Tauri, et le menu contextuel de WebView2
+  reste actif (`backlog-ui.md`). Cette logique, sans DOM, est testée dans
   `app/ui/tests/` par QuickJS-ng, que lance `tools/build_ui.py`.
 - **ADR 0004 appliqué** : une seule fenêtre, aucune boîte modale hors des
   sélecteurs de fichiers du système et du message qui dit quoi installer
@@ -604,7 +619,8 @@ Fait :
   minimum, `tools/check_version.py`) ; banc de fidélité du rendu
   (`tools/render_bench`, `docs/banc-rendu.md`) ; dans l'application, panneau
   de vignettes à côté de la vue d'une page et accès à une page par son
-  numéro.
+  numéro, raccourcis du navigateur neutralisés, vue d'une page qui ne se
+  ferme plus sur un clic à côté de la page.
 
 Ensuite :
 
@@ -615,6 +631,12 @@ Ensuite :
   connues ».
 - **v0.4.0, rampe** — moteur de rendu : voir l'ADR qui remplacera
   l'ADR 0005.
+
+Ordre de travail retenu le 14 septembre 2026 : l'interface, puis
+l'isolation du rendu dans un processus séparé (`backlog-technique.md`), puis
+la convergence vers un moteur de rendu en Rust, mesurée par le banc de
+fidélité (`banc-rendu.md`, `mesure-hayro.md`), et non un moteur écrit de
+zéro.
 
 Plus tard, sans version attribuée : permissions de dossier, de réseau et de
 sous-processus ; chiffrement à l'écriture (révision 6), PDF 2.0 en écriture,

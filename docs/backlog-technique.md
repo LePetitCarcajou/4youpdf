@@ -178,3 +178,60 @@ diffère ; seul l'épinglage des actions par SHA est entamé (`ci.yml`).
   `app/ui/src/thumbnails.ts`) : une page demandée en naviguant peut attendre
   une vignette. La session du panneau excluait toute modification de
   `render.rs`.
+- [ ] **Isoler le rendu dans un processus séparé** (consigné le 14 septembre
+  2026, décision prise hors session). Un processus à mémoire et à temps
+  bornés, qui ne sait que recevoir des octets et rendre des pixels. Le rendu
+  s'exécute aujourd'hui dans le processus de la fenêtre, sur le thread de
+  `app/src/render.rs` : un PDF malveillant qui exploite un défaut de PDFium a
+  la main sur l'application, et un moteur qui dépasse sa pile l'emporte avec
+  lui, comme hayro sur `qpdf/issue-202.pdf` (`docs/mesure-hayro.md`). Chrome,
+  lui, isole PDFium dans un processus séparé, sous son bac à sable. Quel que
+  soit le moteur, l'isolation apporte :
+  - un défaut exploité ne donne la main que sur ce processus, pas sur celui
+    de la fenêtre et ses commandes, pour peu que le système restreigne ses
+    droits comme le bac à sable de Chrome restreint les siens : un processus
+    qui garde les droits de l'utilisateur peut encore atteindre celui de la
+    fenêtre ;
+  - un plantage, une pile dépassée ou une mémoire épuisée arrêtent ce
+    processus, pas l'application, qui peut dire que la page n'a pas été
+    rendue ;
+  - un dessin trop long s'abandonne en arrêtant le processus, ce qu'un
+    thread ne permet pas ;
+  - la mémoire du rendu a sa propre limite, distincte de celle de la
+    fenêtre.
+
+  Elle répond à l'une des trois conditions de bascule vers hayro de
+  `docs/mesure-hayro.md`, la deuxième, « un rendu qui ne fait ni tomber ni
+  figer l'application », dont la mesure juge la meilleure forme un processus
+  à part ou la sandbox WebAssembly, où hayro compile.
+- [ ] **Garder les outils de développement coupés en release par la
+  configuration de Tauri, dans la session de durcissement de la WebView**
+  (consigné le 14 septembre 2026, en neutralisant les raccourcis du
+  navigateur). L'interface neutralise F12 et Ctrl+Maj+I, J et C dans tous les
+  builds (`app/README.md`, « Raccourcis du navigateur neutralisés »), mais ce
+  n'est pas elle qui coupe les outils de développement en release : c'est une
+  valeur par défaut. wry pose `devtools: false` hors `debug_assertions`, et
+  tauri-runtime-wry 2.11 ne le change qu'en debug ou avec la fonctionnalité
+  Cargo `devtools` de `tauri`, que `app/Cargo.toml` n'active pas. Rien dans
+  le dépôt ne fixe ni ne vérifie cette absence. Le levier est la
+  fonctionnalité Cargo, pas `tauri.conf.json` : la clé `devtools` d'une
+  fenêtre n'y agit en release qu'avec cette fonctionnalité (documentation de
+  `tauri-utils`), et la mettre à `false` couperait les outils des builds de
+  développement, où le clic droit les ouvre. Dans ces builds, Tauri ajoute
+  aussi à la page un script qui ouvre les outils sur Ctrl+Maj+I, par la
+  position de la touche et quels que soient les autres modificateurs, par la
+  commande `plugin:webview|internal_toggle_devtools`, qu'accorde
+  `core:default` : l'interface arrête ces touches, et refuser cette commande
+  dans les permissions de la fenêtre (`core:webview:deny-internal-toggle-devtools`)
+  le ferait sans dépendre de la façon dont le script les reconnaît. À
+  vérifier au même moment : si
+  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=…`, par
+  lequel les essais pilotent l'application, ouvre aussi ce port sur une copie
+  release.
+- [ ] **Imposer `eol=lf` aux fichiers de l'interface dans `.gitattributes`**
+  (consigné le 14 septembre 2026, en neutralisant les raccourcis du
+  navigateur). `.gitattributes` fixe les fins de ligne des `*.rs`, `*.toml`
+  et `*.md`, pas celles des `*.ts`, `*.html` et `*.css` de `app/ui/`. Avec
+  `core.autocrlf=true`, Git avertit à chaque modification de ces fichiers, en
+  LF dans l'index comme dans la copie de travail (`git ls-files --eol`),
+  que « LF will be replaced by CRLF the next time Git touches it ».

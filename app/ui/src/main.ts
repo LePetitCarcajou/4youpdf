@@ -22,6 +22,7 @@ import {
 } from "./api.js";
 import { PageHistory, type Outcome } from "./history.js";
 import { attemptOpen, NoticeBoard, type Notice, type NoticeKind } from "./notices.js";
+import { browserShortcut, stopsHere } from "./shortcuts.js";
 import { ThumbnailLoader, thumbnailSlots } from "./thumbnails.js";
 import { PageViewer, pageRatio } from "./viewer.js";
 
@@ -932,6 +933,24 @@ document.addEventListener("pointerdown", (event) => {
 // ---------------------------------------------------------------------------
 // Keyboard
 // ---------------------------------------------------------------------------
+
+// The shortcuts of the browser, such as F5, which would reload the page of
+// the interface and lose the open document with its history (shortcuts.ts):
+// their default is prevented first, on the way down to the target, and they
+// go on to the listeners below, but for the keys that would open DevTools,
+// which stop here.
+window.addEventListener(
+  "keydown",
+  (event) => {
+    if (browserShortcut(event) !== undefined) {
+      event.preventDefault();
+    }
+    if (stopsHere(event)) {
+      event.stopPropagation();
+    }
+  },
+  true,
+);
 
 document.addEventListener("keydown", (event) => {
   const inField = event.target instanceof HTMLInputElement;

@@ -244,10 +244,11 @@ ici).
 | `src/main.rs` | commandes exposées à l'interface : ouvrir, fermer, état du rendu, fichier passé en ligne de commande, rendre une page, faire pivoter des pages, enregistrer, dialogues de fichiers ; ouverture de la fenêtre (profil WebView2 d'une copie portable) ; message et arrêt si WebView2 manque |
 | `src/session.rs` | le document ouvert vu par `fyp-core` : pages, réparation, chiffrement ; rotation par `ops::rotate`, qui réécrit le document gardé en mémoire ; enregistrement par `ops::extract_pages` |
 | `src/render.rs` | images des pages (vignettes, vue d'une page) : thread dédié qui charge PDFium et sert les demandes une à une ; où chercher la bibliothèque ; seul endroit qui connaît `pdfium-render`. Le banc de fidélité du rendu (`tools/render_bench`) compile ce fichier tel quel et appelle ses trois étapes une à une : ouvrir, dessiner, encoder |
-| `ui/src/main.ts` | la fenêtre : grille, glisser-déposer, sélection, menu contextuel, panneau de vignettes à côté de la vue d'une page, clavier, avis en place |
+| `ui/src/main.ts` | la fenêtre : grille, glisser-déposer, sélection, menu contextuel, panneau de vignettes à côté de la vue d'une page, clavier, raccourcis du navigateur neutralisés, avis en place |
 | `ui/src/history.ts` | ordre et rotation des pages, avec annuler et refaire ; une rotation est faite par le côté Rust, une à la fois |
 | `ui/src/notices.ts` | bandeaux au-dessus de la grille, sans DOM : seule une ouverture réussie les remplace |
 | `ui/src/pagenumber.ts` | numéros de la vue d'une page, sans DOM : légende, lecture du numéro tapé pour aller à une page (une position dans l'ordre actuel), aide et refus |
+| `ui/src/shortcuts.ts` | raccourcis du navigateur neutralisés, sans DOM : la liste, chacun reconnu par son code de touche virtuelle et ses modificateurs exacts |
 | `ui/src/thumbnails.ts` | chargement progressif : une page visible est demandée avant les autres ; pendant la vue d'une page, aucune demande tant qu'elle dessine, puis une à la fois pour le panneau |
 | `ui/src/viewer.ts` | vue d'une page à côté du panneau de vignettes ou par-dessus la grille : navigation, numéro de page à taper, largeur de rendu adaptée à la fenêtre, page affichée puis ses voisines |
 | `ui/src/api.ts` | façade typée des commandes ; `tauri.d.ts` décrit le sous-ensemble de l'API globale de Tauri utilisé |
@@ -288,6 +289,10 @@ ici).
   demande nomme le fichier.
 - Aucune fenêtre secondaire ni boîte modale (ADR 0004), hormis les
   sélecteurs de fichiers du système.
+- Les raccourcis du navigateur qui rechargeraient la page de l'interface,
+  l'imprimeraient ou y chercheraient (F5, Ctrl+P, Ctrl+F…) sont neutralisés,
+  et leurs touches restent libres pour l'application (voir « Raccourcis du
+  navigateur neutralisés »).
 
 ### Vue d'une page
 
@@ -309,10 +314,18 @@ même façon.
 | Aller à la page d'une vignette du panneau | Entrée sur la vignette | clic sur la vignette |
 | Afficher, masquer les vignettes | F4 | bouton `Vignettes` |
 | Faire pivoter la page à droite, à gauche | R, Maj+R | boutons ↷, ↶ |
-| Retour à la grille | Échap | clic en dehors de la page, bouton `Grille` |
+| Retour à la grille | Échap | bouton `Grille` |
 
 - Un cran de molette, ou un geste du pavé tactile avec son inertie, tourne
   une seule page.
+- Un clic à côté de la page, sur le fond sombre de la vue, ne fait rien,
+  panneau affiché ou non, pas plus qu'un double-clic sur la page : seuls
+  Échap et le bouton `Grille` ramènent à la grille, et ouvrir un autre
+  document ferme aussi la vue. Ce clic la fermait quand la vue recouvrait
+  toujours la grille ; à côté du panneau, le fond fait partie de la vue, et
+  un clic égaré y faisait perdre sa place. Le double-clic sur la page est
+  gardé pour sélectionner un mot, quand la page aura son texte (« Barre
+  d'annotation », `docs/backlog-ui.md`).
 - Les pages suivent l'ordre de la grille, modifications comprises ; la
   légende donne la page d'origine d'une page déplacée.
 - De retour dans la grille, la dernière page vue a le focus ; si ce n'est
@@ -341,8 +354,7 @@ page affichée : les mêmes vignettes, avec les mêmes numéros (« 3 (était
 5) »). F4, ou le bouton `Vignettes` de la barre de la vue, l'affiche ou le
 masque. Le bouton est à droite de la barre, à côté de `Grille`, parce que la
 gauche de la barre se décale avec la vue quand le panneau s'affiche ou se
-masque : un second clic au même endroit tomberait à côté du bouton, et un
-clic hors de la page ramène à la grille.
+masque : un second clic au même endroit tomberait à côté du bouton.
 
 - Il est affiché à la première ouverture de la vue. Son état est un état de
   la fenêtre (ADR 0004) : il reste le même d'une page à l'autre, d'une
@@ -365,9 +377,10 @@ clic hors de la page ramène à la grille.
 Pourquoi F4 : c'est la touche du panneau latéral de pdf.js, le lecteur PDF de
 Firefox, qui l'a reprise d'Adobe Reader
 ([mozilla/pdf.js#10358](https://github.com/mozilla/pdf.js/pull/10358)). Elle
-ne sert à rien d'autre dans l'application, et ne figure pas dans la liste,
-non exhaustive, des raccourcis de navigateur que donne la documentation de
-WebView2 (`AreBrowserAcceleratorKeysEnabled`).
+ne sert à rien d'autre dans l'application et n'est pas un raccourci de
+WebView2 : elle ne figure ni dans la liste, non exhaustive, que donne
+`AreBrowserAcceleratorKeysEnabled`, ni dans le tableau des raccourcis de sa
+documentation (voir « Raccourcis du navigateur neutralisés »).
 
 ### Aller à une page
 
@@ -397,8 +410,8 @@ place de ses raccourcis : « Numéro dans l'ordre actuel (1 à 12) ».
 
 Pourquoi les chiffres plutôt que Ctrl+G : aucun chiffre n'est un raccourci
 de l'application, alors que Ctrl+G est « rechercher le suivant » dans les
-navigateurs et dans pdf.js, un sens que la recherche de texte prévue au
-backlog pourrait vouloir lui garder.
+navigateurs et dans pdf.js, un sens que lui garde la recherche de texte
+prévue au backlog (voir « Raccourcis du navigateur neutralisés »).
 
 ### Rotation
 
@@ -435,14 +448,110 @@ une suppression.
 
 Pourquoi R et Maj+R : ces touches ne servent à rien d'autre, ni dans la
 grille ni dans la vue, et valent dans les deux. Sans Ctrl ni Alt, elles
-évitent les raccourcis de navigateur de WebView2, que wry laisse actifs
-(`AreBrowserAcceleratorKeysEnabled` à sa valeur par défaut ; d'après la
-documentation de WebView2, Ctrl+R et F5 rechargent la page, Ctrl+plus et
-Ctrl+moins zooment, Alt+flèches navigue), ainsi que Ctrl+Alt+flèches, qui
-fait pivoter l'écran avec certains pilotes graphiques. Ctrl+[ et Ctrl+], la
-convention des lecteurs PDF de Chrome et d'Edge, demandent AltGr sur un
+évitent les raccourcis de WebView2, comme Ctrl+R pour recharger la page ou
+Alt+flèches pour naviguer dans l'historique, que l'interface neutralise
+(voir « Raccourcis du navigateur neutralisés »), ainsi que Ctrl+Alt+flèches,
+qui fait pivoter l'écran avec certains pilotes graphiques. Ctrl+[ et Ctrl+],
+la convention des lecteurs PDF de Chrome et d'Edge, demandent AltGr sur un
 clavier AZERTY ; Ctrl+flèches reste libre pour déplacer le focus sans
 changer la sélection, comme dans une liste.
+
+### Raccourcis du navigateur neutralisés
+
+wry laisse actifs les raccourcis de navigateur de WebView2 : F5 rechargeait
+la page de l'interface, et les modifications non enregistrées disparaissaient
+sans un mot avec l'historique d'annulation (un fichier passé en argument
+était rouvert tel qu'il est sur le disque) ; Ctrl+P imprimait l'interface.
+wry sait les couper tous (`with_browser_accelerator_keys`), mais Tauri 2.11
+ne transmet pas ce réglage, et atteindre `AreBrowserAcceleratorKeysEnabled`
+autrement passerait par un appel COM `unsafe`, interdit dans le dépôt.
+L'interface les neutralise donc (`ui/src/shortcuts.ts`) : un écouteur de
+`keydown`, posé sur la fenêtre en phase de capture, empêche l'action par
+défaut de chaque raccourci de la liste avant tout autre écouteur.
+
+| Ce que ferait WebView2 | Touches neutralisées |
+|---|---|
+| Recharger la page, avec ou sans le cache | F5, Maj+F5, Ctrl+F5, Ctrl+R, Ctrl+Maj+R ; touche Actualiser du clavier, seule, avec Maj ou avec Ctrl |
+| Imprimer | Ctrl+P ; Ctrl+Maj+P, l'impression par la boîte de dialogue du système dans Chromium |
+| Chercher dans la page | Ctrl+F, Ctrl+G, Ctrl+Maj+G, F3, Maj+F3 |
+| Zoomer, déjà coupé ici par la configuration (plus bas) | Ctrl+plus, Ctrl+Maj+plus, Ctrl+moins, Ctrl+Maj+moins, Ctrl+0 ; Ctrl avec plus, moins ou 0 du pavé numérique |
+| Revenir en arrière, avancer | Alt+←, Alt+→ ; touches Précédent et Suivant du clavier |
+| Navigation au curseur | F7 |
+| Téléchargements | Ctrl+J |
+| Outils de développement | F12, Ctrl+Maj+I, Ctrl+Maj+J, Ctrl+Maj+C |
+
+La liste reprend le tableau des raccourcis que coupe
+`AreBrowserAcceleratorKeysEnabled` dans la documentation de WebView2
+(« Differences between Microsoft Edge and WebView2 »), avec ses Ctrl++,
+Ctrl+- et Ctrl+0 sous les formes que leur donne Chromium (avec Maj, au pavé
+numérique). S'y ajoutent F12, que nomme la référence de
+`AreBrowserAcceleratorKeysEnabled` hors de ce tableau, et Ctrl+Maj+P ; Échap
+en est retiré : la vue d'une page s'en sert, et le navigateur ne fait
+qu'arrêter avec lui une page en cours de chargement. Les autres raccourcis
+de ce document sont coupés dans WebView2, comme Ctrl+S ou Ctrl+O, ou sans
+objet ici, sauf F6 et Maj+F6 (« Focus Next Pane », « Focus Previous
+Pane »), que ce document dit actifs en hébergement fenêtré, celui de wry :
+ils restent hors de la liste (`docs/backlog-ui.md`). Un raccourci qui
+agirait encore malgré tout s'ajoute à `BROWSER_SHORTCUTS`.
+
+- **Neutraliser n'est pas abandonner.** Seule l'action du navigateur est
+  empêchée : l'événement poursuit son chemin jusqu'aux écouteurs de
+  l'application, et chaque touche de la liste reste libre pour une commande
+  à venir, sauf celles des outils de développement (plus bas). Deux besoins
+  en attendent déjà (`docs/backlog-ui.md`) : Ctrl+F, F3 et Ctrl+G, la
+  recherche de texte ; Ctrl+P, l'impression du document.
+- **Aucune touche de l'application n'est dans la liste** : ni Ctrl+O,
+  Ctrl+S, Ctrl+Z, Ctrl+Y ou Ctrl+A, ni F4, les chiffres de la vue, R, Maj+R,
+  Échap, Suppr, Retour arrière ou les flèches. Un raccourci n'est reconnu
+  qu'avec exactement ses modificateurs : R et Maj+R font toujours pivoter
+  quand Ctrl+R est neutralisé, les chiffres restent à la vue quand Ctrl+0
+  l'est, et AltGr, que Windows signale comme Ctrl+Alt, tape toujours « @ »
+  ou « € », dans un mot de passe comme ailleurs. Alt avec une touche de
+  fonction reste à Windows (Alt+F4 ferme la fenêtre). `ui/tests/shortcuts.test.ts`
+  le vérifie touche par touche. Dans la grille, Alt+← et Alt+→ déplacent
+  pourtant la sélection comme ← et →, le traitement des flèches ne regardant
+  pas Alt : une commande sur ces touches demandera d'abord de corriger ce
+  point (`docs/backlog-ui.md`).
+- **Reconnus par leur code de touche virtuelle de Windows** (`keyCode`),
+  comme les reconnaît Chromium, sur lequel WebView2 est construit : `key`
+  les manquerait sur une disposition non latine, et `code`, une position sur
+  un clavier américain, prendrait d'autres touches pour eux en Bépo ou en
+  Dvorak.
+- **Outils de développement neutralisés dans tous les builds.** wry les
+  coupe déjà en release, mais le build qu'on essaie doit se comporter comme
+  celui qu'on livre. Leurs raccourcis sont les seuls que le filtre arrête en
+  plus d'en empêcher l'action par défaut. Il arrête aussi ce que Tauri prend
+  pour Ctrl+Maj+I : dans un build de développement, Tauri ajoute à la page un
+  écouteur qui ouvre les outils sur Ctrl et Maj tenus avec la touche placée
+  comme I sur un clavier américain, quels que soient les autres
+  modificateurs et la disposition (AltGr+Maj+I, Win+Ctrl+Maj+I, Ctrl+Maj+D en
+  Bépo), sans regarder l'action par défaut. Arrêter ces touches n'empêche
+  pas ce qu'elles tapent. Constaté le 14 septembre 2026 par DevTools : sans
+  cet arrêt, chacune de ces touches ouvrait les outils. Le clic droit
+  (« Inspecter ») et le port de débogage de WebView2 les ouvrent toujours
+  dans un build de développement. Que la release les garde coupés ne dépend
+  pas de l'interface (`docs/backlog-technique.md`).
+- **Le zoom reste d'abord à la configuration.** Tauri garde le zoom de
+  WebView2 coupé (`zoomHotkeysEnabled`, faux par défaut) : Ctrl+molette,
+  pincement et, d'après la documentation de WebView2, Ctrl+plus et
+  Ctrl+moins. Un test de `src/main.rs` vérifie qu'aucune fenêtre ne
+  l'active, ni dans `tauri.conf.json`, ni dans `tauri.bundle.json`, ni dans
+  un fichier de configuration propre à Windows. La liste garde les touches
+  de zoom pour le jour où ce réglage changerait ; la molette, non :
+  l'intercepter dans l'interface demanderait un écouteur non passif sur
+  tout le document, que chaque défilement de la grille attendrait.
+- **Mesuré.** La documentation de WebView2 annonce que ses raccourcis
+  passent avant la page. Le 14 septembre 2026, avec le runtime WebView2
+  152.0.4191.66, F5, F12 et F3 envoyés comme messages de fenêtre à WebView2
+  arrivaient d'abord à la page : ils rechargeaient l'interface, ouvraient
+  les outils de développement ou la barre de recherche, sauf quand la page
+  empêchait leur action par défaut. Ce n'était pas une vraie touche. Les
+  combinaisons avec Ctrl ou Alt, dont Ctrl+R et Ctrl+P, n'ont pas pu être
+  envoyées ainsi : elles restent à essayer au clavier, et le même essai
+  (F5, Ctrl+R, Ctrl+P) dira après chaque mise à jour de WebView2 si c'est
+  toujours vrai.
+- **Reste actif** le menu contextuel par défaut de WebView2, hors des
+  vignettes, avec « Actualiser » et « Imprimer » (`docs/backlog-ui.md`).
 
 ## Tests
 
@@ -454,7 +563,8 @@ document chiffré tourné en clair ; rotation refusée sans effet ; rotation
 appliquée seulement au document qu'elle vise, jamais à un fichier ouvert
 entre-temps), emplacements de PDFium (un paquet ne cherche jamais dans le
 dépôt dont il vient), dossier `data` qui rend une copie portable,
-configuration (fenêtre ouverte par l'application, pas de version propre),
+configuration (fenêtre ouverte par l'application, pas de version propre,
+zoom de WebView2 laissé coupé),
 et, quand `app/pdfium/` est présent, rendu réel d'une page en
 PNG, à la taille d'une vignette et à celle de la vue d'une page, et d'une
 page tournée, dessinée couchée.
@@ -468,6 +578,10 @@ suppressions annulés sur place, rotations faites et annulées par un côté
 Rust simulé, une à la fois, rotation refusée sans effet), le numéro tapé
 pour aller à une page (position dans l'ordre actuel, y compris après
 déplacements et suppressions ; numéro hors de portée ou qui n'en est pas un ;
-légende, aide et refus) et le nombre de vignettes demandées à la fois selon
-ce que fait la vue d'une page. Le panneau lui-même (disposition, défilement,
-clics) et le champ du numéro passent par le DOM : ils n'y sont pas testés.
+légende, aide et refus), le nombre de vignettes demandées à la fois selon
+ce que fait la vue d'une page, et les raccourcis du navigateur neutralisés
+(chacun de la liste, aucune touche de l'application, aucun raccourci tenu
+avec d'autres modificateurs ; arrêtés au filtre, seuls ceux des outils de
+développement et ce que Tauri prend pour Ctrl+Maj+I). Le panneau lui-même (disposition, défilement,
+clics), le champ du numéro et l'écouteur qui neutralise les raccourcis
+passent par le DOM : ils n'y sont pas testés.

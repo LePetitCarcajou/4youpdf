@@ -25,15 +25,41 @@ la liste une fois fait.
   contenu des pages : extraire le texte suppose d'interpréter les flux de
   contenu et de retrouver l'Unicode des glyphes par les polices et
   `/ToUnicode` (ISO 32000-2, 9.10), un chantier du noyau à cadrer et à
-  tester comme un morceau à part, avant l'interface de recherche, qui devra
-  aussi reprendre Ctrl+F à WebView2.
-- [ ] **Bug : Ctrl+P imprime une capture de l'interface au lieu du PDF.**
-  wry laisse actifs les raccourcis de navigateur de WebView2 et `main.ts` ne
-  traite pas Ctrl+P, si bien que WebView2 imprime la page HTML de
-  l'interface ; la touche est à intercepter côté interface, puisque couper
-  `AreBrowserAcceleratorKeysEnabled` depuis Rust passerait par un appel COM
-  `unsafe`, et les autres raccourcis de navigateur restés actifs (voir
-  « Rotation » dans `app/README.md`) relèvent du même correctif.
+  tester comme un morceau à part, avant l'interface de recherche. Ctrl+F, F3
+  et Ctrl+G attendent sa commande : l'interface empêche déjà leur action par
+  défaut dans la page et les laisse libres (`app/README.md`, « Raccourcis du
+  navigateur neutralisés »).
+- [ ] **Imprimer le document** (consigné le 14 septembre 2026). L'application
+  n'imprime rien. Ctrl+P attend cette commande : l'interface empêche son
+  action par défaut dans la page et laisse la touche libre (`app/README.md`,
+  « Raccourcis du navigateur neutralisés ») ; le menu contextuel de WebView2
+  propose encore d'imprimer l'interface (« Neutraliser le menu contextuel par
+  défaut de WebView2 », plus bas).
+- [ ] **Attribuer les touches neutralisées selon les conventions communes**
+  (consigné le 14 septembre 2026). Quand elles recevront des commandes de
+  l'application, se caler sur les conventions partagées par Acrobat, pdf.js
+  et les navigateurs : Ctrl+F, puis F3 ou Ctrl+G, pour la recherche ;
+  Ctrl+plus, Ctrl+moins et Ctrl+0 pour le zoom ; Ctrl+P pour l'impression.
+  Pas sur les raccourcis propres à Acrobat, qui se chevauchent d'un outil à
+  l'autre et dépendent d'une préférence
+  ([raccourcis clavier d'Acrobat](https://helpx.adobe.com/fr/acrobat/desktop/get-started/preferences-and-settings/keyboard-shortcuts.html)).
+  Rien n'est attribué aujourd'hui (`app/README.md`, « Raccourcis du
+  navigateur neutralisés »).
+- [ ] **Neutraliser le menu contextuel par défaut de WebView2** (consigné le
+  14 septembre 2026, en neutralisant les raccourcis du navigateur). Hors des
+  vignettes, où l'interface montre son propre menu, un clic droit ouvre celui
+  de WebView2 : `AreDefaultContextMenusEnabled` garde sa valeur par défaut,
+  que wry ne change pas et que Tauri 2.11 n'expose pas. Relevé par UI
+  Automation dans un build de développement, après un clic droit envoyé comme
+  message de fenêtre sur la barre d'état : « Retour », « Actualiser »
+  (Ctrl+R), « Enregistrer sous », « Imprimer » (Ctrl+P), « Outils
+  supplémentaires », « Inspecter ». « Actualiser » rechargerait l'interface
+  et perdrait le travail non enregistré avec son historique, comme F5 le
+  faisait, et « Imprimer » imprimerait l'interface. Empêcher `contextmenu` dans
+  l'interface retirerait aussi « Inspecter », par lequel un build de
+  développement ouvre les outils de développement (`app/README.md`,
+  « Raccourcis du navigateur neutralisés »). La touche Menu et Maj+F10
+  n'ont pas été essayées.
 - [ ] **Barre d'annotation sur une sélection de texte** (surligner,
   souligner, barrer, copier), qui apparaît au clic-glisser sur du texte,
   comme dans PDF24. C'est l'interaction de PDF24 que retient l'ADR 0004
@@ -94,4 +120,28 @@ la liste une fois fait.
   (textes des deux champs) ; hayro les dessine. La norme demande de dessiner
   l'apparence d'une annotation visible (ISO 32000-2, 12.5.5), qu'il y ait un
   formulaire ou non.
+- [ ] **Les flèches de la grille ne regardent ni Ctrl ni Alt** (consigné le
+  14 septembre 2026, en neutralisant les raccourcis du navigateur). La
+  branche des flèches du clavier de `main.ts` ne teste que Maj : Alt+← et
+  Alt+→, que l'interface neutralise comme raccourcis du navigateur,
+  déplacent la sélection comme ← et → (constaté par script, DevTools), et
+  Ctrl+← et Ctrl+→ aussi (lu dans le code), alors que « Rotation »
+  (`app/README.md`) les dit libres pour déplacer le focus sans changer la
+  sélection.
+- [ ] **Ctrl+O et Ctrl+S sont sans effet quand le focus est dans un champ**
+  (consigné le 14 septembre 2026, en neutralisant les raccourcis du
+  navigateur). Dans le champ du mot de passe d'un fichier chiffré ou dans le
+  numéro de page de la vue, le clavier de `main.ts` s'arrête avant eux dès
+  que la cible est un champ : ni Ouvrir… ni Enregistrer sous… (constaté par
+  script, DevTools). D'après la documentation de WebView2, ces deux
+  raccourcis y sont toujours coupés.
+- [ ] **F6 et Maj+F6 restent hors des raccourcis neutralisés** (consigné le
+  14 septembre 2026, en neutralisant les raccourcis du navigateur). La
+  documentation de WebView2 les dit actifs en hébergement fenêtré, celui de
+  wry (« Focus Next Pane », « Focus Previous Pane » : passer d'un volet à
+  l'autre). Envoyé comme message de fenêtre, F6 arrive à la page sans effet
+  visible par script, ni rechargement ni nouvelle fenêtre, avant comme après
+  le filtre ; Maj+F6 et un déplacement du focus n'ont pas été vérifiés. À
+  essayer au clavier avant de décider s'ils rejoignent la liste
+  (`app/README.md`, « Raccourcis du navigateur neutralisés »).
    
