@@ -1,24 +1,66 @@
 /* 4YouPDF — first window. Sober: one accent colour, system font,
    everything in one window (ADR 0004). */
 
+/* Raw colours: the only place of this sheet that writes a colour value
+   (docs/couleurs.md). Named by hue and level, the level being
+   1000 − 10 × L* (CIELAB lightness) to the nearest 50: 050 is nearly
+   white, 900 nearly black. */
 :root {
-  --bg: #f4f5f7;
-  --panel: #ffffff;
-  --text: #1f2933;
-  --muted: #6b7280;
-  --border: #d9dde3;
-  --accent: #1f4e79;
-  --accent-soft: #dbe7f3;
-  --danger: #a32d2d;
-  --warn-bg: #fff4d6;
-  --warn-text: #6b4e00;
-  --info-bg: #e7f0fa;
-  --info-text: #1f4e79;
+  --blanc: #ffffff;
+  --noir: #000000;
+  --gris-050: #fafaf8;
+  --gris-100: #dcdcd7;
+  --gris-450: #82827e;
+  --gris-600: #60646c;
+  --gris-900: #1d1d1f;
+  --brun-850: #2a2723;
+  --ambre-050: #fdf1e3;
+  --ambre-550: #b6540b;
+  --ambre-600: #92400e;
+  --ocre-050: #faebb5;
+  --ocre-600: #8a5a00;
+  --rouge-100: #f9dedc;
+  --rouge-150: #ffc9c9;
+  --rouge-600: #b3261e;
+  --vert-550: #1e7b34;
+}
+
+/* Roles: each names a raw colour, and the rules below use nothing else; a
+   translucent use mixes a role with transparent (color-mix). A dark theme
+   would be one block reassigning the roles and color-scheme. */
+:root {
+  --accent: var(--ambre-550);
+  /* Accent text on --accent-soft. */
+  --accent-strong: var(--ambre-600);
+  --accent-soft: var(--ambre-050);
+  /* Ink on a solid fill: the accent, or danger. */
+  --accent-ink: var(--blanc);
+  --surface: var(--gris-050);
+  --surface-raised: var(--blanc);
+  /* Around the page, in the page view. */
+  --surface-sunken: var(--brun-850);
+  /* Text, marks and refusals on --surface-sunken. */
+  --sunken-ink: var(--blanc);
+  --sunken-danger: var(--rouge-150);
+  --text: var(--gris-900);
+  --text-muted: var(--gris-600);
+  --border: var(--gris-100);
+  /* The edge of a text field, which nothing but its border delimits. */
+  --field-border: var(--gris-450);
+  --danger: var(--rouge-600);
+  --danger-soft: var(--rouge-100);
+  --success: var(--vert-550);
+  --warning: var(--ocre-600);
+  --warning-soft: var(--ocre-050);
+  --shadow: var(--noir);
+  color-scheme: light;
+}
+
+:root {
   --thumb-width: 160px;
   /* One column of tiles: their padding and border, the padding of the grid,
      a scrollbar and the border of the panel. */
   --panel-width: calc(var(--thumb-width) + 68px);
-  color-scheme: light;
 }
 
 * {
@@ -41,7 +83,7 @@ body {
   flex-direction: column;
   font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color: var(--text);
-  background: var(--bg);
+  background: var(--surface);
   user-select: none;
   overflow: hidden;
 }
@@ -49,7 +91,7 @@ body {
 button {
   font: inherit;
   color: var(--text);
-  background: var(--panel);
+  background: var(--surface-raised);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 6px 12px;
@@ -68,7 +110,7 @@ button:disabled {
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
 }
 
 /* A button that shows an icon, named by its title and aria-label. */
@@ -101,7 +143,7 @@ button.link {
 button[aria-pressed="true"] {
   background: var(--accent-soft);
   border-color: var(--accent);
-  color: var(--accent);
+  color: var(--accent-strong);
 }
 
 /* Read out, not shown. */
@@ -122,7 +164,7 @@ button[aria-pressed="true"] {
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  background: var(--panel);
+  background: var(--surface-raised);
   border-bottom: 1px solid var(--border);
 }
 
@@ -131,7 +173,7 @@ button[aria-pressed="true"] {
 }
 
 .doc-name {
-  color: var(--muted);
+  color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -158,20 +200,20 @@ button[aria-pressed="true"] {
   margin: 6px 0 0;
   padding: 8px 12px;
   border-radius: 6px;
-  background: var(--info-bg);
-  color: var(--info-text);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
   display: flex;
   gap: 12px;
   align-items: center;
 }
 
 .notice.warn {
-  background: var(--warn-bg);
-  color: var(--warn-text);
+  background: var(--warning-soft);
+  color: var(--warning);
 }
 
 .notice.error {
-  background: #fde8e8;
+  background: var(--danger-soft);
   color: var(--danger);
 }
 
@@ -184,8 +226,14 @@ button[aria-pressed="true"] {
 .notice input {
   font: inherit;
   padding: 4px 8px;
-  border: 1px solid var(--border);
+  color: var(--text);
+  background: var(--surface-raised);
+  border: 1px solid var(--field-border);
   border-radius: 4px;
+}
+
+.notice input::placeholder {
+  color: var(--text-muted);
 }
 
 .notice .close {
@@ -216,7 +264,7 @@ button[aria-pressed="true"] {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: var(--muted);
+  color: var(--text-muted);
   text-align: center;
   border: 2px dashed var(--border);
   border-radius: 12px;
@@ -235,7 +283,7 @@ button[aria-pressed="true"] {
 
 .tile {
   position: relative;
-  background: var(--panel);
+  background: var(--surface-raised);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px;
@@ -259,7 +307,7 @@ button[aria-pressed="true"] {
 
 .tile .page {
   width: 100%;
-  background: #fff;
+  background: var(--surface-raised);
   border: 1px solid var(--border);
   display: flex;
   align-items: center;
@@ -296,7 +344,7 @@ button[aria-pressed="true"] {
 
 .tile .label {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 .tile .remove {
@@ -316,7 +364,7 @@ button[aria-pressed="true"] {
 }
 
 .tile .remove:hover {
-  color: #fff;
+  color: var(--accent-ink);
   background: var(--danger);
   border-color: var(--danger);
 }
@@ -335,7 +383,7 @@ button[aria-pressed="true"] {
   z-index: 10;
   opacity: 0.85;
   transform: translate(-50%, -50%) rotate(2deg);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--shadow) 25%, transparent);
   border-radius: 8px;
 }
 
@@ -380,8 +428,8 @@ button[aria-pressed="true"] {
   z-index: 5;
   display: flex;
   flex-direction: column;
-  background: rgba(31, 41, 51, 0.94);
-  color: #fff;
+  background: var(--surface-sunken);
+  color: var(--sunken-ink);
   outline: none;
 }
 
@@ -411,8 +459,8 @@ button[aria-pressed="true"] {
   text-align: center;
   padding: 1px 4px;
   color: var(--text);
-  background: #fff;
-  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  border: 1px solid var(--field-border);
   border-radius: 4px;
   user-select: text;
 }
@@ -424,7 +472,7 @@ button[aria-pressed="true"] {
 
 .viewer-number input[aria-invalid="true"] {
   border-color: var(--danger);
-  outline-color: #f5c2c2;
+  outline-color: var(--sunken-danger);
 }
 
 /* In place of the keys while a number is typed: what it expects, or why it
@@ -437,13 +485,13 @@ button[aria-pressed="true"] {
 }
 
 .viewer-help.refused {
-  color: #ffc9c9;
+  color: var(--sunken-danger);
   font-weight: 600;
 }
 
 .viewer-hint {
   min-width: 0;
-  color: rgba(255, 255, 255, 0.65);
+  color: color-mix(in srgb, var(--sunken-ink) 65%, transparent);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -466,8 +514,8 @@ button[aria-pressed="true"] {
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  background: #fff;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  background: var(--surface-raised);
+  box-shadow: 0 8px 32px color-mix(in srgb, var(--shadow) 50%, transparent);
 }
 
 .viewer-page img {
@@ -479,7 +527,7 @@ button[aria-pressed="true"] {
 
 .viewer-page .placeholder {
   padding: 1em;
-  color: var(--muted);
+  color: var(--text-muted);
   text-align: center;
 }
 
@@ -501,8 +549,8 @@ button[aria-pressed="true"] {
   padding: 0;
   font-size: 28px;
   line-height: 1;
-  color: #fff;
-  background: rgba(255, 255, 255, 0.08);
+  color: var(--sunken-ink);
+  background: color-mix(in srgb, var(--sunken-ink) 8%, transparent);
   border-color: transparent;
 }
 
@@ -515,7 +563,7 @@ button[aria-pressed="true"] {
 }
 
 .viewer-nav:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.2);
+  background: color-mix(in srgb, var(--sunken-ink) 20%, transparent);
   border-color: transparent;
 }
 
@@ -528,13 +576,13 @@ button[aria-pressed="true"] {
   gap: 12px;
   padding: 6px 12px;
   border-top: 1px solid var(--border);
-  background: var(--panel);
+  background: var(--surface-raised);
   color: var(--text);
   font-size: 12px;
 }
 
 .muted {
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 .context-menu {
@@ -544,10 +592,10 @@ button[aria-pressed="true"] {
   flex-direction: column;
   min-width: 180px;
   padding: 4px;
-  background: var(--panel);
+  background: var(--surface-raised);
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--shadow) 15%, transparent);
 }
 
 .context-menu button {
@@ -567,8 +615,8 @@ button[aria-pressed="true"] {
   align-items: center;
   justify-content: center;
   font-size: 20px;
-  color: var(--accent);
-  background: rgba(219, 231, 243, 0.85);
+  color: var(--accent-strong);
+  background: color-mix(in srgb, var(--accent-soft) 85%, transparent);
   border: 3px dashed var(--accent);
   border-radius: 12px;
   pointer-events: none;

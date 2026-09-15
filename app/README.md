@@ -230,8 +230,10 @@ lancement d'un fichier téléchargé (voir « Installer » dans le `README.md` �
 la racine).
 
 `icons/icon.svg` est la source de toutes les icônes : un « 4Y » en formes
-simples, sans fonte, sur la couleur d'accent de l'interface, en attendant la
-vraie identité visuelle. Pour les régénérer, depuis `app/` :
+simples, sans fonte, sur `#1f4e79`, le bleu qui était l'accent de l'interface
+avant sa palette ambre ([docs/couleurs.md](../docs/couleurs.md)), en
+attendant une icône à la nouvelle identité. Pour les régénérer, depuis
+`app/` :
 `.tools/tauri-cli/bin/cargo-tauri icon icons/icon.svg -o <dossier temporaire>`,
 puis copier dans `icons/` les fichiers de `bundle > icon` et `icon.png` (la
 commande produit aussi des icônes Android, iOS et Microsoft Store, inutiles
@@ -252,6 +254,7 @@ ici).
 | `ui/src/thumbnails.ts` | chargement progressif : une page visible est demandée avant les autres ; pendant la vue d'une page, aucune demande tant qu'elle dessine, puis une à la fois pour le panneau |
 | `ui/src/viewer.ts` | vue d'une page à côté du panneau de vignettes ou par-dessus la grille : navigation, numéro de page à taper, largeur de rendu adaptée à la fenêtre, page affichée puis ses voisines |
 | `ui/src/api.ts` | façade typée des commandes ; `tauri.d.ts` décrit le sous-ensemble de l'API globale de Tauri utilisé |
+| `ui/styles.css` | la feuille de style ; en tête, les couleurs en deux niveaux, couleurs brutes puis rôles, décrites par [docs/couleurs.md](../docs/couleurs.md) |
 | `ui/tests/` | tests de la logique sans DOM, exécutés par QuickJS-ng ; `check.ts` est leur harnais |
 | `tauri.conf.json`, `capabilities/` | fenêtre unique, ouverte par `main.rs`, `withGlobalTauri`, permissions `core:default` et `dialog:default`, plus larges que ce que l'interface utilise (`docs/backlog-technique.md`) ; identité de l'application, icônes, réglages de l'installeur et de WebView2 |
 | `tauri.bundle.json` | fusionné à `tauri.conf.json` par `tools/package_app.py` : active l'empaquetage et liste les fichiers livrés à côté de l'exécutable |
