@@ -144,4 +144,31 @@ la liste une fois fait.
   le filtre ; Maj+F6 et un déplacement du focus n'ont pas été vérifiés. À
   essayer au clavier avant de décider s'ils rejoignent la liste
   (`app/README.md`, « Raccourcis du navigateur neutralisés »).
+- [ ] **Rien ne distingue à l'écran un build de développement d'un build
+  empaqueté ou d'une version installée** (consigné le 14 septembre 2026, en
+  essayant la neutralisation des raccourcis du navigateur). La fenêtre
+  s'appelle « 4YouPDF » quel que soit le build (`app/tauri.conf.json`,
+  `ui/index.html`), et aucun écran ne donne la version. Le correctif a
+  d'abord été essayé dans `target\release\4YouPDF.exe`, empaqueté le
+  13 septembre, avant le filtre, sans moyen de s'en apercevoir ; ce détour
+  se reproduira à chaque essai. Un marqueur visible l'éviterait : la version
+  dans la barre d'état, ou un titre différent en développement. La version
+  seule n'aurait pas suffi cette fois : cet exécutable et le build de
+  développement du 14 septembre portent tous deux 0.3.3 dans leurs
+  propriétés de fichier (lues par script) ; il y faudrait aussi le commit ou
+  la date de compilation. Un titre propre au développement ferait différer
+  ce que montrent les deux builds, alors que « le build qu'on essaie doit se
+  comporter comme celui qu'on livre » (`app/README.md`, « Outils de
+  développement neutralisés dans tous les builds »), et `main.ts` ne peut
+  pas encore changer le titre (« Bug : le titre de la fenêtre ne prend pas
+  le nom du document », plus haut).
+- [ ] **La vignette d'une page tournée casse l'alignement de sa ligne**
+  (consigné le 14 septembre 2026). Une page en paysage donne une vignette
+  moins haute, et son numéro n'est plus à la hauteur de ceux de ses voisines
+  (vu à l'écran). Lu dans le code : le cadre de l'image prend les
+  proportions de la page affichée, `/Rotate` compris (`pageRatio`, dans
+  `viewer.ts`), et le numéro le suit dans la tuile, que la grille étire à la
+  hauteur de sa ligne (`styles.css`) ; toute page en paysage le fait,
+  tournée ou non. Les tuiles devraient réserver la même hauteur quelle que
+  soit l'orientation, le numéro se plaçant toujours en bas.
    
