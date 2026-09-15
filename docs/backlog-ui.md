@@ -163,12 +163,51 @@ la liste une fois fait.
   pas encore changer le titre (« Bug : le titre de la fenêtre ne prend pas
   le nom du document », plus haut).
 - [ ] **La vignette d'une page tournée casse l'alignement de sa ligne**
-  (consigné le 14 septembre 2026). Une page en paysage donne une vignette
-  moins haute, et son numéro n'est plus à la hauteur de ceux de ses voisines
-  (vu à l'écran). Lu dans le code : le cadre de l'image prend les
+  (consigné le 14 septembre 2026, corrigé le 15). Une page en paysage donne
+  une vignette moins haute, et son numéro se retrouve plus haut que ceux de
+  ses voisines (vu à l'écran : la première version de cette entrée disait
+  l'inverse). C'est ce que dit le code : le cadre de l'image prend les
   proportions de la page affichée, `/Rotate` compris (`pageRatio`, dans
-  `viewer.ts`), et le numéro le suit dans la tuile, que la grille étire à la
-  hauteur de sa ligne (`styles.css`) ; toute page en paysage le fait,
-  tournée ou non. Les tuiles devraient réserver la même hauteur quelle que
-  soit l'orientation, le numéro se plaçant toujours en bas.
+  `viewer.ts`), et le numéro le suit, collé sous une image moins haute,
+  dans une tuile que la grille étire à la hauteur de sa ligne
+  (`styles.css`) ; toute page en paysage le fait, tournée ou non. Les tuiles
+  devraient réserver la même hauteur quelle que soit l'orientation, le
+  numéro se plaçant toujours en bas.
+- [ ] **L'icône garde l'ancien accent bleu** (consigné le 15 septembre 2026,
+  en posant la palette ambre). `app/icons/icon.svg`, source de toutes les
+  icônes, peint son « 4Y » sur `#1f4e79`, l'accent d'avant la palette : dans
+  la barre des tâches, où l'ambre devait distinguer 4YouPDF des applications
+  PDF rouges, l'application reste bleue. La session des couleurs excluait
+  l'icône (`docs/couleurs.md`).
+- [ ] **Contrastes sous les seuils de WCAG 2.1** (consigné le 15 septembre
+  2026, en posant la palette ambre). Calculés, pas estimés, pour 4,5 : 1 sur
+  du texte et 3 : 1 sur un contour ; tous étaient déjà sous le seuil avec
+  l'ancienne palette, dont la valeur suit entre parenthèses. Deux paires ont
+  été corrigées le jour même, le bord des champs de texte (`--field-border`,
+  3,23 : 1 au plus bas) et l'accent sur le fond de la vue (3,01 : 1,
+  `docs/couleurs.md`). Restent, sans correction décidée :
+  - `--border`, bord des boutons et des vignettes : 1,37 : 1 sur
+    `--surface-raised`, 1,31 : 1 sur `--surface` (1,36 et 1,24). Dans la
+    barre d'outils, un bouton a le fond de la barre, et seul ce bord le
+    délimite ; son libellé le nomme ;
+  - le fond du champ de mot de passe contre son bandeau, 1,19 : 1 (1,09) :
+    le champ est délimité par son bord, à 3,23 : 1 ;
+  - l'anneau de la vignette sélectionnée, `--accent-soft` sur `--surface` :
+    1,06 : 1 (1,15). Il double la bordure `--accent`, à 4,92 : 1, qui porte
+    l'état seule : pas de correction proposée.
+
+  Choix, et non défaut : le texte d'attente des vignettes (« … », « aperçu
+  indisponible ») reste en `--border`, à 1,37 : 1 (1,36). C'est un signe
+  transitoire sur une vignette qui va se remplir, discret exprès ;
+  `--text-muted` le porterait à 5,93 : 1.
+- [ ] **L'anneau de focus reste celui du moteur web** (consigné le
+  15 septembre 2026, en posant la palette ambre). La feuille ne dessine
+  aucun style de focus pour les boutons ni pour le champ de mot de passe :
+  Chromium y met son anneau par défaut, dont la couleur calculée, `#101010`
+  sur le champ de mot de passe, ne suit ni les rôles ni `color-scheme: dark`
+  (mesuré par DevTools, `docs/couleurs.md`, « Thème sombre »). La sélection
+  de texte dans les champs et les barres de défilement de la grille restent
+  aussi au moteur. Un anneau aux couleurs de l'application, que demandera un
+  thème sombre, passe par une règle de focus qui changerait la forme de
+  l'anneau, pas seulement sa couleur : hors de la session des couleurs.
    

@@ -235,3 +235,13 @@ diffère ; seul l'épinglage des actions par SHA est entamé (`ci.yml`).
   `core.autocrlf=true`, Git avertit à chaque modification de ces fichiers, en
   LF dans l'index comme dans la copie de travail (`git ls-files --eol`),
   que « LF will be replaced by CRLF the next time Git touches it ».
+- [ ] **Faire tenir la règle des couleurs par l'outillage** (consigné le
+  15 septembre 2026, en posant la palette ambre). `docs/couleurs.md`
+  n'admet de valeur de couleur que dans le premier bloc `:root` de
+  `app/ui/styles.css`, et de couleur brute que dans le bloc des rôles, mais
+  rien ne le vérifie : la session l'a contrôlé par un script jetable. Un
+  contrôle dans `tools/build_ui.py` refuserait, hors de ces blocs, un code
+  hexadécimal, une fonction de couleur (`rgb()`, `hsl()`…), un nom de
+  couleur ou le `var()` d'une couleur brute, ainsi qu'un `var()` qui ne
+  nomme rien. Il n'agirait sur les pushes qu'une fois `build_ui.py` lancé
+  par `ci.yml` (« Vérifier l'interface dans la CI », plus haut).
