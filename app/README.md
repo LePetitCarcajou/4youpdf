@@ -243,12 +243,12 @@ ici).
 
 | Fichier | Rôle |
 |---|---|
-| `src/main.rs` | commandes exposées à l'interface : ouvrir, fermer, état du rendu, fichier passé en ligne de commande, rendre une page, faire pivoter des pages, enregistrer, dialogues de fichiers ; ouverture de la fenêtre (profil WebView2 d'une copie portable) ; message et arrêt si WebView2 manque |
+| `src/main.rs` | commandes exposées à l'interface : ouvrir, fermer, état du rendu, fichier passé en ligne de commande, rendre une page, faire pivoter des pages, enregistrer, dialogues de fichiers, modifications non enregistrées déclarées, fermeture de la fenêtre ; ouverture de la fenêtre (profil WebView2 d'une copie portable) ; fermeture refusée et portée à l'interface tant que le document est déclaré modifié ; message et arrêt si WebView2 manque |
 | `src/session.rs` | le document ouvert vu par `fyp-core` : pages, réparation, chiffrement ; rotation par `ops::rotate`, qui réécrit le document gardé en mémoire ; enregistrement par `ops::extract_pages` |
 | `src/render.rs` | images des pages (vignettes, vue d'une page) : thread dédié qui charge PDFium et sert les demandes une à une ; où chercher la bibliothèque ; seul endroit qui connaît `pdfium-render`. Le banc de fidélité du rendu (`tools/render_bench`) compile ce fichier tel quel et appelle ses trois étapes une à une : ouvrir, dessiner, encoder |
-| `ui/src/main.ts` | la fenêtre : grille, glisser-déposer, sélection, menu contextuel, panneau de vignettes à côté de la vue d'une page, clavier, raccourcis du navigateur neutralisés, avis en place |
-| `ui/src/history.ts` | ordre et rotation des pages, avec annuler et refaire ; une rotation est faite par le côté Rust, une à la fois |
-| `ui/src/notices.ts` | bandeaux au-dessus de la grille, sans DOM : seule une ouverture réussie les remplace |
+| `ui/src/main.ts` | la fenêtre : grille, glisser-déposer, sélection, menu contextuel, panneau de vignettes à côté de la vue d'une page, clavier, raccourcis du navigateur neutralisés, avis en place, question posée avant de perdre des modifications |
+| `ui/src/history.ts` | ordre et rotation des pages, avec annuler et refaire ; une rotation est faite par le côté Rust, une à la fois ; ce qui compte comme modifié, et le point d'enregistrement |
+| `ui/src/notices.ts` | bandeaux au-dessus de la grille, sans DOM : seule une ouverture réussie les remplace ; la question avant de perdre des modifications et ses trois issues |
 | `ui/src/pagenumber.ts` | numéros de la vue d'une page, sans DOM : légende, lecture du numéro tapé pour aller à une page (une position dans l'ordre actuel), aide et refus |
 | `ui/src/shortcuts.ts` | raccourcis du navigateur neutralisés, sans DOM : la liste, chacun reconnu par son code de touche virtuelle et ses modificateurs exacts |
 | `ui/src/thumbnails.ts` | chargement progressif : une page visible est demandée avant les autres ; pendant la vue d'une page, aucune demande tant qu'elle dessine, puis une à la fois pour le panneau |
@@ -279,6 +279,10 @@ ici).
   annoncé ; le nom proposé est celui du fichier d'origine suivi de
   `-modifié`. Le fichier d'origine n'est remplacé que si on le choisit comme
   destination.
+- Un document qui porte des modifications non enregistrées est marqué
+  « — modifié » après son nom dans la barre d'outils, et rien ne les perd
+  sans demander : fermer la fenêtre ou ouvrir un autre fichier pose la
+  question en place (voir « Modifications non enregistrées »).
 - Un fichier réparé (table reconstruite, `startxref` corrigé) ou chiffré
   est annoncé au-dessus de la grille, avec la cause et la description du
   chiffrement que donne aussi `fyp info` ; un fichier protégé par un mot de
@@ -459,6 +463,81 @@ la convention des lecteurs PDF de Chrome et d'Edge, demandent AltGr sur un
 clavier AZERTY ; Ctrl+flèches reste libre pour déplacer le focus sans
 changer la sélection, comme dans une liste.
 
+### Modifications non enregistrées
+
+Le document est **modifié** quand ce qu'`Enregistrer sous…` écrirait n'est
+pas sur le disque : l'ordre des pages, ou la rotation d'une page, diffère du
+fichier tel qu'il a été ouvert, ou tel qu'il a été enregistré en dernier.
+C'est le contenu qui compte, pas le chemin suivi (`history.ts`, `modified`) :
+
+- annuler jusqu'à revenir à l'état d'origine rend le document intact ;
+- une rotation suivie de la rotation inverse, plutôt que de Ctrl+Z, le rend
+  intact aussi : le côté Rust a réécrit le document deux fois, mais ses pages
+  sont celles du fichier, et l'enregistrement réécrit de toute façon le
+  fichier entier ;
+- `Enregistrer sous…` le rend intact, quel que soit le fichier écrit : ce
+  qu'il enregistrerait est sur le disque. Le document en mémoire reste le
+  fichier ouvert, sous son nom, et une modification faite après, ou
+  l'annulation d'une modification faite avant, le rend modifié de nouveau ;
+- une réparation à l'ouverture ou un chiffrement que l'enregistrement ne
+  reporte pas ne sont pas des modifications : ils sont annoncés par leurs
+  bandeaux ;
+- une rotation en cours, dont le résultat n'est pas encore connu, compte
+  comme non enregistrée le temps qu'elle dure (`unsaved`).
+
+Le nom du document, dans la barre d'outils, est suivi de « — modifié » tant
+que c'est le cas, dans la couleur du texte (`--text`, aucun rôle ajouté). Le
+titre de la fenêtre ne le dit pas : il ne prend même pas le nom du document
+(`docs/backlog-ui.md`).
+
+Perdre ces modifications demande d'abord. Trois chemins les perdaient sans
+un mot ; les deux qui existent sont couverts, le troisième n'existe pas :
+
+- **fermer la fenêtre** : la croix, Alt+F4 et le menu du système. La
+  demande passe par le côté Rust, seul à voir la fermeture :
+  `on_window_event` de Tauri reçoit `CloseRequested` avec un `api` dont
+  `prevent_close` garde la fenêtre ouverte, sans `unsafe`. L'interface lui
+  dit à chaque changement si le document porte des modifications
+  (`document_modified`) ; sur ce mot seul, la fermeture est refusée et
+  l'événement `fyp://close-requested` porté à l'interface, qui pose la
+  question. Elle ferme elle-même la fenêtre une fois la question réglée
+  (`close_window`, qui appelle `destroy` : `close` relancerait
+  `CloseRequested`). Un document intact se ferme sans rien demander, y
+  compris quand l'interface ne répondrait plus ; si l'interface ne peut pas
+  être prévenue, la fenêtre se ferme plutôt que de rester ouverte pour de
+  bon ;
+- **ouvrir un autre fichier** : Ctrl+O, le bouton `Ouvrir…`, un dépôt de
+  fichier. L'interface pose la question avant d'ouvrir. Le mot de passe
+  tapé pour un fichier chiffré poursuit une ouverture déjà choisie : il ne
+  redemande pas ;
+- **un fichier passé en ligne de commande** n'est lu qu'au lancement, avant
+  toute modification ; lancer l'application une seconde fois avec un fichier
+  ouvre une seconde fenêtre, dans un second processus, sans toucher à la
+  première. Ce cas n'existe pas.
+
+La question est un bandeau au-dessus de la grille, pas une boîte modale :
+l'ADR 0004 veut pour l'irréversible un arrêt explicite en place, à
+confirmation active, et c'est le seul endroit où une boîte se serait
+justifiée. Ce qui empêche réellement la fermeture n'est pas le bandeau, mais
+le refus du côté Rust, qui le précède : la fenêtre ne se ferme que sur la
+demande de l'interface. Le bandeau nomme le document et ce qu'on allait
+faire (« « nom.pdf » a des modifications non enregistrées. Les enregistrer
+avant de fermer 4YouPDF ? », « … avant d'ouvrir « autre.pdf » ? »), et offre
+trois issues, jamais deux :
+
+| Bouton | Effet |
+|---|---|
+| `Enregistrer sous…` | le sélecteur de fichiers ; le fichier écrit, la fermeture ou l'ouverture se fait ; sélecteur annulé ou écriture ratée, rien d'autre ne se passe, la question est à reposer |
+| `Fermer sans enregistrer`, `Ouvrir sans enregistrer` | l'action, telle quelle |
+| `Annuler` | rien : le document reste, avec ses modifications et son historique |
+
+Le clavier va sur `Annuler` : Entrée pressée par réflexe ne perd rien. Le
+bandeau n'a pas de croix, ne disparaît ni sur un clic ailleurs ni sur Échap,
+et une seconde demande (Alt+F4 de nouveau, un autre dépôt) le remplace par
+la question correspondante : une seule à la fois. Ouvrir un autre document
+le remplace avec les autres bandeaux. On peut continuer à travailler pendant
+qu'il est affiché.
+
 ### Raccourcis du navigateur neutralisés
 
 wry laisse actifs les raccourcis de navigateur de WebView2 : F5 rechargeait
@@ -564,7 +643,10 @@ cours ouvert, enregistrement d'un réordonnancement, rotation (relative à la
 rotation de chaque page, héritée ou non, ramenée dans 0..360, enregistrée ;
 document chiffré tourné en clair ; rotation refusée sans effet ; rotation
 appliquée seulement au document qu'elle vise, jamais à un fichier ouvert
-entre-temps), emplacements de PDFium (un paquet ne cherche jamais dans le
+entre-temps), fermeture refusée seulement tant que l'interface déclare le
+document modifié (un document ouvert ou fermé ne l'est plus ; une ouverture
+ratée garde les modifications ; l'interface injoignable, la fenêtre se
+ferme), emplacements de PDFium (un paquet ne cherche jamais dans le
 dépôt dont il vient), dossier `data` qui rend une copie portable,
 configuration (fenêtre ouverte par l'application, pas de version propre,
 zoom de WebView2 laissé coupé),
@@ -576,9 +658,14 @@ page tournée, dessinée couchée.
 tests de `ui/tests/` : chaque `*.test.ts` est assemblé par esbuild et lancé
 par QuickJS-ng, sans DOM ni Node ; `--check` s'arrête là. Ils portent sur
 la logique qui se passe du DOM : les bandeaux à l'ouverture d'un fichier
-(échec, mot de passe, succès), l'historique des pages (déplacements et
-suppressions annulés sur place, rotations faites et annulées par un côté
-Rust simulé, une à la fois, rotation refusée sans effet), le numéro tapé
+(échec, mot de passe, succès), la question avant de perdre des modifications
+(nomme le document et le fichier à ouvrir, trois issues, une question à la
+fois, mot de passe qui poursuit une ouverture choisie), l'historique des
+pages (déplacements et suppressions annulés sur place, rotations faites et
+annulées par un côté Rust simulé, une à la fois, rotation refusée sans
+effet ; ce qui compte comme modifié : contenu comparé au fichier ouvert ou
+enregistré, annulation et rotation inverse qui rendent le document intact,
+rotation en cours non enregistrée, point d'enregistrement), le numéro tapé
 pour aller à une page (position dans l'ordre actuel, y compris après
 déplacements et suppressions ; numéro hors de portée ou qui n'en est pas un ;
 légende, aide et refus), le nombre de vignettes demandées à la fois selon

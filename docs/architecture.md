@@ -459,7 +459,14 @@ résultat ; pour Windows, un installeur et une archive portable. Répartition :
   bandeaux sont des données (`notices.ts`) : ceux d'un document ne sont
   remplacés qu'à l'ouverture réussie d'un autre fichier ; une tentative
   ratée, ou un fichier qui attend son mot de passe, laisse le document
-  affiché et ses bandeaux en place. Les raccourcis de navigateur que wry
+  affiché et ses bandeaux en place. Le document est modifié quand ce que
+  l'enregistrement écrirait, ordre et rotations, diffère du fichier ouvert
+  ou enregistré en dernier (`history.ts`), et rien ne perd ces
+  modifications sans demander : l'interface déclare cet état au côté Rust,
+  qui refuse la fermeture de la fenêtre (`CloseRequested`, `prevent_close`)
+  tant qu'il tient et la lui renvoie ; la question, trois issues dans un
+  bandeau, précède aussi l'ouverture d'un autre fichier
+  (`app/README.md`, « Modifications non enregistrées »). Les raccourcis de navigateur que wry
   laisse actifs dans WebView2 sont neutralisés par l'interface
   (`shortcuts.ts`), qui empêche leur action par défaut : F5 y rechargeait la
   page, et le travail non enregistré partait avec son historique. WebView2

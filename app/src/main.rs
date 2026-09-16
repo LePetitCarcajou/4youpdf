@@ -8,6 +8,13 @@
 //! history live in the interface; this side only knows the open document,
 //! as turned so far: the interface undoes a rotation by asking for the
 //! opposite one.
+//!
+//! Whether the document carries unsaved changes is decided by the
+//! interface too, which reports it here (`document_modified`): on that
+//! word, a request to close the window (the cross, Alt+F4, the system
+//! menu) is refused and handed to the interface, which asks in place what
+//! to do, and closes the window itself (`close_window`) once that is
+//! settled.
 
 #![forbid(unsafe_code)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -16,12 +23,12 @@ mod render;
 mod session;
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use base64::Engine as _;
 use serde::Serialize;
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
 
 use render::RenderService;
@@ -64,22 +71,54 @@ struct AppState {
     session: Mutex<Option<Session>>,
     render: Arc<RenderService>,
     next_id: AtomicU64,
+    /// Whether the document carries unsaved changes, as the interface last
+    /// reported (`document_modified`): what holds the window open when
+    /// closing is asked for. A document just opened, or closed, has none.
+    unsaved: AtomicBool,
 }
 
 impl AppState {
+    fn new(render: Arc<RenderService>) -> AppState {
+        AppState {
+            session: Mutex::new(None),
+            render,
+            next_id: AtomicU64::new(1),
+            unsaved: AtomicBool::new(false),
+        }
+    }
+
     fn session(&self) -> std::sync::MutexGuard<'_, Option<Session>> {
         self.session.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Open `path` and make it the current document. The current document
     /// is replaced only once the new one is open: when opening fails, it
-    /// stays current, as the interface keeps showing it.
+    /// stays current, as the interface keeps showing it, with its unsaved
+    /// changes.
     fn open(&self, path: &Path, password: &str) -> Result<DocumentInfo, AppError> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let session = Session::open(id, path, password)?;
         let info = session.info.clone();
         *self.session() = Some(session);
+        self.unsaved.store(false, Ordering::Relaxed);
         Ok(info)
+    }
+
+    /// Forget the current document, and the unsaved changes it carried.
+    fn close(&self) {
+        *self.session() = None;
+        self.unsaved.store(false, Ordering::Relaxed);
+    }
+
+    /// What the interface reports about unsaved changes.
+    fn set_unsaved(&self, unsaved: bool) {
+        self.unsaved.store(unsaved, Ordering::Relaxed);
+    }
+
+    /// Whether a request to close the window must be refused and handed to
+    /// the interface: work would be lost otherwise.
+    fn asks_before_closing(&self) -> bool {
+        self.unsaved.load(Ordering::Relaxed)
     }
 
     /// The current document as rendering and rotating take it.
@@ -161,7 +200,58 @@ fn open_document(
 /// Forget the current document.
 #[tauri::command]
 fn close_document(state: State<'_, AppState>) {
-    *state.session() = None;
+    state.close();
+}
+
+/// The interface says whether the document carries unsaved changes
+/// (`history.ts`, `unsaved`): from then on, closing the window asks first.
+#[tauri::command]
+fn document_modified(state: State<'_, AppState>, modified: bool) {
+    state.set_unsaved(modified);
+}
+
+/// Close the window for good: the interface settled what to do with the
+/// unsaved changes, or there were none. `destroy` closes without asking
+/// again, unlike `close`, which would raise `CloseRequested` once more.
+#[tauri::command]
+fn close_window(window: tauri::Window) -> Result<(), AppError> {
+    window
+        .destroy()
+        .map_err(|e| AppError::other(format!("la fenêtre ne se ferme pas : {e}")))
+}
+
+/// The event the interface listens to when a request to close the window
+/// is refused here: it asks what to do, then calls `close_window` or not.
+const CLOSE_REQUESTED: &str = "fyp://close-requested";
+
+/// Whether a request to close the window must be refused: the document
+/// carries unsaved changes, and the interface could be told (`ask`), so
+/// that it asks in place. When it cannot be told, the window closes: a
+/// window nobody can close again is worse than the question not asked.
+fn refuses_closing(state: Option<&AppState>, ask: impl FnOnce() -> tauri::Result<()>) -> bool {
+    match state {
+        Some(state) if state.asks_before_closing() => match ask() {
+            Ok(()) => true,
+            Err(e) => {
+                eprintln!("4YouPDF: closing without asking, the interface could not be told: {e}");
+                false
+            }
+        },
+        _ => false,
+    }
+}
+
+/// Window events: a request to close (the cross, Alt+F4, the system menu)
+/// goes through [`refuses_closing`]. No `unsafe`: Tauri exposes the
+/// request with an api whose `prevent_close` keeps the window open, and
+/// the interface is told by an event.
+fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
+    if let WindowEvent::CloseRequested { api, .. } = event {
+        let state = window.try_state::<AppState>();
+        if refuses_closing(state.as_deref(), || window.emit(CLOSE_REQUESTED, ())) {
+            api.prevent_close();
+        }
+    }
 }
 
 /// Whether thumbnails can be drawn, and why not otherwise.
@@ -351,18 +441,17 @@ fn main() {
     let render = Arc::new(RenderService::start(&render::library_candidates(
         development,
     )));
-    let state = AppState {
-        session: Mutex::new(None),
-        render,
-        next_id: AtomicU64::new(1),
-    };
+    let state = AppState::new(render);
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(state)
         .setup(|app| open_main_window(app))
+        .on_window_event(on_window_event)
         .invoke_handler(tauri::generate_handler![
             open_document,
             close_document,
+            document_modified,
+            close_window,
             renderer_status,
             initial_file,
             render_page,
@@ -394,11 +483,7 @@ mod tests {
     /// open here as well, for its pages to render and to be saved.
     #[test]
     fn a_failed_open_keeps_the_current_document() {
-        let state = AppState {
-            session: Mutex::new(None),
-            render: Arc::new(RenderService::start(&[])),
-            next_id: AtomicU64::new(1),
-        };
+        let state = AppState::new(Arc::new(RenderService::start(&[])));
         let current = || {
             state
                 .session()
@@ -435,11 +520,7 @@ mod tests {
     /// before it was even asked for, is turned in place of the one meant.
     #[test]
     fn a_rotation_applies_only_to_the_document_it_was_meant_for() {
-        let state = AppState {
-            session: Mutex::new(None),
-            render: Arc::new(RenderService::start(&[])),
-            next_id: AtomicU64::new(1),
-        };
+        let state = AppState::new(Arc::new(RenderService::start(&[])));
         let bytes_of = |state: &AppState| state.current().map(|c| (c.id, c.bytes));
         assert!(state.rotate(1, &[0], 90).is_err(), "no document open");
         let first = state.open(&fixture("minimal.pdf"), "").expect("open");
@@ -463,6 +544,52 @@ mod tests {
             state.rotate(second.document, &[0], -90).expect("rotate")[0].rotate,
             270
         );
+    }
+
+    /// Closing asks only on the interface's word that the document carries
+    /// unsaved changes, and only while that word stands: a document just
+    /// opened, or closed, has none. When the interface cannot be told, the
+    /// window closes rather than staying open for good.
+    #[test]
+    fn closing_asks_only_while_the_document_is_reported_modified() {
+        let state = AppState::new(Arc::new(RenderService::start(&[])));
+        let told = std::cell::Cell::new(0);
+        let tell = || {
+            told.set(told.get() + 1);
+            Ok(())
+        };
+        assert!(!refuses_closing(None, tell), "no state managed");
+        assert!(!refuses_closing(Some(&state), tell), "nothing open");
+
+        state.open(&fixture("minimal.pdf"), "").expect("open");
+        assert!(!refuses_closing(Some(&state), tell), "just opened");
+        state.set_unsaved(true);
+        assert!(refuses_closing(Some(&state), tell), "modified");
+        assert_eq!(told.get(), 1, "the interface is told once, when refused");
+        assert!(
+            !refuses_closing(Some(&state), || Err(tauri::Error::WebviewNotFound)),
+            "the interface cannot be told: the window closes"
+        );
+        assert!(state.asks_before_closing(), "still modified");
+
+        state.set_unsaved(false);
+        assert!(!refuses_closing(Some(&state), tell), "saved");
+        state.set_unsaved(true);
+        state
+            .open(&fixture("minimal.pdf"), "")
+            .expect("open another");
+        assert!(
+            !refuses_closing(Some(&state), tell),
+            "another document opened"
+        );
+        state.set_unsaved(true);
+        assert!(
+            state.open(&fixture("absent.pdf"), "").is_err() && refuses_closing(Some(&state), tell),
+            "a failed opening keeps the document, and its changes"
+        );
+        state.close();
+        assert!(!refuses_closing(Some(&state), tell), "closed");
+        assert_eq!(told.get(), 2, "told only when refused");
     }
 
     /// A copy is portable when a `data` folder sits next to its executable,

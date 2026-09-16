@@ -75,6 +75,26 @@ export function closeDocument(): Promise<void> {
   return invoke<void>("close_document");
 }
 
+/// Tell the Rust side whether the document carries unsaved changes: it
+/// then holds the window open when closing is asked for, and asks the
+/// interface instead (`onCloseRequested`).
+export function documentModified(modified: boolean): Promise<void> {
+  return invoke<void>("document_modified", { modified });
+}
+
+/// Close the window for good, whatever the document carries: the Rust side
+/// asks nothing more.
+export function closeWindow(): Promise<void> {
+  return invoke<void>("close_window");
+}
+
+/// Closing the window was asked for (the cross, Alt+F4, the system menu)
+/// while the document was reported modified: the Rust side held it open,
+/// and `handler` decides.
+export function onCloseRequested(handler: () => void): Promise<() => void> {
+  return tauri().event.listen<null>("fyp://close-requested", () => handler());
+}
+
 export function rendererStatus(): Promise<RendererStatus> {
   return invoke<RendererStatus>("renderer_status");
 }

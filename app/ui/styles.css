@@ -241,6 +241,15 @@ button[aria-pressed="true"] {
   padding: 2px 8px;
 }
 
+/* The three ways out of the question asked before work would be lost
+   (main.ts, « Leaving »): save, go on without saving, cancel. */
+.notice .choices {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 /* The grid and, while a page is opened, the page view: over the grid, or
    beside it with the panel. */
 .workspace {

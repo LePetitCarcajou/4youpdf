@@ -3,13 +3,18 @@
 // look at one page at a time, beside the grid reduced to a panel of
 // thumbnails or over it, save through `fyp_core::ops` on the Rust side.
 // One window, no modal dialog but the system file pickers; every message
-// appears in place (ADR 0004).
+// appears in place (ADR 0004). Unsaved changes are never lost without a
+// word: closing the window or opening another file first asks, in place,
+// what to do with them (see « Leaving »).
 
 import {
   asAppError,
   closeDocument,
+  closeWindow,
+  documentModified,
   hasTauri,
   initialFile,
+  onCloseRequested,
   onFileDrop,
   openDocument,
   pickOpenFile,
@@ -21,7 +26,7 @@ import {
   type DocumentInfo,
 } from "./api.js";
 import { PageHistory, type Outcome } from "./history.js";
-import { attemptOpen, NoticeBoard, type Notice, type NoticeKind } from "./notices.js";
+import { attemptOpen, choices, NoticeBoard, type Leaving, type Notice, type NoticeKind } from "./notices.js";
 import { browserShortcut, stopsHere } from "./shortcuts.js";
 import { ThumbnailLoader, thumbnailSlots } from "./thumbnails.js";
 import { PageViewer, pageRatio } from "./viewer.js";
@@ -149,7 +154,7 @@ function renderNotices(): void {
       const box = noticeBox(n);
       noticeBoxes.set(n.id, box);
       ui.notices.append(box);
-      box.querySelector("input")?.focus();
+      box.querySelector<HTMLElement>("input, [data-autofocus]")?.focus();
     }
   }
 }
@@ -162,6 +167,12 @@ function noticeBox(n: Notice): HTMLElement {
   box.append(span);
   if (n.role === "password" && n.path !== null) {
     box.append(passwordForm(n.path));
+  }
+  if (n.role === "question" && n.leaving !== null) {
+    // Answered by its three buttons only: no cross, and nothing else
+    // dismisses it (ADR 0004, an explicit stop for the irreversible).
+    box.append(questionChoices(n.leaving));
+    return box;
   }
   const close = document.createElement("button");
   close.type = "button";
@@ -189,9 +200,30 @@ function passwordForm(path: string): HTMLFormElement {
   form.append(input, submit);
   form.addEventListener("submit", (event) => {
     event.preventDefault();
-    void open(path, input.value);
+    void requestOpen(path, input.value);
   });
   return form;
+}
+
+/// The three ways out of the question asked before `leaving`, as buttons.
+/// The keyboard goes to « Annuler »: Enter pressed by reflex loses nothing.
+function questionChoices(leaving: Leaving): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "choices";
+  for (const choice of choices(leaving)) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = choice.label;
+    if (choice.action === "save") {
+      button.className = "primary";
+    }
+    if (choice.action === "cancel") {
+      button.dataset["autofocus"] = "";
+    }
+    button.addEventListener("click", () => void answered(leaving, choice.action));
+    row.append(button);
+  }
+  return row;
 }
 
 /// Report something that happened, in place, until closed or until a
@@ -254,7 +286,67 @@ function loaded(info: DocumentInfo): void {
 async function chooseAndOpen(): Promise<void> {
   const path = await pickOpenFile();
   if (path !== null) {
-    await open(path);
+    await requestOpen(path);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Leaving: closing the window, or opening another file, while the document
+// carries unsaved changes (history.ts, `unsaved`)
+// ---------------------------------------------------------------------------
+
+/// Open `path` as the user asked (Ctrl+O, the button, a dropped file, a
+/// password typed), unless that would lose unsaved changes: then the
+/// question is asked in place, and its answer decides (`answered`).
+async function requestOpen(path: string, password?: string): Promise<void> {
+  if (mayLeave({ kind: "open", path })) {
+    await open(path, password);
+  }
+}
+
+/// Whether `leaving` may go ahead now: yes when nothing would be lost, or
+/// when a password is being typed for the file to open, an opening the
+/// user already chose. Otherwise the question is asked in place, in the
+/// place of the one asked before, and nothing else happens: the window
+/// stays open, the document on screen.
+function mayLeave(leaving: Leaving): boolean {
+  const info = state.info;
+  const history = state.history;
+  if (info === null || history === null || !history.unsaved) {
+    return true;
+  }
+  if (leaving.kind === "open" && notices.asksPasswordFor(leaving.path)) {
+    return true;
+  }
+  notices.ask(info.name, leaving);
+  renderNotices();
+  return false;
+}
+
+/// The question asked before `leaving` was answered by `action`. Saving
+/// goes on with `leaving` once the file is written; cancelled or failed,
+/// it leaves the document where it is, to be asked again.
+async function answered(leaving: Leaving, action: "save" | "discard" | "cancel"): Promise<void> {
+  notices.answered();
+  renderNotices();
+  if (action === "cancel") {
+    return;
+  }
+  if (action === "save" && !(await save())) {
+    return;
+  }
+  if (leaving.kind === "close") {
+    await closeWindow();
+  } else {
+    await open(leaving.path);
+  }
+}
+
+/// The Rust side held the window open because the document was reported
+/// modified: ask, or let it close when nothing would be lost after all.
+function closeRequested(): void {
+  if (mayLeave({ kind: "close" })) {
+    void closeWindow();
   }
 }
 
@@ -339,7 +431,22 @@ function refreshButtons(): void {
   ui.rotateLeft.disabled = !selected;
   ui.rotateRight.disabled = !selected;
   ui.save.disabled = !hasDoc;
-  ui.docName.classList.toggle("modified", hasDoc && history.modified);
+  const unsaved = hasDoc && history.unsaved;
+  ui.docName.classList.toggle("modified", unsaved);
+  reportUnsaved(unsaved);
+}
+
+/// What the Rust side was last told about unsaved changes.
+let reported = false;
+
+/// Keep the Rust side told whether closing would lose work, whenever that
+/// changes: it holds the window open on that word alone (see « Leaving »).
+function reportUnsaved(unsaved: boolean): void {
+  if (unsaved === reported) {
+    return;
+  }
+  reported = unsaved;
+  void documentModified(unsaved);
 }
 
 /// Build the grid again with the keyboard focus on the same position, for
@@ -688,28 +795,34 @@ function edited(outcome: Outcome): void {
   refreshButtons();
 }
 
-async function save(): Promise<void> {
+/// Save as: `true` once the file is written; `false` when the picker was
+/// cancelled or writing failed. The document in memory stays the file
+/// opened, under its name, and is intact from then on: what it would save
+/// is on disk (`history.saved`).
+async function save(): Promise<boolean> {
   const info = state.info;
   const history = state.history;
   if (info === null || history === null) {
-    return;
+    return false;
   }
   const stem = info.name.replace(/\.pdf$/i, "");
   const path = await pickSaveFile(`${stem}-modifié.pdf`);
   if (path === null) {
-    return;
+    return false;
   }
   if (history.busy) {
     // The file saved must hold the rotations asked for.
     setStatus("Enregistrement à la fin de la rotation en cours…");
     await history.idle();
     if (state.history !== history) {
-      return;
+      return false;
     }
   }
+  // What is written: an edit made while the file is written comes after.
+  const point = history.toSave;
   setStatus(`Enregistrement de ${path}…`);
   try {
-    const report = await saveDocument(path, [...history.order]);
+    const report = await saveDocument(path, [...point.order]);
     setStatus(
       `Enregistré : ${report.path} (${report.pages} page${report.pages > 1 ? "s" : ""}, ${formatSize(report.size)}).`,
     );
@@ -721,7 +834,13 @@ async function save(): Promise<void> {
     const message = error.kind === "other" ? error.message : "mot de passe";
     notice("error", `Enregistrement impossible : ${message}`);
     setStatus("Enregistrement impossible.");
+    return false;
   }
+  if (state.history === history) {
+    history.saved(point);
+    refreshButtons();
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -1065,9 +1184,12 @@ async function start(): Promise<void> {
     ui.dropOverlay.hidden = true;
     const pdf = paths.find((p) => p.toLowerCase().endsWith(".pdf")) ?? paths[0];
     if (pdf !== undefined) {
-      void open(pdf);
+      void requestOpen(pdf);
     }
   });
+  // The Rust side holds the window open while the document is reported
+  // modified, and asks here (« Leaving »).
+  await onCloseRequested(closeRequested);
   // The overlay follows the native drag events, which the webview also
   // reports through the same listener with other types.
   const webview = window.__TAURI__?.webview.getCurrentWebview();
@@ -1081,6 +1203,8 @@ async function start(): Promise<void> {
     });
   }
   window.addEventListener("beforeunload", () => void closeDocument());
+  // Read once, here, before any edit: a file given to a second launch of
+  // the application opens in that second window, and touches nothing here.
   const first = await initialFile();
   if (first !== null) {
     await open(first);

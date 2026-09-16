@@ -1,9 +1,10 @@
 // Notices when a file is opened: an attempt that fails leaves the document
 // on screen and its notices as they were, and adds a single error; only a
-// successful opening replaces them.
+// successful opening replaces them. The question asked before unsaved
+// changes would be lost is a notice too, with three ways out.
 
 import type { AppError, DocumentInfo } from "../src/api.js";
-import { attemptOpen, NoticeBoard } from "../src/notices.js";
+import { attemptOpen, choices, NoticeBoard } from "../src/notices.js";
 import { equal, run, test } from "./check.js";
 
 /// A document as the Rust side describes it.
@@ -113,6 +114,66 @@ test("only a successful opening replaces the notices", async () => {
     [["info", "document", "Le fichier annonce sa table à un mauvais endroit ; elle a été retrouvée à l'offset 209."]],
     "notices of the new document",
   );
+});
+
+test("the question before losing changes names the document, what it stands in the way of, and three ways out", async () => {
+  const board = await showingDamaged();
+  const before = [...board.list];
+
+  board.ask("abîmé.pdf", { kind: "close" });
+  equal(board.list.slice(0, 2), before, "notices of the document stay");
+  equal(
+    board.list.slice(2).map((n) => [n.kind, n.role, n.text, n.leaving]),
+    [["warn", "question", "« abîmé.pdf » a des modifications non enregistrées. Les enregistrer avant de fermer 4YouPDF ?", { kind: "close" }]],
+    "asked before closing",
+  );
+  equal(
+    choices({ kind: "close" }),
+    [
+      { action: "save", label: "Enregistrer sous…" },
+      { action: "discard", label: "Fermer sans enregistrer" },
+      { action: "cancel", label: "Annuler" },
+    ],
+    "three ways out of closing",
+  );
+
+  // Asked again, for another file this time: one question at a time.
+  const other = "C:\\docs\\autre.pdf";
+  board.ask("abîmé.pdf", { kind: "open", path: other });
+  equal(
+    board.list.slice(2).map((n) => [n.role, n.text, n.leaving]),
+    [
+      [
+        "question",
+        "« abîmé.pdf » a des modifications non enregistrées. Les enregistrer avant d'ouvrir « autre.pdf » ?",
+        { kind: "open", path: other },
+      ],
+    ],
+    "asked before opening, in place of the first question",
+  );
+  equal(
+    choices({ kind: "open", path: other }).map((c) => c.label),
+    ["Enregistrer sous…", "Ouvrir sans enregistrer", "Annuler"],
+    "three ways out of opening",
+  );
+
+  board.answered();
+  equal(board.list, before, "answered: gone, the rest as it was");
+});
+
+test("a password being typed goes on with the opening already chosen", async () => {
+  const board = await showingDamaged();
+  const secret = "C:\\docs\\secret.pdf";
+  equal(board.asksPasswordFor(secret), false, "no request yet");
+  await attemptOpen(board, answering({ kind: "wrong_password" }), secret);
+  equal([board.asksPasswordFor(secret), board.asksPasswordFor("C:\\docs\\autre.pdf")], [true, false], "asked for that file");
+
+  // The question, if asked meanwhile, and the request live side by side;
+  // a document opened clears both.
+  board.ask("abîmé.pdf", { kind: "close" });
+  equal(board.list.map((n) => n.role), ["document", "document", "password", "question"], "both");
+  await attemptOpen(board, answering(described(secret)), secret, "1234");
+  equal([board.list, board.asksPasswordFor(secret)], [[], false], "opened");
 });
 
 await run();

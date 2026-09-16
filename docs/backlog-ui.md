@@ -211,3 +211,19 @@ la liste une fois fait.
   thème sombre, passe par une règle de focus qui changerait la forme de
   l'anneau, pas seulement sa couleur : hors de la session des couleurs.
    
+- [ ] **`Enregistrer sous…` ne fait pas du fichier écrit le document
+  ouvert** (consigné le 15 septembre 2026, en posant la question avant de
+  perdre des modifications). Après un enregistrement sous un autre nom, la
+  barre d'outils nomme toujours le fichier d'origine, désormais sans marque
+  « — modifié » : ce que l'enregistrement écrirait est sur le disque, dans
+  l'autre fichier, et rien ne serait perdu en fermant. Mais le fichier
+  d'origine, lui, ne contient pas ce qui est affiché, et le prochain
+  `Enregistrer sous…` propose encore `origine-modifié.pdf` plutôt que le
+  fichier écrit. Les éditeurs font du fichier écrit le document courant ;
+  ici, cela demande de le rouvrir, avec ses bandeaux, sans perdre
+  l'historique (`app/README.md`, « Modifications non enregistrées »).
+- [ ] **La question avant de perdre des modifications ne liste qu'un
+  document** (consigné le 15 septembre 2026, en la posant). L'ADR 0004 veut
+  qu'avec plusieurs documents modifiés la fermeture les liste ; l'application
+  n'en ouvre qu'un aujourd'hui, et `notices.ts` ne garde qu'une question à la
+  fois, qui nomme ce document. À reprendre avec les documents multiples.

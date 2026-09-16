@@ -161,4 +161,101 @@ test("a rotation the Rust side refuses changes nothing", async () => {
   equal([history.pages, history.canUndo, history.canRedo], [pages(90, 0), true, false], "still to undo");
 });
 
+test("the document is modified when what it would save is not on disk, however it got there", async () => {
+  const rust = new RustSide();
+  const history = new PageHistory(pages(0, 0, 0), rust.rotator);
+  equal([history.modified, history.unsaved], [false, false], "as opened");
+
+  // Undone back to the file as opened: intact again.
+  history.move([0], 2);
+  equal([history.modified, history.unsaved], [true, true], "moved");
+  await history.undo();
+  equal([history.modified, history.unsaved], [false, false], "undone");
+
+  // Turned back by the opposite rotation rather than by undo: the Rust
+  // side rewrote the document twice, the pages are those of the file.
+  let turned = history.rotate([1], 90);
+  await settle();
+  rust.answer(pages(0, 90, 0));
+  await turned;
+  equal(history.modified, true, "turned");
+  turned = history.rotate([1], -90);
+  await settle();
+  rust.answer(pages(0, 0, 0));
+  await turned;
+  equal([history.modified, history.canUndo], [false, true], "turned back: intact, with two rotations to undo");
+
+  // Not by way of undo either: an edit that brings the same pages back.
+  history.remove([2]);
+  equal(history.order, [0, 1], "deleted");
+  await history.undo();
+  history.move([2], 2);
+  equal([history.order, history.modified], [[0, 1, 2], false], "a move that moves nothing is not an edit");
+});
+
+test("a rotation still running counts as unsaved, its result being unknown", async () => {
+  const rust = new RustSide();
+  const history = new PageHistory(pages(0, 0), rust.rotator);
+  const turned = history.rotate([0], 90);
+  equal([history.modified, history.unsaved], [false, true], "asked for, not answered");
+  await settle();
+  rust.answer(pages(90, 0));
+  await turned;
+  equal([history.modified, history.unsaved], [true, true], "answered");
+
+  // Undoing it runs too: unsaved until the Rust side answers.
+  const undone = history.undo();
+  equal(history.unsaved, true, "undo running");
+  await settle();
+  rust.answer(pages(0, 0));
+  await undone;
+  equal([history.modified, history.unsaved], [false, false], "undone");
+
+  // A refused rotation leaves the document as it was: intact.
+  const refused = history.rotate([1], 90);
+  await settle();
+  rust.answer({ kind: "other", message: "page 1 : objet illisible" });
+  await refused;
+  equal([history.modified, history.unsaved], [false, false], "refused");
+});
+
+test("saving makes the document intact, until it differs from the file written", async () => {
+  const rust = new RustSide();
+  const history = new PageHistory(pages(0, 0, 0), rust.rotator);
+  history.move([0], 2);
+  const turned = history.rotate([1], 90);
+  await settle();
+  rust.answer(pages(0, 90, 0));
+  await turned;
+  equal(history.unsaved, true, "edited");
+
+  const point = history.toSave;
+  equal(point, { order: [1, 2, 0], pages: pages(0, 90, 0) }, "what saving writes");
+  history.saved(point);
+  equal([history.modified, history.unsaved, history.canUndo], [false, false, true], "saved: intact, history kept");
+
+  // An edit after saving, or undoing one made before, differs from the file.
+  history.remove([0]);
+  equal(history.modified, true, "edited after saving");
+  await history.undo();
+  equal(history.modified, false, "back to the file written");
+  const undone = history.undo();
+  await settle();
+  rust.answer(pages(0, 0, 0));
+  await undone;
+  equal([history.pages, history.modified], [pages(0, 0, 0), true], "undone past the file written");
+  const redone = history.redo();
+  await settle();
+  rust.answer(pages(0, 90, 0));
+  await redone;
+  equal(history.modified, false, "redone up to it");
+
+  // What is written is what `toSave` gave, not what came after: an edit
+  // made while the file was being written keeps the document modified.
+  const written = history.toSave;
+  history.move([0], 1);
+  history.saved(written);
+  equal([history.order, history.modified], [[2, 1, 0], true], "edited while writing");
+});
+
 await run();

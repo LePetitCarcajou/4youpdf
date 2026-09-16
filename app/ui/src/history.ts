@@ -12,6 +12,12 @@
 // asked for while another runs waits for its turn. Until the last one is
 // done, moving, deleting, undoing and redoing are refused, so that the
 // history keeps the order in which things were done.
+//
+// Whether the document carries unsaved changes is decided here too, by
+// what saving would write, not by what was done: the order and the
+// rotations are compared with those of the file as opened, or as last
+// saved. Undoing back to that state, or turning a page back by the
+// opposite rotation, leaves nothing to save.
 
 import { asAppError, type PageInfo } from "./api.js";
 
@@ -43,6 +49,14 @@ interface Rotation {
 
 type Edit = Reorder | Rotation;
 
+/// What saving writes: the order of the pages, and the pages as the Rust
+/// side describes them, the rotations included. The document is intact as
+/// long as it matches the last one written, or the file as opened.
+export interface SavePoint {
+  readonly order: readonly number[];
+  readonly pages: readonly PageInfo[];
+}
+
 const NONE: Outcome = { kind: "none" };
 
 export class PageHistory {
@@ -50,8 +64,8 @@ export class PageHistory {
   private future: Edit[] = [];
   private current: readonly number[];
   private described: readonly PageInfo[];
-  private readonly openedOrder: readonly number[];
-  private readonly openedPages: readonly PageInfo[];
+  /// The file as opened, or as last saved.
+  private reference: SavePoint;
   private readonly rotator: Rotator;
   /// Rotations running or waiting, and how many of them turn each page.
   private running = 0;
@@ -60,9 +74,8 @@ export class PageHistory {
 
   constructor(pages: readonly PageInfo[], rotator: Rotator) {
     this.current = pages.map((_, i) => i);
-    this.openedOrder = this.current;
     this.described = pages;
-    this.openedPages = pages;
+    this.reference = { order: this.current, pages };
     this.rotator = rotator;
   }
 
@@ -88,13 +101,35 @@ export class PageHistory {
     return !this.busy && this.future.length > 0;
   }
 
-  /// Whether the order, or the rotation of a page, differs from the file
-  /// as opened.
+  /// Whether the order, or the rotation of a page, differs from the file as
+  /// opened or as last saved (`saved`): what saving now would write is not
+  /// on disk. How it came to differ does not count: undone back to that
+  /// state, or turned back by the opposite rotation, the document is
+  /// intact again, whatever the Rust side rewrote meanwhile.
   get modified(): boolean {
     return (
-      !sameOrder(this.current, this.openedOrder) ||
-      this.described.some((page, i) => page.rotate !== this.openedPages[i]?.rotate)
+      !sameOrder(this.current, this.reference.order) ||
+      this.described.some((page, i) => page.rotate !== this.reference.pages[i]?.rotate)
     );
+  }
+
+  /// Whether closing, or opening another file, would lose work: the
+  /// document is modified, or a rotation still runs, whose result is not
+  /// known yet.
+  get unsaved(): boolean {
+    return this.busy || this.modified;
+  }
+
+  /// What saving now would write.
+  get toSave(): SavePoint {
+    return { order: this.current, pages: this.described };
+  }
+
+  /// `point`, taken from `toSave`, was written to a file: the document is
+  /// intact until it differs from it again, by an edit or by undoing one
+  /// made before.
+  saved(point: SavePoint): void {
+    this.reference = point;
   }
 
   /// Whether page `page` of the file is being turned, or waits to be.
