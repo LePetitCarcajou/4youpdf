@@ -21,10 +21,13 @@ portable archive, both with PDFium and the licences (ADR 0005).
 
 The versions are checked before anything is built, by tools/check_version.py
 (the application takes the version of the workspace), and --tag stops there
-too unless it names that version: the release workflow passes the Git tag,
-after running the same check in its own job. --out copies both files into
-DIR. The SHA-256 of each is printed. Windows only for now: macOS and Linux
-come next.
+too unless it is a release tag of that workspace, under the rule of
+docs/paliers.md: the release workflow passes the Git tag, after running the
+same check in its own job. Both files are named with the version of the
+workspace, the only one the build carries, never with that of the tag, so a
+palier tag above it names files that do not give the number of its release.
+--out copies both files into DIR. The SHA-256 of each is printed. Windows
+only for now: macOS and Linux come next.
 """
 
 import argparse
@@ -136,7 +139,11 @@ def sha256(path):
 
 def main():
     parser = argparse.ArgumentParser(description="Package the desktop application for Windows.")
-    parser.add_argument("--tag", help="Git tag of the release, which must be v<version of the workspace>")
+    parser.add_argument(
+        "--tag",
+        help="Git tag of the release: vX.Y.0 names the version of the workspace exactly, "
+        "vX.Y.Z above it shares its major and minor without going back (docs/paliers.md)",
+    )
     parser.add_argument("--out", help="directory to copy the installer and the portable archive into")
     args = parser.parse_args()
     if platform.system() != "Windows":

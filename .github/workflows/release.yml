@@ -14,9 +14,11 @@ permissions:
 # tag, so its commit is dated; the toolchain itself comes from the
 # `toolchain` input.
 jobs:
-  # Nothing is built unless the tag names the version of the workspace, and
-  # the product crates take that version (tools/check_version.py, the check
-  # that tools/package_app.py --tag applies again before packaging).
+  # Nothing is built unless the tag is a release tag of this workspace: the
+  # tag of a rampe names its version exactly, the tag of a palier shares its
+  # major and minor without going back (docs/paliers.md), and the product
+  # crates take that version (tools/check_version.py, the check that
+  # tools/package_app.py --tag applies again before packaging).
   version-check:
     name: version check
     runs-on: ubuntu-latest

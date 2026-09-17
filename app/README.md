@@ -85,14 +85,21 @@ or tauri-build refuse de compiler, même pour un `cargo build`, dès qu'une
 ressource manque. Sans lui, `cargo tauri build` ne produit que l'exécutable,
 jamais un installeur privé de PDFium.
 
-`--tag vX.Y.Z` arrête le script avant de compiler si le tag ne nomme pas la
-version du workspace ; `--out dossier` y copie les deux fichiers. C'est ainsi
-que le workflow de release (`.github/workflows/release.yml`) est écrit pour
+`--tag vX.Y.Z` arrête le script avant de compiler si le tag n'est pas un tag
+de release du workspace (`docs/paliers.md`, « Nommage » : une rampe nomme sa
+version exactement, un palier ne partage que sa majeure et sa mineure) ;
+`--out dossier` y copie les deux fichiers. Tous deux portent la version du
+workspace, la seule inscrite dans le build, et non celle du tag : sous un tag
+de palier resté au-dessus d'elle, leurs noms ne donnent pas le numéro de la
+release (`docs/backlog-technique.md`). C'est ainsi que le workflow de
+release (`.github/workflows/release.yml`) est écrit pour
 les construire sur un tag `v*`, puis les attacher à la Release GitHub avec
 les notes produites par git-cliff, leurs empreintes (`SHA256SUMS.txt`) et une
-attestation de provenance de GitHub. Sous cette forme, il n'a encore tourné
-sur aucun tag : les releases publiées jusqu'à v0.3.3 n'ont aucun fichier.
-Les paquets pour macOS et Linux viendront ensuite.
+attestation de provenance de GitHub. Sous cette forme, il n'a encore attaché
+aucun fichier : poussé sur v0.3.4 le 17 septembre 2026, il s'est arrêté à
+`version-check`, qui refusait alors tout tag de palier, et les trois jobs
+suivants ont été sautés ; les releases publiées jusqu'à v0.3.3 n'ont aucun
+fichier. Les paquets pour macOS et Linux viendront ensuite.
 
 ### Installeur et archive portable
 

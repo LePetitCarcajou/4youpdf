@@ -65,6 +65,35 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
   ses empreintes et son attestation, ou retirer le job, que le job `test` de
   `ci.yml` double déjà comme compilation de `fyp-cli` sur les trois
   systèmes.
+- [ ] **Décider si la version du workspace suit le tag d'un palier**
+  (consigné le 17 septembre 2026, en ouvrant `version-check` aux tags de
+  palier). Depuis ce jour, `tools/check_version.py` accepte `v0.3.4` sur un
+  workspace resté à 0.3.3 (`docs/paliers.md`, « Nommage »). Tant que
+  `[workspace.package] version` reste sous le patch du tag, la release porte
+  un numéro que ses fichiers n'ont pas : `tools/package_app.py` les nomme
+  avec la version du workspace, la seule que porte le build, et une Release
+  v0.3.4 attacherait `4YouPDF_0.3.3_x64-setup.exe` et
+  `4YouPDF_0.3.3_x64_portable.zip`, dont les propriétés de fichier et
+  l'entrée des « Applications installées » diraient 0.3.3 (`app/README.md`,
+  « Version, signature, icônes » ; c'est `build.rs` qui transmet
+  `CARGO_PKG_VERSION` à tauri-build). Deux issues : faire avancer la version
+  du workspace au patch du palier, que la même vérification accepte, le
+  patch du tag valant alors celui du workspace ; ou assumer l'écart et le
+  dire dans le `README.md`, dont « Installer » annonce
+  `4YouPDF_<version>_x64-setup.exe` sur la page des Releases. La grille de
+  sortie de palier (`docs/paliers.md`) demande des versions cohérentes entre
+  tag, workspace et exécutable : en l'état, sa case ne se coche pas. À
+  trancher avant la première release publique.
+- [ ] **Aucun test automatique ne couvre `tools/check_version.py`** (consigné
+  le 17 septembre 2026, en ouvrant `version-check` aux tags de palier). La
+  règle des rampes et des paliers, les deux lignées de versions et celle des
+  MSRV ne sont vérifiées que par le script lancé sur le dépôt réel, où la
+  version du workspace est une seule valeur à la fois : les quinze cas de la
+  règle des tags ont été passés par un banc jetable, hors dépôt, qui fabrique
+  des workspaces à d'autres versions. La CI n'exécute aucun test Python.
+  Pistes : un dossier de cas et un job, ou un `--self-test` dans le script.
+  Même manque que pour le reste de `tools/`, dont `build_ui.py` que `ci.yml`
+  ne lance pas non plus (« Vérifier l'interface dans la CI », plus bas).
 - [ ] **Ce que le fuzz n'atteint pas encore** (consigné le 13 septembre 2026
   comme « Étendre le fuzzing au reste du noyau et du contrat », réduit le
   16). Depuis le 16 septembre 2026, `fuzz.yml` lance chaque nuit six cibles

@@ -20,7 +20,8 @@ members = [
 exclude = ["fuzz", "tools/bench_host"]
 
 [workspace.package]
-# The version of the product, which a release tag names: fyp-core,
+# The version of the product, which the tag of a rampe names exactly and
+# the tag of a palier may sit above (docs/paliers.md): fyp-core,
 # fyp-crypto, fyp-conformance, fyp-cli and fyp-app take it. fyp-plugin-api
 # and fyp-host keep their own (CLAUDE.md, ADR 0003). Both rules are checked
 # by tools/check_version.py.

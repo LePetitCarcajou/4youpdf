@@ -20,8 +20,10 @@ Lis d'abord : `README.md`, `docs/architecture.md`, `docs/diagrams.md`,
 - Deux lignées de versions, vérifiées par `tools/check_version.py` :
   - `fyp-core`, `fyp-crypto`, `fyp-conformance`, `fyp-cli` et `fyp-app`
     prennent `[workspace.package] version` (`version.workspace = true`), que
-    `[workspace.dependencies]` demande exactement et que nomme le tag de
-    release (`v<version>`, job `version-check` de `release.yml`) ;
+    `[workspace.dependencies]` demande exactement et que nomme exactement le
+    tag d'une rampe (`v0.X.0`) ; le tag d'un palier (`v0.X.Y`, Y non nul) ne
+    partage que sa majeure et sa mineure, sans redescendre sous son patch
+    (`docs/paliers.md`, « Nommage » ; job `version-check` de `release.yml`) ;
   - `fyp-plugin-api` et `fyp-host` gardent chacun leur propre version, parce
     que le contrat des modules est versionné à part (ADR 0002, ADR 0003) : ne
     jamais les aligner sur le workspace. Un module de `plugins/` a aussi la
