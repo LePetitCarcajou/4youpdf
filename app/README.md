@@ -261,7 +261,8 @@ ici).
 | `ui/src/pagenumber.ts` | numéros de la vue d'une page, sans DOM : légende, lecture du numéro tapé pour aller à une page (une position dans l'ordre actuel), aide et refus |
 | `ui/src/shortcuts.ts` | raccourcis du navigateur neutralisés, sans DOM : la liste, chacun reconnu par son code de touche virtuelle et ses modificateurs exacts |
 | `ui/src/thumbnails.ts` | chargement progressif : une page visible est demandée avant les autres ; pendant la vue d'une page, aucune demande tant qu'elle dessine, puis une à la fois pour le panneau |
-| `ui/src/viewer.ts` | vue d'une page à côté du panneau de vignettes ou par-dessus la grille : navigation, numéro de page à taper, largeur de rendu adaptée à la fenêtre, page affichée puis ses voisines |
+| `ui/src/viewer.ts` | vue d'une page à côté du panneau de vignettes ou par-dessus la grille : navigation, numéro de page à taper, zoom et déplacement dans la page, largeur de rendu adaptée à la fenêtre et au zoom, page affichée puis ses voisines |
+| `ui/src/zoom.ts` | zoom de la vue d'une page, sans DOM : paliers jusqu'au plafond du moteur, point sous le pointeur qui reste en place, bornes du déplacement, bords qui tournent la page, crans de molette, touches |
 | `ui/src/api.ts` | façade typée des commandes ; `tauri.d.ts` décrit le sous-ensemble de l'API globale de Tauri utilisé |
 | `ui/styles.css` | la feuille de style ; en tête, les couleurs en deux niveaux, couleurs brutes puis rôles, décrites par [docs/couleurs.md](../docs/couleurs.md) |
 | `ui/tests/` | tests de la logique sans DOM, exécutés par QuickJS-ng ; `check.ts` est leur harnais |
@@ -283,7 +284,8 @@ ici).
 - R et Maj+R, ou les boutons ↷ et ↶ de la barre d'outils, font pivoter les
   pages sélectionnées d'un quart de tour (voir « Rotation »).
 - Double-cliquer sur une vignette, ou appuyer sur Entrée, montre la page en
-  grand (voir « Vue d'une page »).
+  grand (voir « Vue d'une page ») ; Ctrl+molette l'agrandit sous le pointeur
+  (voir « Zoom »).
 - `Enregistrer sous…` (Ctrl+S) écrit le fichier choisi, relu avant d'être
   annoncé ; le nom proposé est celui du fichier d'origine suivi de
   `-modifié`. Le fichier d'origine n'est remplacé que si on le choisit comme
@@ -330,10 +332,15 @@ même façon.
 | Aller à la page d'une vignette du panneau | Entrée sur la vignette | clic sur la vignette |
 | Afficher, masquer les vignettes | F4 | bouton `Vignettes` |
 | Faire pivoter la page à droite, à gauche | R, Maj+R | boutons ↷, ↶ |
+| Agrandir, réduire (voir « Zoom ») | Ctrl+plus, Ctrl+moins | Ctrl+molette sous le pointeur, boutons `+` et `−` |
+| Page entière, ajustée à la fenêtre | Ctrl+0 | clic sur le grossissement (« 100 % ») |
+| Se déplacer dans une page agrandie | flèches, Pg préc., Pg suiv. | glisser la page, molette |
 | Retour à la grille | Échap | bouton `Grille` |
 
 - Un cran de molette, ou un geste du pavé tactile avec son inertie, tourne
-  une seule page.
+  une seule page. Quand la page agrandie dépasse la fenêtre, la molette, les
+  flèches et Pg préc./suiv. la déplacent d'abord, et ne tournent la page
+  qu'à son bord (voir « Zoom »).
 - Un clic à côté de la page, sur le fond sombre de la vue, ne fait rien,
   panneau affiché ou non, pas plus qu'un double-clic sur la page : seuls
   Échap et le bouton `Grille` ramènent à la grille, et ouvrir un autre
@@ -355,13 +362,98 @@ même façon.
   inverse. Ouvrir… (Ctrl+O) et Enregistrer sous… (Ctrl+S) restent
   disponibles.
 - La page est rendue à la largeur qu'elle occupe à l'écran, densité de
-  pixels comprise, par paliers de 200 pixels (4096 au plus). La page
+  pixels et zoom compris, par paliers de 200 pixels (4096 au plus). La page
   affichée passe d'abord, sa vignette agrandie en attendant, puis ses deux
-  voisines, pour que la navigation soit immédiate. Le moteur de rendu sert
-  les demandes une par une : la vue n'en envoie qu'une à la fois, et les
-  vignettes attendent qu'elle n'ait plus rien à dessiner (voir « Panneau de
+  voisines, à la largeur de la page entière, pour que la navigation soit
+  immédiate. Le moteur de rendu sert les demandes une par une : la vue n'en
+  envoie qu'une à la fois, et les vignettes attendent qu'elle n'ait plus
+  rien à dessiner, ni rien à redessiner d'ici 200 ms (voir « Panneau de
   vignettes »). Une page sautée en naviguant vite n'est pas dessinée ;
-  agrandir la fenêtre redessine la page à la nouvelle taille.
+  agrandir la fenêtre ou zoomer étire d'abord l'image affichée, puis
+  redessine la page à la nouvelle taille, 200 ms après le dernier
+  changement (voir « Zoom »).
+
+### Zoom
+
+Ctrl+molette agrandit la page sous le pointeur ; Ctrl+plus et Ctrl+moins,
+ou les boutons `+` et `−` de la barre de la vue, l'agrandissent et la
+réduisent autour du centre ; Ctrl+0, ou un clic sur le grossissement affiché
+entre ces deux boutons, ramène la page entière. Le grossissement se lit là,
+en pourcentage de la page entière.
+
+| Action | Clavier | Souris |
+|---|---|---|
+| Agrandir | Ctrl+plus : la touche « + = », ou + du pavé numérique | Ctrl+molette vers le haut, bouton `+` |
+| Réduire | Ctrl+moins : − du pavé numérique, ou la touche qui tape « - » | Ctrl+molette vers le bas, bouton `−` |
+| Page entière | Ctrl+0 : la touche « à 0 » sur AZERTY, ou 0 du pavé numérique | clic sur le grossissement |
+| Se déplacer dans la page | flèches (40 pixels), Pg préc. et Pg suiv. (une hauteur de fenêtre) | glisser la page, molette (un cran, 100 pixels) |
+| Page suivante, précédente, depuis une page agrandie | flèche ou Pg au bord de la page, sur une nouvelle pression | molette au bord, par un nouveau geste ; boutons `‹` et `›` |
+
+- **Les paliers.** 100 % est la page entière, ajustée à la fenêtre comme
+  auparavant, et le zoom ne descend pas en dessous : plus petite, la page ne
+  montrerait rien de plus. Au-dessus : 125, 150, 200, 300, 400, 600, 800,
+  1200 et 1600 %, puis le plafond. Ce n'est pas la taille réelle du papier,
+  que l'écran ne connaît pas : un pourcentage de la taille réelle ferait de
+  la page entière, celle de Ctrl+0, une valeur quelconque.
+- **Le plafond.** Le moteur de rendu ne dessine pas plus de 4096 pixels de
+  large (`src/render.rs`). Le plafond est le grossissement où l'image
+  atteint cette largeur et s'affiche pixel pour pixel : 4096 divisé par la
+  largeur de la page entière en pixels CSS et par la densité de pixels de
+  l'écran. Il dépend donc de la page, de la fenêtre et de l'écran : 959 %
+  pour une page A4 dans une fenêtre de 1100 × 760 à l'échelle 100 %, où la
+  page entière fait 427 pixels ; autour de 290 % pour la même page sur un
+  écran 4K à l'échelle 200 %, où elle en occupe 1400 d'appareil. Un palier
+  à moins de 10 % du plafond est remplacé par lui, et le plafond est un
+  palier : Ctrl+plus y mène, le bouton `+` s'y désactive, et Ctrl+plus comme
+  Ctrl+molette n'y font plus rien. Un plafond à moins de 10 % de la page
+  entière ne laisse aucun zoom. Une fenêtre agrandie peut abaisser le
+  plafond sous le grossissement en cours, qui y est ramené.
+- **En attendant le rendu.** Un zoom étire immédiatement l'image affichée,
+  dessinée à la taille d'avant : le geste répond sans attendre, avec une
+  image floue. Le rendu net est demandé 200 ms après le dernier cran et la
+  remplace en place, sans cadre vide : un geste de molette continu coûte un
+  rendu, pas un par cran ; un rendu en cours va à son terme, aucun ne
+  pouvant être interrompu. Une image plus fine que nécessaire est gardée :
+  réduire le zoom ne redessine rien. Mesuré par script sur une page A4 de
+  texte, build de développement, `render_page` de bout en bout : 0,1 s à
+  600 pixels de large, 0,4 s à 1400, 2,1 s à 4096, où le PNG fait 5,2 Mio
+  (`docs/backlog-technique.md`).
+- **D'une page à l'autre.** Le grossissement et la place dans la page sont
+  gardés par les boutons `‹` et `›`, un clic sur une vignette du panneau et
+  un numéro tapé : deux pages se comparent au même endroit. La page suivante
+  s'affiche d'abord avec son image de page entière, étirée, puis nette. Une
+  page entrée par un bord (molette, flèches ou Pg au bout de la page) s'ouvre
+  par le bord opposé, comme en lecture : le haut de la suivante, le bas de
+  la précédente, l'autre axe gardé. Une rotation garde le grossissement, sur
+  la page telle qu'elle est ; ouvrir la vue depuis la grille montre toujours
+  la page entière.
+- **Se déplacer.** Quand la page dépasse la fenêtre, le curseur devient une
+  main : la page se saisit, sur elle ou sur le fond, et suit le pointeur
+  jusqu'à ses bords, sans dériver quand on tire au-delà. La molette la fait
+  défiler au lieu de tourner la page ; un geste commencé au bord de la page,
+  ou sur un axe où elle tient, tourne la page comme avant, une seule fois.
+  Un geste qui atteint le bord ne tourne pas la page : l'inertie d'un pavé
+  tactile s'arrête au bord, et c'est le geste suivant qui tourne. Les
+  flèches déplacent la page de 40 pixels, Pg préc. et Pg suiv. d'une hauteur
+  de fenêtre moins 40 ; au bord, une nouvelle pression tourne la page, une
+  touche maintenue s'y arrête ; ↑ et ↓ ne font rien tant que la page tient
+  en hauteur. Sur un axe où la page tient, ← → et Pg tournent la page comme
+  avant.
+- **Les touches.** Ce sont celles des navigateurs, d'Acrobat et de pdf.js
+  (`docs/backlog-ui.md`), que l'interface neutralisait déjà comme raccourcis
+  de WebView2 (« Raccourcis du navigateur neutralisés ») : reconnues par leur
+  code de touche, avec ou sans Maj (Ctrl+Maj+plus), et aussi par le
+  caractère tapé, « + », « = », « - » ou « 0 ». Sur un clavier AZERTY, la
+  touche « 6 - » de la rangée du haut porte le code de 6, que les
+  navigateurs prennent pour Ctrl+6 : ici elle réduit tout de même, et Ctrl+0
+  est la touche « à 0 », sans Maj, comme dans les navigateurs. Le pincement
+  d'un pavé tactile arrive au navigateur comme Ctrl+molette et devrait
+  agrandir de même, sans avoir été essayé. Ctrl+molette sur le panneau de
+  vignettes ne fait rien : le zoom de WebView2 reste coupé.
+- **Limites connues.** Rien ne montre où l'on est dans une page agrandie,
+  ni barre de défilement ni repère ; le plafond vient vite sur un écran
+  dense ; les images gardées pour les pages voisines peuvent être lourdes
+  (`docs/backlog-ui.md`, `docs/backlog-technique.md`).
 
 ### Panneau de vignettes
 
@@ -384,7 +476,8 @@ masque : un second clic au même endroit tomberait à côté du bouton.
   `×`, ni menu du clic droit. La sélection de la grille est gardée, mais le
   panneau ne la montre pas.
 - Ses vignettes passent après la page affichée : aucune n'est demandée tant
-  que la vue dessine, puis une seule à la fois. Passées celles que la grille
+  que la vue dessine ou s'apprête à dessiner (les 200 ms qui suivent un zoom
+  ou un redimensionnement), puis une seule à la fois. Passées celles que la grille
   avait déjà demandées à l'ouverture de la vue (trois au plus), une page
   demandée en naviguant n'attend donc au plus qu'une demande, une page
   voisine en cours ou une vignette. Panneau masqué, aucune n'est demandée
@@ -565,7 +658,7 @@ défaut de chaque raccourci de la liste avant tout autre écouteur.
 | Recharger la page, avec ou sans le cache | F5, Maj+F5, Ctrl+F5, Ctrl+R, Ctrl+Maj+R ; touche Actualiser du clavier, seule, avec Maj ou avec Ctrl |
 | Imprimer | Ctrl+P ; Ctrl+Maj+P, l'impression par la boîte de dialogue du système dans Chromium |
 | Chercher dans la page | Ctrl+F, Ctrl+G, Ctrl+Maj+G, F3, Maj+F3 |
-| Zoomer, déjà coupé ici par la configuration (plus bas) | Ctrl+plus, Ctrl+Maj+plus, Ctrl+moins, Ctrl+Maj+moins, Ctrl+0 ; Ctrl avec plus, moins ou 0 du pavé numérique |
+| Zoomer, déjà coupé ici par la configuration (plus bas) ; la vue d'une page leur donne son zoom (« Zoom ») | Ctrl+plus, Ctrl+Maj+plus, Ctrl+moins, Ctrl+Maj+moins, Ctrl+0 ; Ctrl avec plus, moins ou 0 du pavé numérique |
 | Revenir en arrière, avancer | Alt+←, Alt+→ ; touches Précédent et Suivant du clavier |
 | Navigation au curseur | F7 |
 | Téléchargements | Ctrl+J |
@@ -588,12 +681,15 @@ agirait encore malgré tout s'ajoute à `BROWSER_SHORTCUTS`.
 - **Neutraliser n'est pas abandonner.** Seule l'action du navigateur est
   empêchée : l'événement poursuit son chemin jusqu'aux écouteurs de
   l'application, et chaque touche de la liste reste libre pour une commande
-  à venir, sauf celles des outils de développement (plus bas). Deux besoins
-  en attendent déjà (`docs/backlog-ui.md`) : Ctrl+F, F3 et Ctrl+G, la
-  recherche de texte ; Ctrl+P, l'impression du document.
-- **Aucune touche de l'application n'est dans la liste** : ni Ctrl+O,
-  Ctrl+S, Ctrl+Z, Ctrl+Y ou Ctrl+A, ni F4, les chiffres de la vue, R, Maj+R,
-  Échap, Suppr, Retour arrière ou les flèches. Un raccourci n'est reconnu
+  à venir, sauf celles des outils de développement (plus bas). Ctrl+plus,
+  Ctrl+moins et Ctrl+0 ont reçu le zoom de la vue d'une page (« Zoom ») ;
+  deux besoins attendent encore (`docs/backlog-ui.md`) : Ctrl+F, F3 et
+  Ctrl+G, la recherche de texte ; Ctrl+P, l'impression du document.
+- **Les touches de l'application ne sont pas dans la liste**, hors celles
+  du zoom, qui y sont pour ce que ferait WebView2 et que la vue d'une page
+  reprend à sa suite : ni Ctrl+O, Ctrl+S, Ctrl+Z, Ctrl+Y ou Ctrl+A, ni F4,
+  les chiffres de la vue, R, Maj+R, Échap, Suppr, Retour arrière ou les
+  flèches. Un raccourci n'est reconnu
   qu'avec exactement ses modificateurs : R et Maj+R font toujours pivoter
   quand Ctrl+R est neutralisé, les chiffres restent à la vue quand Ctrl+0
   l'est, et AltGr, que Windows signale comme Ctrl+Alt, tape toujours « @ »
@@ -628,9 +724,11 @@ agirait encore malgré tout s'ajoute à `BROWSER_SHORTCUTS`.
   Ctrl+moins. Un test de `src/main.rs` vérifie qu'aucune fenêtre ne
   l'active, ni dans `tauri.conf.json`, ni dans `tauri.bundle.json`, ni dans
   un fichier de configuration propre à Windows. La liste garde les touches
-  de zoom pour le jour où ce réglage changerait ; la molette, non :
-  l'intercepter dans l'interface demanderait un écouteur non passif sur
-  tout le document, que chaque défilement de la grille attendrait.
+  de zoom pour le jour où ce réglage changerait, et la vue d'une page leur
+  donne sa commande ; la molette n'y est pas : l'intercepter sur tout le
+  document demanderait un écouteur non passif que chaque défilement de la
+  grille attendrait. La vue d'une page écoute la sienne, non passive, sur
+  elle seule, et y prend Ctrl+molette (« Zoom »).
 - **Mesuré.** La documentation de WebView2 annonce que ses raccourcis
   passent avant la page. Le 14 septembre 2026, avec le runtime WebView2
   152.0.4191.66, F5, F12 et F3 envoyés comme messages de fenêtre à WebView2
@@ -678,9 +776,14 @@ rotation en cours non enregistrée, point d'enregistrement), le numéro tapé
 pour aller à une page (position dans l'ordre actuel, y compris après
 déplacements et suppressions ; numéro hors de portée ou qui n'en est pas un ;
 légende, aide et refus), le nombre de vignettes demandées à la fois selon
-ce que fait la vue d'une page, et les raccourcis du navigateur neutralisés
+ce que fait la vue d'une page, le zoom de la vue d'une page (paliers
+jusqu'au plafond du moteur, qui dépend de la page et de l'écran ; point de
+la page sous le pointeur qui reste en place ; bornes du déplacement et bords
+qui tournent la page ; crans de molette ; touches, dont celles d'un clavier
+AZERTY), et les raccourcis du navigateur neutralisés
 (chacun de la liste, aucune touche de l'application, aucun raccourci tenu
 avec d'autres modificateurs ; arrêtés au filtre, seuls ceux des outils de
 développement et ce que Tauri prend pour Ctrl+Maj+I). Le panneau lui-même (disposition, défilement,
-clics), le champ du numéro et l'écouteur qui neutralise les raccourcis
-passent par le DOM : ils n'y sont pas testés.
+clics), le champ du numéro, le glisser et la molette de la vue, et
+l'écouteur qui neutralise les raccourcis passent par le DOM : ils n'y sont
+pas testés.

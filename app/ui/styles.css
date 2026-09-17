@@ -484,6 +484,23 @@ button[aria-pressed="true"] {
   outline-color: var(--sunken-danger);
 }
 
+/* The zoom: out, the level (a click fits the page again), in. The level
+   keeps one width from 100 % to the ceiling. */
+.viewer-zoom {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.viewer-zoom button {
+  padding: 4px 9px;
+}
+
+.viewer-zoom .level {
+  min-width: 4.5em;
+  font-variant-numeric: tabular-nums;
+}
+
 /* In place of the keys while a number is typed: what it expects, or why it
    went nowhere. */
 .viewer-help {
@@ -506,19 +523,30 @@ button[aria-pressed="true"] {
   white-space: nowrap;
 }
 
-/* The page is sized by viewer.ts to fit the content box. */
+/* The page is sized and placed by viewer.ts: fitted inside the padding,
+   which keeps the buttons at the sides clear, or enlarged, when the stage
+   clips it and it is dragged. */
 .viewer-stage {
   flex: 1;
   min-height: 0;
   position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  overflow: hidden;
   padding: 4px 64px 20px;
 }
 
+/* A page larger than the stage can be taken hold of. */
+.viewer-stage.pannable {
+  cursor: grab;
+}
+
+.viewer-stage.panning {
+  cursor: grabbing;
+}
+
 .viewer-page {
-  flex: none;
+  position: absolute;
+  left: 0;
+  top: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -551,6 +579,7 @@ button[aria-pressed="true"] {
 
 .viewer-nav {
   position: absolute;
+  z-index: 1;
   top: 50%;
   transform: translateY(-50%);
   width: 40px;

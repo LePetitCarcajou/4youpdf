@@ -34,12 +34,22 @@ export type BrowserAction = "reload" | "print" | "find" | "zoom" | "history" | "
 
 /// A shortcut of the browser: a virtual-key code with exactly these
 /// modifiers, so that the same key with other modifiers stays free (R, Maj+R,
-/// AltGr, which Windows reports as Ctrl+Alt).
-export interface BrowserShortcut {
-  readonly action: BrowserAction;
-  readonly keyCode: number;
-  readonly modifiers: "" | "ctrl" | "shift" | "alt" | "ctrl+shift";
-}
+/// AltGr, which Windows reports as Ctrl+Alt). A zoom shortcut says which
+/// way the browser would zoom: the page view zooms that way (`zoom.ts`).
+export type BrowserShortcut =
+  | {
+      readonly action: Exclude<BrowserAction, "zoom">;
+      readonly keyCode: number;
+      readonly modifiers: Modifiers;
+    }
+  | {
+      readonly action: "zoom";
+      readonly keyCode: number;
+      readonly modifiers: Modifiers;
+      readonly zoom: "in" | "out" | "reset";
+    };
+
+type Modifiers = "" | "ctrl" | "shift" | "alt" | "ctrl+shift";
 
 /// Virtual-key codes of Windows. Chromium, which WebView2 is built on,
 /// recognizes its shortcuts by them, and `keyCode` reports them: `key` would
@@ -98,15 +108,17 @@ export const BROWSER_SHORTCUTS: readonly BrowserShortcut[] = [
   { action: "find", keyCode: VK.F3, modifiers: "shift" },
   // Zoom in, out, back to 100 %. The configuration already keeps the zoom of
   // WebView2 off, keys and wheel (app/src/main.rs, tests): the keys stay here
-  // in case it changes, the wheel is left to it.
-  { action: "zoom", keyCode: VK.PLUS, modifiers: "ctrl" },
-  { action: "zoom", keyCode: VK.PLUS, modifiers: "ctrl+shift" },
-  { action: "zoom", keyCode: VK.ADD, modifiers: "ctrl" },
-  { action: "zoom", keyCode: VK.MINUS, modifiers: "ctrl" },
-  { action: "zoom", keyCode: VK.MINUS, modifiers: "ctrl+shift" },
-  { action: "zoom", keyCode: VK.SUBTRACT, modifiers: "ctrl" },
-  { action: "zoom", keyCode: VK.DIGIT_0, modifiers: "ctrl" },
-  { action: "zoom", keyCode: VK.NUMPAD_0, modifiers: "ctrl" },
+  // in case it changes, and the page view gives them its own zoom
+  // (`zoom.ts`); the wheel is left to it, but for the view, which listens
+  // to its own.
+  { action: "zoom", keyCode: VK.PLUS, modifiers: "ctrl", zoom: "in" },
+  { action: "zoom", keyCode: VK.PLUS, modifiers: "ctrl+shift", zoom: "in" },
+  { action: "zoom", keyCode: VK.ADD, modifiers: "ctrl", zoom: "in" },
+  { action: "zoom", keyCode: VK.MINUS, modifiers: "ctrl", zoom: "out" },
+  { action: "zoom", keyCode: VK.MINUS, modifiers: "ctrl+shift", zoom: "out" },
+  { action: "zoom", keyCode: VK.SUBTRACT, modifiers: "ctrl", zoom: "out" },
+  { action: "zoom", keyCode: VK.DIGIT_0, modifiers: "ctrl", zoom: "reset" },
+  { action: "zoom", keyCode: VK.NUMPAD_0, modifiers: "ctrl", zoom: "reset" },
   // Back and forward in the history of the page.
   { action: "history", keyCode: VK.LEFT, modifiers: "alt" },
   { action: "history", keyCode: VK.RIGHT, modifiers: "alt" },

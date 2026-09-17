@@ -76,6 +76,9 @@ const ui = {
   viewerClose: element<HTMLButtonElement>("viewer-close"),
   viewerRotateLeft: element<HTMLButtonElement>("viewer-rotate-left"),
   viewerRotateRight: element<HTMLButtonElement>("viewer-rotate-right"),
+  viewerZoomOut: element<HTMLButtonElement>("viewer-zoom-out"),
+  viewerZoomLevel: element<HTMLButtonElement>("viewer-zoom-level"),
+  viewerZoomIn: element<HTMLButtonElement>("viewer-zoom-in"),
 };
 
 interface State {
@@ -118,6 +121,9 @@ const viewer = new PageViewer(
     close: ui.viewerClose,
     rotateLeft: ui.viewerRotateLeft,
     rotateRight: ui.viewerRotateRight,
+    zoomOut: ui.viewerZoomOut,
+    zoomLevel: ui.viewerZoomLevel,
+    zoomIn: ui.viewerZoomIn,
   },
   {
     thumbnail: (page) => thumbnails.cached(page),

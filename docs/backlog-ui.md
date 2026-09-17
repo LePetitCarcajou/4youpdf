@@ -16,11 +16,6 @@ noyau. Relevé du 13 septembre 2026, à la version 0.3.3 : aucune n'est faite
 ni commencée. Chaque point sera cadré au moment de le prendre, et sortira de
 la liste une fois fait.
 
-- [ ] **Ctrl+molette pour zoomer dans la vue plein cadre.** La vue ajuste
-  toujours la page à la fenêtre et `viewer.ts` ignore aujourd'hui la molette
-  quand Ctrl est enfoncé ; zoomer demandera de rendre la page à la taille
-  agrandie (le moteur de rendu plafonne à 4096 pixels de large) et de
-  pouvoir se déplacer dans la page.
 - [ ] **Recherche de texte dans le document.** Le noyau ne lit pas encore le
   contenu des pages : extraire le texte suppose d'interpréter les flux de
   contenu et de retrouver l'Unicode des glyphes par les polices et
@@ -43,8 +38,10 @@ la liste une fois fait.
   Pas sur les raccourcis propres à Acrobat, qui se chevauchent d'un outil à
   l'autre et dépendent d'une préférence
   ([raccourcis clavier d'Acrobat](https://helpx.adobe.com/fr/acrobat/desktop/get-started/preferences-and-settings/keyboard-shortcuts.html)).
-  Rien n'est attribué aujourd'hui (`app/README.md`, « Raccourcis du
-  navigateur neutralisés »).
+  Ctrl+plus, Ctrl+moins et Ctrl+0 ont reçu le zoom de la vue d'une page le
+  16 septembre 2026 (`app/README.md`, « Zoom ») ; Ctrl+F, F3, Ctrl+G et
+  Ctrl+P attendent encore (`app/README.md`, « Raccourcis du navigateur
+  neutralisés »).
 - [ ] **Neutraliser le menu contextuel par défaut de WebView2** (consigné le
   14 septembre 2026, en neutralisant les raccourcis du navigateur). Hors des
   vignettes, où l'interface montre son propre menu, un clic droit ouvre celui
@@ -70,10 +67,36 @@ la liste une fois fait.
   (ISO 32000-2, 12.5.6.10).
 - [ ] **Ajustement automatique à la largeur ou à la hauteur de la page**,
   comme dans un navigateur, et zoom sans pourcentage affiché. La vue
-  n'ajuste aujourd'hui que la page entière à la fenêtre et sa molette tourne
-  les pages ; une page ajustée à la largeur peut dépasser de la fenêtre, et
-  la molette devra alors d'abord la faire défiler, à concevoir avec le point
-  « Ctrl+molette », dont celui-ci partage le rendu agrandi.
+  n'ajuste aujourd'hui que la page entière à la fenêtre ; depuis le
+  16 septembre 2026, elle sait agrandir la page par paliers et la faire
+  défiler à la molette avant de tourner la page (`app/README.md`,
+  « Zoom ») : l'ajustement à la largeur serait un palier de plus, calculé
+  d'après la fenêtre, à tenir d'une page à l'autre et au redimensionnement.
+- [ ] **Aucun repère de position dans une page agrandie** (consigné le
+  16 septembre 2026, en posant le zoom). La vue rogne la page au cadre et
+  rien ne dit quelle part de la page est visible ni où l'on est : ni barre
+  de défilement, ni vignette de position. Une barre native serait claire sur
+  le fond sombre de la vue et resterait au moteur (voir « L'anneau de focus
+  reste celui du moteur web ») ; un repère dessiné par l'interface est à
+  concevoir.
+- [ ] **Le plafond du zoom vient vite sur un écran dense** (consigné le
+  16 septembre 2026, en posant le zoom). Le plafond est l'image de 4096
+  pixels d'appareil que le moteur dessine au plus (`app/README.md`,
+  « Zoom ») : 959 % pour une page A4 dans une fenêtre de 1100 × 760 à
+  l'échelle 100 %, mais autour de 290 % pour la même page sur un écran 4K à
+  l'échelle 200 %, où la page entière occupe déjà 1400 pixels d'appareil. Il
+  dépend de la densité de l'écran, pas du détail qu'on veut regarder. Le
+  lever passe par le chemin du rendu (`docs/backlog-technique.md`, « Le
+  rendu d'une page agrandie passe par un PNG en base64 »).
+- [ ] **L'indication des touches de la vue est tronquée dès la taille
+  d'ouverture de la fenêtre** (consigné le 16 septembre 2026, en posant le
+  zoom). Dans la barre de la vue, le texte qui nomme les touches est coupé
+  par des points de suspension : à 1100 px de large, la taille d'ouverture,
+  panneau affiché, il dispose de 334 px pour 968 px de texte (mesuré par
+  DevTools) et ne dit plus que « ← → ou molette : page précédente ou
+  suiv… ». C'était déjà le cas avant le zoom, qui a ajouté trois boutons à
+  la barre et une mention au texte. À reprendre : un texte plus court, une
+  seconde ligne, ou une aide sur demande.
 - [ ] **Mode plein écran pour la lecture.** La vue d'une page garde
   volontairement visibles la barre d'outils, les bandeaux (fichier réparé ou
   chiffré) et la barre d'état, et Échap y ramène à la grille : le plein

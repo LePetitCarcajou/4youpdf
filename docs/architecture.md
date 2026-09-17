@@ -627,7 +627,7 @@ Fait :
   (`tools/render_bench`, `docs/banc-rendu.md`) ; dans l'application, panneau
   de vignettes à côté de la vue d'une page et accès à une page par son
   numéro, raccourcis du navigateur neutralisés, vue d'une page qui ne se
-  ferme plus sur un clic à côté de la page.
+  ferme plus sur un clic à côté de la page, zoom dans la vue d'une page.
 
 Ensuite :
 

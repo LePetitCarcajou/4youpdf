@@ -42,9 +42,14 @@
           <input id="viewer-number" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" title="Numéro de la page dans l'ordre actuel : tapez-en un autre, puis Entrée, pour y aller" aria-describedby="viewer-number-after viewer-help">
           <span id="viewer-number-after"></span>
         </form>
+        <div class="viewer-zoom" role="group" aria-label="Zoom">
+          <button id="viewer-zoom-out" type="button" title="Réduire (Ctrl+moins)" aria-label="Réduire" disabled>−</button>
+          <button id="viewer-zoom-level" type="button" class="level" title="Grossissement, par rapport à la page entière : cliquer y revient (Ctrl+0)">100&nbsp;%</button>
+          <button id="viewer-zoom-in" type="button" title="Agrandir (Ctrl+plus, ou Ctrl+molette sous le pointeur)" aria-label="Agrandir">+</button>
+        </div>
         <span id="viewer-caption" class="visually-hidden" aria-live="polite"></span>
         <span id="viewer-help" class="viewer-help" aria-live="polite" hidden></span>
-        <span id="viewer-hint" class="viewer-hint">← → ou molette : page précédente ou suivante · un numéro puis Entrée : aller à la page · F4 : vignettes · R, Maj+R : pivoter · Échap : retour à la grille</span>
+        <span id="viewer-hint" class="viewer-hint">← → ou molette : page précédente ou suivante · Ctrl+molette : zoom · un numéro puis Entrée : aller à la page · F4 : vignettes · R, Maj+R : pivoter · Échap : retour à la grille</span>
         <span class="spacer"></span>
         <button id="viewer-rotate-left" type="button" class="icon" title="Faire pivoter la page à gauche (Maj+R)" aria-label="Faire pivoter la page à gauche">
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 13A6 6 0 0 0 4 13"/><path d="M1.5 10.5 4 13l2.5-2.5"/></svg>

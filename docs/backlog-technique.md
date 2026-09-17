@@ -100,6 +100,26 @@ diffère ; seul l'épinglage des actions par SHA est entamé (`ci.yml`).
   partir de `Document::open`, et même une cible qui l'appelait, amorcée par
   `tests/fixtures` et `tests/corpus`, n'a jamais exercé le prédicteur TIFF
   sur 16 bits.
+- [ ] **Le rendu d'une page agrandie passe par un PNG en base64, lourd et
+  lent** (consigné le 16 septembre 2026, en posant le zoom de la vue d'une
+  page). Mesuré par script sur une page A4 de texte et de lignes, build de
+  développement, `render_page` de bout en bout (PDFium, PNG, base64, IPC) :
+  0,1 s à 600 pixels de large, 0,4 s à 1400, 2,1 s à 4096, le plafond du
+  moteur, où l'URL de données fait 6,9 millions de caractères pour un PNG de
+  5,2 Mio, et où le bitmap RGBA de PDFium, 4096 × 5800 pixels, occupe
+  95 Mio. Le geste de zoom reste immédiat, l'image affichée étant étirée en
+  attendant (`app/README.md`, « Zoom »), mais le rendu net arrive après plus
+  de deux secondes au plafond, et `viewer.ts` garde jusqu'à cinq images de
+  ce genre, une par page à deux positions de la page affichée, à la plus
+  grande largeur demandée, sans mesure de la mémoire réellement occupée.
+  Pistes, à mesurer : répondre en octets bruts (`tauri::ipc::Response`)
+  plutôt qu'en base64 ; un encodage plus rapide que PNG, ou un bitmap sans
+  encodage ; ne garder d'une page quittée que son image de page entière ;
+  un rendu par tuiles, qui lèverait aussi le plafond de 4096 pixels
+  (`docs/backlog-ui.md`, « Le plafond du zoom vient vite sur un écran
+  dense »). Un rendu ne peut pas être interrompu : `pdfium-render` n'expose
+  pas le rendu progressif de PDFium, et la vue s'en tient à une demande à
+  la fois, 200 ms après le dernier cran.
 - [ ] **Réduire les permissions de la fenêtre à ce que l'interface utilise,
   dans la session de durcissement de la WebView** (consigné le 13 septembre
   2026). `app/capabilities/default.json` accorde aux scripts de la page

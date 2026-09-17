@@ -3,11 +3,23 @@
 // not a dialog (ADR 0004): the toolbar, the notices and the status bar stay
 // visible.
 //
+// The page can be enlarged, up to what the renderer draws (`zoom.ts`):
+// Ctrl+wheel around the pointer, Ctrl+plus and Ctrl+minus around the
+// centre, Ctrl+0 back to the fitted page, or the buttons of the bar, which
+// also say the zoom. A page larger than the window is moved by dragging
+// it, with the wheel, or with the arrow and page keys; the wheel and those
+// keys turn the page from its edge, as in reading. The zoom and the place
+// in the page are kept from one page to the next, to compare them; opening
+// the view fits the page again.
+//
 // The renderer serves one request at a time, so the view keeps at most one
-// request of its own in flight: the page on screen first, then its two
-// neighbours once it is shown, so that turning to them is immediate. A page
-// skipped while turning quickly is never drawn. Images of the pages near
-// the current one are kept, the others dropped.
+// request of its own in flight: the page on screen first, at its size on
+// screen, then its two neighbours once it is shown, as fitted to the
+// window, so that turning to them is immediate. A page skipped while
+// turning quickly is never drawn. A zoom or a resize scales the image on
+// screen at once, and asks for a sharper one only once the gesture has
+// settled: a gesture of the wheel costs one drawing, not one per notch.
+// Images of the pages near the current one are kept, the others dropped.
 //
 // The page on screen can be rotated (buttons, R and Shift+R). The view only
 // asks for it: `main.ts` has the Rust side turn the page, then tells the
@@ -23,9 +35,31 @@
 
 import { asAppError, renderPage, type PageInfo } from "./api.js";
 import { pageCaption, pageNumberHelp, pageNumberRefusal, readPageNumber } from "./pagenumber.js";
+import {
+  arriveAt,
+  atEdge,
+  clampOffset,
+  fit,
+  inner,
+  MAX_WIDTH,
+  maxZoom,
+  overflows,
+  scaled,
+  ZOOM_NOTCH,
+  zoomAround,
+  zoomIn,
+  zoomKey,
+  zoomLabel,
+  zoomLevels,
+  zoomOut,
+  zoomTicks,
+  type Arrival,
+  type Axis,
+  type Point,
+  type Room,
+  type Size,
+} from "./zoom.js";
 
-/// Widest image the renderer draws (`RenderService::render` clamps to it).
-const MAX_WIDTH = 4096;
 /// Widths are requested in steps of this many device pixels, so that a
 /// slightly resized window reuses the images already drawn.
 const WIDTH_STEP = 200;
@@ -39,15 +73,28 @@ const WHEEL_STEP = 40;
 /// Pixels counted for a wheel that reports lines or pages.
 const WHEEL_LINE = 40;
 const WHEEL_PAGE = 800;
-/// Wait after the last resize before drawing at the new size.
-const RESIZE_DELAY = 200;
+/// Wait after the last resize, or the last change of zoom, before drawing
+/// at the new size.
+const SETTLE_DELAY = 200;
+/// How far an arrow key moves the page, in CSS pixels; a page key moves it
+/// by the height of the window less this overlap.
+const ARROW_STEP = 40;
+const PAGE_OVERLAP = 40;
+
+/// The keys of the view, in its bar: with the page fitted to the window,
+/// and with a page larger than it.
+const HINT_FITTED =
+  "← → ou molette : page précédente ou suivante · Ctrl+molette : zoom · un numéro puis Entrée : aller à la page · F4 : vignettes · R, Maj+R : pivoter · Échap : retour à la grille";
+const HINT_ZOOMED =
+  "glisser, molette ou flèches : se déplacer dans la page · au bord, page précédente ou suivante · Ctrl+molette : zoom · Ctrl+0 : page entière · Échap : retour à la grille";
 
 export interface ViewerElements {
   /// The view, beside the grid or over it.
   root: HTMLElement;
-  /// The area the page is fitted in: its content box.
+  /// The area the page is shown in; its padding is what a fitted page keeps
+  /// clear.
   stage: HTMLElement;
-  /// The page itself, an image or a message, sized by the view.
+  /// The page itself, an image or a message, sized and placed by the view.
   page: HTMLElement;
   /// The caption as a sentence, read out when the page changes.
   caption: HTMLElement;
@@ -64,6 +111,10 @@ export interface ViewerElements {
   close: HTMLButtonElement;
   rotateLeft: HTMLButtonElement;
   rotateRight: HTMLButtonElement;
+  /// The zoom: out, the level (a click fits the page again), in.
+  zoomOut: HTMLButtonElement;
+  zoomLevel: HTMLButtonElement;
+  zoomIn: HTMLButtonElement;
 }
 
 export interface ViewerOptions {
@@ -83,15 +134,31 @@ export interface ViewerOptions {
   idle(): void;
 }
 
-interface Size {
-  width: number;
-  height: number;
-}
-
 interface Drawn {
   img: HTMLImageElement;
   /// Width requested, in device pixels.
   width: number;
+}
+
+/// A wheel gesture: when its last event came, how far it has travelled,
+/// and what it does. Without Ctrl, it turns one page at most (`turned`),
+/// or moves the page under the wheel when it began away from the edge
+/// (`turning` false); with Ctrl, `applied` counts the zoom levels it has
+/// gone out, so that a gesture that turns back comes back.
+interface Gesture {
+  last: number;
+  travel: number;
+  turned: boolean;
+  turning: boolean;
+  applied: number;
+}
+
+/// A drag of the page: the pointer, where it went down, and where the page
+/// was then.
+interface Drag {
+  pointerId: number;
+  from: Point;
+  offset: Point;
 }
 
 /// Height over width of a page as displayed, `/Rotate` applied; Letter
@@ -117,8 +184,18 @@ export class PageViewer {
   /// How many times each source page was turned: a drawing counts for the
   /// version of its page when it was asked for.
   private versions = new Map<number, number>();
-  private resizeTimer: number | undefined;
-  private wheel = { last: Number.NEGATIVE_INFINITY, travel: 0, turned: false };
+  private settleTimer: number | undefined;
+  /// The zoom, as a factor of the page fitted to the window (`zoom.ts`).
+  private zoom = 1;
+  /// Where the page is: its top-left corner, in CSS pixels from the
+  /// top-left of the stage. Kept from one page to the next.
+  private offset: Point = { x: 0, y: 0 };
+  /// The page as shown, and the stage, as last laid out.
+  private size: Size = { width: 0, height: 0 };
+  private room: Room = { width: 0, height: 0, left: 0, top: 0, right: 0, bottom: 0 };
+  private wheel: Gesture = { last: Number.NEGATIVE_INFINITY, travel: 0, turned: false, turning: true, applied: 0 };
+  private zoomWheel: Gesture = { last: Number.NEGATIVE_INFINITY, travel: 0, turned: false, turning: true, applied: 0 };
+  private drag: Drag | null = null;
 
   constructor(elements: ViewerElements, options: ViewerOptions) {
     this.el = elements;
@@ -134,7 +211,16 @@ export class PageViewer {
     elements.close.addEventListener("click", () => this.close());
     elements.rotateLeft.addEventListener("click", () => this.rotate(-90));
     elements.rotateRight.addEventListener("click", () => this.rotate(90));
+    elements.zoomOut.addEventListener("click", () => this.zoomStep(-1));
+    elements.zoomIn.addEventListener("click", () => this.zoomStep(1));
+    elements.zoomLevel.addEventListener("click", () => this.zoomTo(1));
     elements.root.addEventListener("wheel", (event) => this.wheeled(event), { passive: false });
+    // A page larger than the window is dragged, from the page or from the
+    // ground around it.
+    elements.stage.addEventListener("pointerdown", (event) => this.dragStart(event));
+    elements.stage.addEventListener("pointermove", (event) => this.dragMove(event));
+    elements.stage.addEventListener("pointerup", (event) => this.dragEnd(event));
+    elements.stage.addEventListener("pointercancel", (event) => this.dragEnd(event));
 
     const number = elements.number;
     elements.numberForm.addEventListener("submit", (event) => {
@@ -171,9 +257,11 @@ export class PageViewer {
     return this.current;
   }
 
-  /// Whether a page is being drawn for the view.
+  /// Whether a page is being drawn for the view, or about to be: a zoom or
+  /// a resize waits for the gesture to settle before it draws, and the
+  /// thumbnails wait with it.
   get isDrawing(): boolean {
-    return this.busy;
+    return this.busy || this.settleTimer !== undefined;
   }
 
   /// Give the keyboard to the view.
@@ -183,9 +271,9 @@ export class PageViewer {
     }
   }
 
-  /// Show the page at `position` in `order` (indices into `pages`). The
-  /// order must not change while the view is open; the pages may, when
-  /// one is turned (`pagesChanged`).
+  /// Show the page at `position` in `order` (indices into `pages`), fitted
+  /// to the window. The order must not change while the view is open; the
+  /// pages may, when one is turned (`pagesChanged`).
   open(pages: readonly PageInfo[], order: readonly number[], position: number, enabled: boolean): void {
     if (order.length === 0) {
       return;
@@ -195,6 +283,8 @@ export class PageViewer {
     this.enabled = enabled;
     this.opened = true;
     this.current = clamp(position, 0, order.length - 1);
+    this.zoom = 1;
+    this.offset = { x: 0, y: 0 };
     // Wide enough for the largest number.
     this.el.number.style.width = `calc(${String(order.length).length + 1}ch + 10px)`;
     this.el.root.hidden = false;
@@ -249,7 +339,22 @@ export class PageViewer {
 
   /// The keys of the view; `true` when `event` was one of them.
   handleKey(event: KeyboardEvent): boolean {
-    if (!this.opened || event.ctrlKey || event.altKey || event.metaKey) {
+    if (!this.opened) {
+      return false;
+    }
+    // Ctrl with plus, minus or 0, whose default the guard of `main.ts`
+    // prevents (`shortcuts.ts`), and which the view gives its zoom.
+    const command = zoomKey(event);
+    if (command !== undefined) {
+      if (command === "fit") {
+        this.zoomTo(1);
+      } else {
+        this.zoomStep(command === "in" ? 1 : -1);
+      }
+      event.preventDefault();
+      return true;
+    }
+    if (event.ctrlKey || event.altKey || event.metaKey) {
       return false;
     }
     switch (event.key) {
@@ -257,12 +362,25 @@ export class PageViewer {
         this.close();
         break;
       case "ArrowLeft":
-      case "PageUp":
-        this.go(this.current - 1);
+        this.moveOrTurn("x", -1, ARROW_STEP, event.repeat);
         break;
       case "ArrowRight":
+        this.moveOrTurn("x", 1, ARROW_STEP, event.repeat);
+        break;
+      case "ArrowUp":
+      case "ArrowDown":
+        // Up and down only move a page taller than the window: they are
+        // no keys of the view otherwise.
+        if (!overflows(this.size, this.room).y) {
+          return false;
+        }
+        this.moveBy("y", event.key === "ArrowUp" ? ARROW_STEP : -ARROW_STEP);
+        break;
+      case "PageUp":
+        this.moveOrTurn("y", -1, this.screenStep(), event.repeat);
+        break;
       case "PageDown":
-        this.go(this.current + 1);
+        this.moveOrTurn("y", 1, this.screenStep(), event.repeat);
         break;
       case "Home":
         this.go(0);
@@ -287,11 +405,16 @@ export class PageViewer {
     return true;
   }
 
-  /// Show the page at `position` in the order, or the nearest one there is.
-  go(position: number): void {
+  /// Show the page at `position` in the order, or the nearest one there is,
+  /// at the same zoom and, unless `arrival` says which edge it is entered
+  /// by, at the same place in the page.
+  go(position: number, arrival?: Arrival): void {
     const target = clamp(position, 0, this.order.length - 1);
     if (this.opened && target !== this.current) {
       this.current = target;
+      if (arrival !== undefined) {
+        this.offset = arriveAt(this.offset, arrival);
+      }
       this.show();
     }
   }
@@ -305,7 +428,10 @@ export class PageViewer {
     }
     this.el.root.hidden = true;
     this.resizeObserver.disconnect();
-    window.clearTimeout(this.resizeTimer);
+    window.clearTimeout(this.settleTimer);
+    this.settleTimer = undefined;
+    this.drag = null;
+    this.el.stage.classList.remove("panning");
   }
 
   /// Ask for the page on screen to be turned by `degrees`.
@@ -405,25 +531,56 @@ export class PageViewer {
     this.pump();
   }
 
-  /// Size the page to fit the stage.
+  /// Size the page: fitted to the stage and enlarged by the zoom, which the
+  /// stage may cap (a window that grew), and placed where the offset says,
+  /// within bounds. The bar follows: the zoom it shows, the buttons it
+  /// leaves active, the keys it names.
   private layout(): void {
     const page = this.order[this.current];
     if (!this.opened || page === undefined) {
       return;
     }
-    const size = fit(this.area(), this.ratio(page));
-    this.el.page.style.width = `${size.width}px`;
-    this.el.page.style.height = `${size.height}px`;
+    const room = this.measure();
+    const fitted = fit(inner(room), this.ratio(page));
+    const max = maxZoom(fitted.width, window.devicePixelRatio);
+    if (this.zoom > max) {
+      this.zoom = max;
+    }
+    this.size = scaled(fitted, this.zoom);
+    this.el.page.style.width = `${this.size.width}px`;
+    this.el.page.style.height = `${this.size.height}px`;
+    this.place(this.offset);
+    const over = overflows(this.size, room);
+    const movable = over.x || over.y;
+    this.el.stage.classList.toggle("pannable", movable);
+    this.el.zoomOut.disabled = this.zoom <= 1;
+    this.el.zoomIn.disabled = this.zoom >= max;
+    this.el.zoomLevel.textContent = zoomLabel(this.zoom);
+    this.el.hint.textContent = movable ? HINT_ZOOMED : HINT_FITTED;
   }
 
-  /// The content box of the stage, in CSS pixels.
-  private area(): Size {
+  /// The stage as it is now: its box, and its padding, in CSS pixels.
+  private measure(): Room {
     const stage = this.el.stage;
     const style = getComputedStyle(stage);
-    return {
-      width: Math.max(0, stage.clientWidth - px(style.paddingLeft) - px(style.paddingRight)),
-      height: Math.max(0, stage.clientHeight - px(style.paddingTop) - px(style.paddingBottom)),
+    this.room = {
+      width: stage.clientWidth,
+      height: stage.clientHeight,
+      left: px(style.paddingLeft),
+      top: px(style.paddingTop),
+      right: px(style.paddingRight),
+      bottom: px(style.paddingBottom),
     };
+    return this.room;
+  }
+
+  /// Put the page at `offset`, within bounds, on whole device pixels: at
+  /// the largest zoom the image is shown pixel for pixel.
+  private place(offset: Point): void {
+    const bounded = clampOffset(offset, this.size, this.room);
+    const dpr = window.devicePixelRatio;
+    this.offset = { x: Math.round(bounded.x * dpr) / dpr, y: Math.round(bounded.y * dpr) / dpr };
+    this.el.page.style.transform = `translate(${this.offset.x}px, ${this.offset.y}px)`;
   }
 
   /// Height over width of `page`: that of its image once drawn, which is
@@ -437,10 +594,82 @@ export class PageViewer {
     return pageRatio(this.pages[page]);
   }
 
-  /// Start the next drawing, if none is running; with nothing left to draw,
-  /// say that the renderer is free.
+  /// The zoom levels the stage allows for the current page.
+  private levels(): number[] {
+    const page = this.order[this.current];
+    const fitted = fit(inner(this.room), this.ratio(page ?? 0));
+    return zoomLevels(maxZoom(fitted.width, window.devicePixelRatio));
+  }
+
+  /// Show the page `zoom` times its fitted size, or as close as the stage
+  /// allows, the point of the page under `pointer` (in the coordinates of
+  /// the stage) staying where it is; the centre of the stage without a
+  /// pointer. The image on screen is scaled at once; a sharper one is asked
+  /// for once the gesture has settled.
+  private zoomTo(zoom: number, pointer?: Point): void {
+    const page = this.order[this.current];
+    if (!this.opened || page === undefined) {
+      return;
+    }
+    const room = this.measure();
+    const padded = inner(room);
+    const fitted = fit(padded, this.ratio(page));
+    const target = clamp(zoom, 1, maxZoom(fitted.width, window.devicePixelRatio));
+    if (target === this.zoom) {
+      return;
+    }
+    const at = pointer ?? { x: room.left + padded.width / 2, y: room.top + padded.height / 2 };
+    this.offset = zoomAround(at, this.offset, this.size, scaled(fitted, target));
+    this.zoom = target;
+    this.layout();
+    this.settle();
+  }
+
+  /// One level in (`direction` 1) or out (-1).
+  private zoomStep(direction: 1 | -1, pointer?: Point): void {
+    const levels = this.levels();
+    this.zoomTo(direction > 0 ? zoomIn(this.zoom, levels) : zoomOut(this.zoom, levels), pointer);
+  }
+
+  /// Move the page by `amount` along `axis`, within bounds.
+  private moveBy(axis: Axis, amount: number): void {
+    const offset = { ...this.offset };
+    offset[axis] += amount;
+    this.place(offset);
+  }
+
+  /// A key that moves the page by `step` along `axis`, in `direction` (1
+  /// for the end, -1 for the start), where the page exceeds the window on
+  /// that axis; where it does not, the key turns the page, as it did before
+  /// the zoom. At the edge, the key turns the page too, on a fresh press
+  /// only: a key held down stops at the edge.
+  private moveOrTurn(axis: Axis, direction: 1 | -1, step: number, repeat: boolean): void {
+    if (!overflows(this.size, this.room)[axis]) {
+      this.go(this.current + direction);
+    } else if (atEdge(this.offset, this.size, this.room, axis, direction)) {
+      if (!repeat) {
+        this.go(this.current + direction, { axis, edge: direction > 0 ? "start" : "end" });
+      }
+    } else {
+      this.moveBy(axis, -direction * step);
+    }
+  }
+
+  /// How far a page key moves the page: a window's height, less an overlap.
+  private screenStep(): number {
+    return Math.max(ARROW_STEP, inner(this.room).height - PAGE_OVERLAP);
+  }
+
+  /// Where `event` points, in the coordinates of the stage.
+  private pointerAt(event: MouseEvent): Point {
+    const rect = this.el.stage.getBoundingClientRect();
+    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+  }
+
+  /// Start the next drawing, if none is running and nothing is settling;
+  /// with nothing left to draw, say that the renderer is free.
   private pump(): void {
-    if (this.busy) {
+    if (this.busy || this.settleTimer !== undefined) {
       return;
     }
     const next = this.nextDrawing();
@@ -451,14 +680,27 @@ export class PageViewer {
     }
   }
 
-  /// The drawing to start next, if any: the current page, then the next
-  /// one, then the previous one, each as wide as it is shown.
+  /// Draw once the zoom or the window has settled: the image on screen is
+  /// scaled by the browser meanwhile, and a drawing already running is
+  /// left to finish. The thumbnails wait too (`isDrawing`).
+  private settle(): void {
+    window.clearTimeout(this.settleTimer);
+    this.settleTimer = window.setTimeout(() => {
+      this.settleTimer = undefined;
+      this.pump();
+    }, SETTLE_DELAY);
+  }
+
+  /// The drawing to start next, if any: the current page, as wide as it is
+  /// shown, then the next one, then the previous one, as wide as fitted to
+  /// the window. A neighbour turned to while zoomed is shown from its
+  /// fitted image, enlarged, until its own drawing comes.
   private nextDrawing(): { page: number; width: number } | null {
     if (!this.opened || !this.enabled) {
       return null;
     }
-    const area = this.area();
-    if (area.width === 0 || area.height === 0) {
+    const padded = inner(this.measure());
+    if (padded.width === 0 || padded.height === 0) {
       return null;
     }
     for (const position of [this.current, this.current + 1, this.current - 1]) {
@@ -466,7 +708,8 @@ export class PageViewer {
       if (page === undefined || this.failed.has(page)) {
         continue;
       }
-      const width = renderWidth(fit(area, this.ratio(page)).width);
+      const zoom = position === this.current ? this.zoom : 1;
+      const width = renderWidth(scaled(fit(padded, this.ratio(page)), zoom).width);
       if ((this.drawn.get(page)?.width ?? 0) < width) {
         return { page, width };
       }
@@ -537,37 +780,124 @@ export class PageViewer {
 
   private resized(): void {
     this.layout();
-    window.clearTimeout(this.resizeTimer);
-    this.resizeTimer = window.setTimeout(() => this.pump(), RESIZE_DELAY);
+    this.settle();
   }
 
-  /// One page per wheel gesture (see `WHEEL_GAP`), in the direction of the
-  /// larger axis: down or right is the next page.
+  /// The wheel, in the direction of the larger axis (Shift makes a
+  /// vertical wheel horizontal where the browser does not). With Ctrl, it
+  /// zooms around the pointer; without, it moves the page or turns it.
   private wheeled(event: WheelEvent): void {
     event.preventDefault();
-    if (!this.opened || event.ctrlKey) {
+    if (!this.opened) {
       return;
     }
-    const scale =
-      event.deltaMode === WheelEvent.DOM_DELTA_LINE
-        ? WHEEL_LINE
-        : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
-          ? WHEEL_PAGE
-          : 1;
-    const delta = (Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY) * scale;
+    let dx = event.deltaX;
+    let dy = event.deltaY;
+    if (event.shiftKey && dx === 0) {
+      dx = dy;
+      dy = 0;
+    }
+    const axis: Axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+    const raw = axis === "x" ? dx : dy;
+    if (raw === 0) {
+      return;
+    }
+    const pixels = event.deltaMode === WheelEvent.DOM_DELTA_PIXEL;
+    if (event.ctrlKey) {
+      // A wheel that reports lines or pages: one notch, one level.
+      this.wheelZoom(event, pixels ? raw : Math.sign(raw) * ZOOM_NOTCH);
+      return;
+    }
+    const scale = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? WHEEL_LINE : pixels ? 1 : WHEEL_PAGE;
+    this.wheelMove(event, axis, raw * scale);
+  }
+
+  /// Ctrl+wheel, or the pinch of a touchpad, which the browser reports the
+  /// same way: one level per notch (`zoomTicks`), around the pointer. Down
+  /// zooms out, as in the browsers.
+  private wheelZoom(event: WheelEvent, delta: number): void {
+    const wheel = this.zoomWheel;
+    if (event.timeStamp - wheel.last > WHEEL_GAP) {
+      wheel.travel = 0;
+      wheel.applied = 0;
+    }
+    wheel.last = event.timeStamp;
+    wheel.travel += delta;
+    const wanted = Math.sign(wheel.travel) * zoomTicks(wheel.travel);
+    const pointer = this.pointerAt(event);
+    for (; wheel.applied < wanted; wheel.applied += 1) {
+      this.zoomStep(-1, pointer);
+    }
+    for (; wheel.applied > wanted; wheel.applied -= 1) {
+      this.zoomStep(1, pointer);
+    }
+  }
+
+  /// The wheel without Ctrl, along `axis`. Where the page exceeds the
+  /// window on that axis, a gesture that begins away from its edge moves
+  /// the page, and goes no further than the edge: the momentum of a
+  /// touchpad never turns the page. A gesture that begins at the edge, or
+  /// on an axis where the page fits, turns one page, once it has travelled
+  /// `WHEEL_STEP`, entered by the edge the travel continues through.
+  private wheelMove(event: WheelEvent, axis: Axis, delta: number): void {
     const wheel = this.wheel;
     if (event.timeStamp - wheel.last > WHEEL_GAP) {
       wheel.travel = 0;
       wheel.turned = false;
+      wheel.turning = atEdge(this.offset, this.size, this.room, axis, Math.sign(delta));
     }
     wheel.last = event.timeStamp;
+    if (!wheel.turning) {
+      this.moveBy(axis, -delta);
+      return;
+    }
     if (wheel.turned) {
       return;
     }
     wheel.travel += delta;
     if (Math.abs(wheel.travel) >= WHEEL_STEP) {
       wheel.turned = true;
-      this.go(this.current + Math.sign(wheel.travel));
+      this.go(this.current + Math.sign(wheel.travel), { axis, edge: wheel.travel > 0 ? "start" : "end" });
+    }
+  }
+
+  /// A press on the page, or on the ground around it, takes hold of a page
+  /// larger than the window; the buttons over the stage keep their clicks.
+  private dragStart(event: PointerEvent): void {
+    if (!this.opened || event.button !== 0 || this.drag !== null) {
+      return;
+    }
+    if (event.target instanceof Element && event.target.closest("button") !== null) {
+      return;
+    }
+    const over = overflows(this.size, this.room);
+    if (!over.x && !over.y) {
+      return;
+    }
+    this.drag = { pointerId: event.pointerId, from: { x: event.clientX, y: event.clientY }, offset: this.offset };
+    this.el.stage.setPointerCapture(event.pointerId);
+    this.el.stage.classList.add("panning");
+  }
+
+  /// The page follows the pointer, within bounds, from where it was taken
+  /// hold of: pulled past an edge and back, it does not drift.
+  private dragMove(event: PointerEvent): void {
+    const drag = this.drag;
+    if (drag === null || event.pointerId !== drag.pointerId) {
+      return;
+    }
+    this.place({ x: drag.offset.x + event.clientX - drag.from.x, y: drag.offset.y + event.clientY - drag.from.y });
+  }
+
+  private dragEnd(event: PointerEvent): void {
+    const drag = this.drag;
+    if (drag === null || event.pointerId !== drag.pointerId) {
+      return;
+    }
+    this.drag = null;
+    this.el.stage.classList.remove("panning");
+    if (this.el.stage.hasPointerCapture(event.pointerId)) {
+      this.el.stage.releasePointerCapture(event.pointerId);
     }
   }
 }
@@ -580,12 +910,6 @@ function clamp(value: number, min: number, max: number): number {
 function px(value: string): number {
   const n = Number.parseFloat(value);
   return Number.isFinite(n) ? n : 0;
-}
-
-/// The largest size of height-over-width `ratio` that fits in `area`.
-function fit(area: Size, ratio: number): Size {
-  const width = Math.max(1, Math.floor(Math.min(area.width, area.height / ratio)));
-  return { width, height: Math.max(1, Math.floor(width * ratio)) };
 }
 
 /// Device pixels to request for a page shown `cssWidth` CSS pixels wide.
