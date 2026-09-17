@@ -19,9 +19,14 @@ que le moteur n'a pas rendue. Un fichier réparé, chiffré ou protégé par un
 mot de passe, même refusé, n'est pas un danger : son bandeau est ocre, celui
 de l'avertissement.
 
-Décidé le 15 septembre 2026, pour les couleurs seulement : l'icône
-(`app/icons/icon.svg`) garde l'ancien accent bleu en attendant la sienne
-(`docs/backlog-ui.md`).
+L'icône a suivi le 15 septembre 2026, après la palette :
+`app/icons/icon.svg` ne porte plus le « 4Y » sur le bleu d'avant, mais une
+feuille de papier ambre déchirée par trois coups de griffe, le carcajou
+(`app/README.md`, « Version, signature, icônes »). Ses couleurs sont les
+siennes et ne sont pas des rôles : `#bb5213` pour le papier, `#26211e` pour
+le fond, à ΔE00 2,2 et 2,5 des couleurs brutes les plus proches
+(`--ambre-550` `#b6540b`, `--brun-850` `#2a2723`). La règle du bloc unique,
+plus bas, ne porte que sur `app/ui/styles.css`.
 
 ## Deux niveaux
 

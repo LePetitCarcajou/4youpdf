@@ -229,11 +229,20 @@ Ni l'installeur ni l'exécutable ne sont signés : SmartScreen avertit au
 lancement d'un fichier téléchargé (voir « Installer » dans le `README.md` à
 la racine).
 
-`icons/icon.svg` est la source de toutes les icônes : un « 4Y » en formes
-simples, sans fonte, sur `#1f4e79`, le bleu qui était l'accent de l'interface
-avant sa palette ambre ([docs/couleurs.md](../docs/couleurs.md)), en
-attendant une icône à la nouvelle identité. Pour les régénérer, depuis
-`app/` :
+`icons/icon.svg` est la source de toutes les icônes : une feuille de papier
+ambre, le coin replié, déchirée par trois coups de griffe qui laissent voir
+le fond sombre — le carcajou, l'animal du pseudo du dépôt, qui ouvre ce que
+les autres n'ouvrent pas, et l'ambre qui sort 4YouPDF d'une catégorie de
+logiciels tout en rouge ([docs/couleurs.md](../docs/couleurs.md)). Le dessin
+remplit le carré : le papier en `#bb5213` sur un fond aux angles arrondis en
+`#26211e`, et hors de ces angles un blanc cassé opaque, `#f7f8f8`, plutôt
+que de la transparence. Ces couleurs sont les siennes, proches des couleurs
+brutes de l'interface sans leur être égales (`--ambre-550` `#b6540b`,
+`--brun-850` `#2a2723` : ΔE00 2,2 et 2,5) ; un fichier d'icône n'est pas la
+feuille de style. Le papier et les griffes se touchent, et quelques pixels
+de leur bord commun ne couvrent pas tout à fait (`docs/backlog-ui.md`).
+
+Pour les régénérer, depuis `app/` :
 `.tools/tauri-cli/bin/cargo-tauri icon icons/icon.svg -o <dossier temporaire>`,
 puis copier dans `icons/` les fichiers de `bundle > icon` et `icon.png` (la
 commande produit aussi des icônes Android, iOS et Microsoft Store, inutiles

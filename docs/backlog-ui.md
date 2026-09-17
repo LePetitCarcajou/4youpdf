@@ -173,12 +173,19 @@ la liste une fois fait.
   (`styles.css`) ; toute page en paysage le fait, tournée ou non. Les tuiles
   devraient réserver la même hauteur quelle que soit l'orientation, le
   numéro se plaçant toujours en bas.
-- [ ] **L'icône garde l'ancien accent bleu** (consigné le 15 septembre 2026,
-  en posant la palette ambre). `app/icons/icon.svg`, source de toutes les
-  icônes, peint son « 4Y » sur `#1f4e79`, l'accent d'avant la palette : dans
-  la barre des tâches, où l'ambre devait distinguer 4YouPDF des applications
-  PDF rouges, l'application reste bleue. La session des couleurs excluait
-  l'icône (`docs/couleurs.md`).
+- [ ] **L'icône laisse des coutures translucides, et sa plaque de fond n'est
+  pas transparente** (consigné le 16 septembre 2026, en mettant à jour la
+  documentation de l'icône posée la veille). Dans `app/icons/icon.svg`, le
+  papier ambre et les coups de griffe sont deux tracés qui se touchent :
+  lissé chacun de son côté, leur bord commun ne couvre pas tout à fait, et
+  ce qu'il y a derrière l'icône s'y voit. Mesuré dans les PNG livrés, sans
+  être regardé à l'écran : 12,8 % des pixels de `32x32.png`, la taille de la
+  barre des tâches, ont une opacité inférieure à 250 sur 255, jusqu'à 191 ;
+  3,6 % dans `128x128.png` et 1,2 % dans `icon.png` (512 × 512). Leur
+  couleur, entre l'ambre et le brun, et leur place le long des griffes
+  désignent bien ce bord commun. Par ailleurs, hors des angles arrondis,
+  l'icône est peinte en `#f7f8f8` plutôt que laissée transparente : elle
+  porte une plaque blanc cassé, qui se verra sur un fond sombre.
 - [ ] **Contrastes sous les seuils de WCAG 2.1** (consigné le 15 septembre
   2026, en posant la palette ambre). Calculés, pas estimés, pour 4,5 : 1 sur
   du texte et 3 : 1 sur un contour ; tous étaient déjà sous le seuil avec
