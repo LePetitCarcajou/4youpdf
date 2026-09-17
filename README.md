@@ -5,11 +5,14 @@ envoi de fichiers sur Internet depuis son cœur, et hors du contrôle de tout
 organisme lucratif.
 
 - Ouvre les PDF, même cassés — et explique pourquoi quand il ne peut pas.
-- Un noyau en Rust (`#![forbid(unsafe_code)]`). Chaque nuit, la CI en fuzze
-  deux parties : le lexer et le parseur d'objets, et la lecture rapide de
-  l'en-tête et de la fin du fichier. L'ouverture complète d'un document, les
-  filtres, le chiffrement, l'écriture et les opérations de pages ne sont pas
-  encore fuzzés (`docs/backlog-technique.md`).
+- Un noyau en Rust (`#![forbid(unsafe_code)]`). Chaque nuit, la CI fuzze
+  l'ouverture complète d'un document sur des octets arbitraires, amorcée par
+  les fixtures et le corpus public : tables de références croisées,
+  reconstruction, filtres, déchiffrement, opérations de pages et écriture ;
+  puis les filtres seuls, le lexer et le parseur d'objets, la lecture rapide
+  de l'en-tête, le contrat des modules et les fonctions WASI de l'hôte
+  (`fuzz/README.md` ; ce qui reste hors de portée :
+  `docs/backlog-technique.md`).
 - Un cœur, tout ce qui s'exécute hors de la sandbox des modules, qui n'accède
   jamais au réseau : ni télémétrie, ni mise à jour automatique, ni réglage pour
   l'activer.
