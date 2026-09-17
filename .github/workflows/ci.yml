@@ -9,15 +9,17 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
 
-# dtolnay/rust-toolchain is pinned by commit: it has no release tag, and a
-# branch would run whatever it points to that day. The toolchain itself comes
-# from the `toolchain` input.
+# Every action is pinned by commit, the comment naming the release that
+# commit is (docs/backlog-technique.md): a tag or a branch would run
+# whatever it points to that day. dtolnay/rust-toolchain has no release
+# tag, so its commit is dated; the toolchain itself comes from the
+# `toolchain` input.
 jobs:
   check:
     name: fmt · clippy · deny
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # fyp-app links against WebKitGTK through Tauri 2.
       - name: install Tauri system libraries
         if: runner.os == 'Linux'
@@ -34,10 +36,10 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
 
   test:
     name: test (${{ matrix.os }})
@@ -48,7 +50,7 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           lfs: true
       # fyp-app links against WebKitGTK through Tauri 2.
@@ -66,7 +68,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master, 2026-09-12
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo test --workspace
 
   wasm:
@@ -74,14 +76,14 @@ jobs:
     needs: check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           lfs: true
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master, 2026-09-12
         with:
           toolchain: stable
           targets: wasm32-wasip1
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       # Builds each crate of plugins/ for wasm32-wasip1 and copies it to
       # plugins/<name>/module.wasm, where fyp-host loads it.
       - run: python3 tools/build_modules.py
@@ -101,7 +103,7 @@ jobs:
     needs: check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           lfs: true
       # fyp-app links against WebKitGTK through Tauri 2.
@@ -130,7 +132,7 @@ jobs:
       - run: echo "RUSTUP_TOOLCHAIN=$MSRV" >> "$GITHUB_ENV"
         env:
           MSRV: ${{ steps.msrv.outputs.version }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo test --workspace --locked
       - run: cargo check -p fyp-plugin-merge --locked --target wasm32-wasip1
 
@@ -144,7 +146,7 @@ jobs:
     needs: check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # Also fails if the contract does not give its own.
       - name: read the rust-version of fyp-plugin-api
         id: msrv
@@ -179,11 +181,11 @@ jobs:
     needs: check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master, 2026-09-12
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: python3 tools/fetch_pdfium.py
       - run: python3 tools/fetch_corpus.py
         env:
@@ -191,7 +193,7 @@ jobs:
       # --b: the engine to guard, once it exists; --fail-above: its measured
       # threshold.
       - run: cargo run --release -p fyp-render-bench -- run --a pdfium --b pdfium --fail-above 0
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: render-fidelity-report
@@ -202,7 +204,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
       - name: every commit must carry Signed-off-by

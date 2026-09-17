@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+# Every action is pinned by commit, the comment naming the release that
+# commit is (docs/backlog-technique.md): a tag or a branch would run
+# whatever it points to that day. dtolnay/rust-toolchain has no release
+# tag, so its commit is dated; the toolchain itself comes from the
+# `toolchain` input.
 jobs:
   # Nothing is built unless the tag names the version of the workspace, and
   # the product crates take that version (tools/check_version.py, the check
@@ -16,11 +21,14 @@ jobs:
     name: version check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: python3 tools/check_version.py --tag "$TAG"
         env:
           TAG: ${{ github.ref_name }}
 
+  # fyp, the command line, for the three desktop platforms: kept as
+  # artifacts of the run, not attached to the release
+  # (docs/backlog-technique.md).
   build:
     needs: version-check
     strategy:
@@ -34,12 +42,13 @@ jobs:
             target: aarch64-apple-darwin
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master, 2026-09-12
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
       - run: cargo build -p fyp-cli --release --target ${{ matrix.target }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: fyp-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/fyp*
@@ -58,8 +67,10 @@ jobs:
     needs: version-check
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master, 2026-09-12
+        with:
+          toolchain: stable
       # Pinned binaries that build and test the interface, and PDFium,
       # each checked against its SHA-256.
       - run: python tools/fetch_ui_tools.py
@@ -69,12 +80,15 @@ jobs:
       - run: python tools/package_app.py --tag "$env:TAG" --out dist
         env:
           TAG: ${{ github.ref_name }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: app-windows
           path: dist/*
           if-no-files-found: error
 
+  # The release itself, once every build passed: the installer and the
+  # portable archive, their SHA-256 in SHA256SUMS.txt, the notes of this
+  # version from git-cliff (cliff.toml) and a provenance attestation.
   release:
     name: GitHub release
     needs: [version-check, build, app-windows]
@@ -86,26 +100,31 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-      - uses: orhun/git-cliff-action@v4
+      # The action installs the git-cliff release that its `version` input
+      # names, v2.14.1 at this commit: pinned with it.
+      - uses: orhun/git-cliff-action@3d96a18cc4ec17e9dc69ddcc424ccafaf1f78ce2 # v4.9.0
         with:
           args: --latest --strip header
         id: cliff
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: app-windows
           path: dist
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
           subject-path: dist/*
       - name: checksums
         working-directory: dist
         run: sha256sum -- *.exe *.zip | tee SHA256SUMS.txt
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           body: ${{ steps.cliff.outputs.content }}
+          # A pattern that matches nothing fails the job: no release is
+          # published without its files.
+          fail_on_unmatched_files: true
           files: |
             dist/*.exe
             dist/*.zip

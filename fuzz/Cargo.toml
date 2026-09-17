@@ -11,6 +11,21 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 fyp-core = { path = "../crates/fyp-core" }
 fyp-host = { path = "../crates/fyp-host", features = ["fuzzing"] }
+fyp-plugin-api = { path = "../crates/fyp-plugin-api" }
+
+[[bin]]
+name = "document"
+path = "fuzz_targets/document.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "filters"
+path = "fuzz_targets/filters.rs"
+test = false
+doc = false
+bench = false
 
 [[bin]]
 name = "parse_object"
@@ -22,6 +37,13 @@ bench = false
 [[bin]]
 name = "quick_info"
 path = "fuzz_targets/quick_info.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "plugin_api"
+path = "fuzz_targets/plugin_api.rs"
 test = false
 doc = false
 bench = false

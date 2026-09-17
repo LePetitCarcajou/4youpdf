@@ -1,0 +1,8 @@
+# actionlint, run by hand on the workflows before they change
+# (docs/backlog-technique.md): no job runs it.
+paths:
+  .github/workflows/ci.yml:
+    ignore:
+      # The rendering fidelity guard is written, not active: the `if: false`
+      # of the job render-fidelity is deliberate (docs/banc-rendu.md).
+      - 'constant expression "false" in condition'
