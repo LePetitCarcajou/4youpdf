@@ -3,7 +3,7 @@
 Travaux sans effet visible dans l'application : les garde-fous qui font
 tenir les décisions des ADR, et la dette de l'outillage et du dépôt.
 Consignés à partir du 12 septembre 2026, chacun avec sa date quand elle
-diffère ; seul l'épinglage des actions par SHA est entamé (`ci.yml`).
+diffère, et la date de sa réduction quand une session en a soldé une part.
 
 - [ ] **Faire tenir l'ADR 0006 par l'outillage.** L'ADR 0006 réserve le
   réseau au relais de l'hôte qui sert un module autorisé, mais seules la CSP
@@ -35,71 +35,67 @@ diffère ; seul l'épinglage des actions par SHA est entamé (`ci.yml`).
     `http://tauri.localhost` sous Windows, si bien que l'exemple de la
     documentation de Tauri, qui ne teste que le schéma `tauri`, bloquerait
     l'application sous Windows.
-- [ ] **Vérifier et figer les workflows, en première étape de la session
-  consacrée au workflow de release** (consigné le 13 septembre 2026).
-  - [ ] **Passer les workflows à actionlint.** Aucun outil n'a validé
-    `release.yml` : un parseur YAML ne vérifierait que sa syntaxe, alors
-    qu'actionlint vérifie aussi les expressions de GitHub (`${{ … }}`,
-    `needs`, sorties des étapes) et les scripts `run`. Le faire avant de
-    compléter le workflow, pour ne rien bâtir sur une erreur qui ne se
-    verrait qu'au premier tag poussé. Les jobs `msrv-product` et
-    `msrv-plugin-api` de `ci.yml`, ajoutés le même jour, n'ont pas été
-    validés non plus.
-  - [ ] **Épingler chaque action par SHA de commit.** Un projet qui vérifie
-    le SHA-256 de `pdfium.dll` ne peut pas laisser un tag ou une branche
-    choisir le code qui tourne dans sa CI. `ci.yml` n'utilise plus de
-    branche : `dtolnay/rust-toolchain` y est épinglé au commit `02cb101e`
-    du 12 septembre 2026, le toolchain passant par l'entrée `toolchain`.
-    Restent sur une référence mobile les branches
-    `dtolnay/rust-toolchain@stable` (`release.yml`, 2 fois) et
-    `dtolnay/rust-toolchain@nightly` (`fuzz.yml`), et les tags
-    `actions/checkout@v4` (`ci.yml` 7 fois, `release.yml` 4, `fuzz.yml` 1),
-    `Swatinem/rust-cache@v2` (`ci.yml`, 5 fois),
-    `EmbarkStudios/cargo-deny-action@v2` (`ci.yml`),
-    `actions/upload-artifact@v4` (`ci.yml` 1 fois, `release.yml` 2,
-    `fuzz.yml` 1),
-    `actions/download-artifact@v4`, `orhun/git-cliff-action@v4`,
-    `actions/attest-build-provenance@v2` et `softprops/action-gh-release@v2`
-    (`release.yml`). Prévoir en même temps leur mise à jour : Dependabot
-    (`github-actions`) suit un SHA accompagné de son tag en commentaire,
-    mais `dtolnay/rust-toolchain`, qui n'a pas de tag de version, se
-    remonte à la main. Même famille : `fuzz.yml` installe `cargo-fuzz` sans
-    version ni `--locked`.
-- [ ] **Étendre le fuzzing au reste du noyau et du contrat, dans la session
-  consacrée au fuzz** (consigné le 13 septembre 2026). Le README présentait
-  « un noyau en Rust (`#![forbid(unsafe_code)]`), fuzzé en continu » ; il
-  dit depuis le 13 septembre 2026 ce qui est fuzzé et ce qui ne l'est pas,
-  comme `SECURITY.md`. L'ADR 0003 range toujours le « fuzzing continu »
-  parmi les défenses en profondeur, et la première feuille de route
-  promettait au jalon 0.1 un « fuzzing sans crash ». `fuzz.yml` tourne bien
-  chaque nuit (trois exécutions, toutes réussies, du 11 au 13 septembre
-  2026), mais ses deux cibles ne voient qu'une petite partie du noyau :
-  `parse_object`, le lexer et le parseur d'un objet isolé (`parse_object`,
-  `parse_indirect`), et
-  `quick_info`, l'en-tête puis la recherche de `startxref`, `/Encrypt` et
-  `%%EOF` dans les 2 derniers Kio, sans construire de document. La
-  troisième cible, `host_wasi` (les fonctions WASI de l'hôte confrontées à
-  un modèle de référence), n'est pas dans la CI (ADR 0003, « Limites
-  connues »). Aucune cible n'atteint :
-  - l'ouverture d'un document (`Document::open`) : tables et flux de
-    références croisées, chaîne `/Prev`, `startxref` décalé, flux d'objets ;
-  - la reconstruction d'une table inutilisable (`recover`) ;
-  - les filtres `FlateDecode`, `ASCIIHexDecode`, `ASCII85Decode` et
-    `RunLengthDecode`, les prédicteurs TIFF et PNG, et les limites de
-    décodage ;
-  - le chiffrement : la lecture de `/Encrypt` (`encryption`) et tout
-    `fyp-crypto` (dérivation des clés, RC4, AES) ;
-  - l'écriture (`writer`) et les opérations de pages (`ops`) ;
-  - les règles de `fyp-conformance` ;
-  - dans le contrat des modules, la lecture de `manifest.toml` et le
-    décodage des échanges (`fyp_plugin_api::exchange`), que l'hôte applique
-    pourtant à ce que produisent des modules hostiles.
+- [ ] **Tenir les workflows figés et vérifiés** (consigné le 13 septembre
+  2026, réduit le 16). Fait le 16 septembre 2026 : actionlint 1.7.12, avec
+  shellcheck 0.11.0 pour les scripts `run`, ne signale plus rien sur
+  `ci.yml`, `release.yml` et `fuzz.yml`, `.github/actionlint.yaml` écartant
+  son seul avis, le `if: false` voulu du job `render-fidelity` ; chaque
+  action y est épinglée par SHA de commit, le tag qu'il porte en
+  commentaire ; `fuzz.yml` installe cargo-fuzz `=0.13.2 --locked`. Reste :
+  - aucun job ne lance actionlint : la vérification ne tient que tant
+    qu'on la refait à la main avant de toucher un workflow ;
+  - la mise à jour des épinglages. Dependabot (`github-actions`) suit un
+    SHA accompagné de son tag en commentaire, mais ses commits ne portent
+    pas le `Signed-off-by` que le job `dco` exige de chaque commit d'une
+    pull request : l'exempter dans le job, ou signer ses commits à la main,
+    est à trancher avant de l'activer ; `dtolnay/rust-toolchain`, sans tag
+    de version, se remonte à la main dans tous les cas. Les commits
+    épinglés d'`actions/checkout` (v4.4.0), `actions/upload-artifact`
+    (v4.6.2), `actions/download-artifact` (v4.3.0) et
+    `softprops/action-gh-release` (v2.6.2) déclarent encore Node 20, dont
+    GitHub organise la fin ; `actions/checkout` v6.1.0 et
+    `actions/upload-artifact` v6.0.0 sont passés à Node 24,
+    `actions/download-artifact` v6.0.0 pas encore.
+- [ ] **Le job `build` de `release.yml` compile `fyp` pour trois plateformes
+  sans rien en attacher à la Release** (consigné le 16 septembre 2026, en
+  réparant `release.yml`). Ses trois artefacts `fyp-<cible>` ne vivent que
+  dans l'exécution, 90 jours, et aucun document ne promet la ligne de
+  commande en téléchargement : la Release n'attache que l'installeur et
+  l'archive portable de Windows. Décider : attacher `fyp` aux releases, avec
+  ses empreintes et son attestation, ou retirer le job, que le job `test` de
+  `ci.yml` double déjà comme compilation de `fyp-cli` sur les trois
+  systèmes.
+- [ ] **Ce que le fuzz n'atteint pas encore** (consigné le 13 septembre 2026
+  comme « Étendre le fuzzing au reste du noyau et du contrat », réduit le
+  16). Depuis le 16 septembre 2026, `fuzz.yml` lance chaque nuit six cibles
+  (`fuzz/README.md`). `document` ouvre des octets arbitraires par
+  `Document::open`, amorcée par `tests/fixtures` et `tests/corpus` : tables
+  et flux de références croisées, chaîne `/Prev`, object streams,
+  reconstruction, `/Encrypt` et fyp-crypto avec le mot de passe vide puis
+  celui des fixtures ; elle lit chaque objet, décode chaque flux, parcourt
+  l'arbre des pages, appelle `ops::rotate` et `ops::merge`, écrit dans les
+  deux styles et relit chaque sortie. `filters` appelle les filtres et les
+  prédicteurs seuls, `plugin_api` lit et valide un manifeste et décode les
+  deux messages de l'échange, `host_wasi` entre dans la CI ; `parse_object`
+  et `quick_info` restent. Ne sont toujours pas atteints, ou pas
+  directement :
+  - `ops::extract_pages`, `ops::delete_pages` et `ops::split`, que la cible
+    n'appelle pas ; ils partagent le `Builder` de `merge` et `rotate`, ce
+    qui ne vaut pas couverture ;
+  - `fyp-crypto` appelé seul, avec des clés, des sels et des vecteurs
+    d'initialisation arbitraires : ses primitives ne tournent que sur les
+    dictionnaires `/Encrypt` que le fuzz dérive des amorces ;
+  - les règles de `fyp-conformance`, qui n'existent pas ;
+  - l'hôte hors des fonctions WASI : découverte des dossiers de modules,
+    chargement d'un `module.wasm` hostile, dont la validation est celle de
+    Wasmtime.
 
-  Constaté en vérifiant les corrections de lints du MSRV 1.95
-  (`docs/verification-differentielle.md`) : ces zones ne s'atteignent qu'à
-  partir de `Document::open`, et même une cible qui l'appelait, amorcée par
-  `tests/fixtures` et `tests/corpus`, n'a jamais exercé le prédicteur TIFF
-  sur 16 bits.
+  Deux limites de l'exécution en CI : ce qu'une nuit trouve n'est pas gardé
+  pour la suivante, chaque nuit repartant des seules amorces (un cache par
+  `actions/cache`, action à épingler, y remédierait) ; et aucune mesure de
+  couverture ne dit quelles lignes les amorces et le fuzz atteignent, le
+  prédicteur TIFF sur 16 bits compris, que `filters` peut désormais
+  appeler directement (`docs/verification-differentielle.md`).
 - [ ] **Le rendu d'une page agrandie passe par un PNG en base64, lourd et
   lent** (consigné le 16 septembre 2026, en posant le zoom de la vue d'une
   page). Mesuré par script sur une page A4 de texte et de lignes, build de
@@ -132,13 +128,16 @@ diffère ; seul l'épinglage des actions par SHA est entamé (`ci.yml`).
   (`docs/backlog-ui.md`) ; les sélecteurs de fichiers sont appelés depuis
   Rust. Relevé dans `app/gen/schemas/acl-manifests.json`, que génère
   tauri-build.
-- [ ] **Ouvrir un canal privé de signalement des vulnérabilités, avant la
-  première release publique** (consigné le 13 septembre 2026).
-  `SECURITY.md` demande de ne pas ouvrir d'issue publique, mais
-  `MAINTAINERS.md` n'indique aucune adresse (« à compléter ») et le
-  signalement privé de GitHub est désactivé sur le dépôt (API
-  `private-vulnerability-reporting` : `"enabled": false`). Choisir l'un ou
-  l'autre, puis mettre `SECURITY.md` à jour.
+- [ ] **Activer le signalement privé des vulnérabilités sur le dépôt, avant
+  la première release publique** (consigné le 13 septembre 2026, réduit le
+  16). Choix fait le 16 septembre 2026 : le signalement privé de GitHub
+  plutôt qu'une adresse, et `SECURITY.md` et `MAINTAINERS.md` sont écrits
+  pour lui. Ce qu'ils disent n'est vrai qu'une fois le réglage activé
+  (Settings, Code security, « Private vulnerability reporting »), ce que
+  seul un administrateur du dépôt peut faire : l'API
+  `private-vulnerability-reporting` répondait encore `"enabled": false` le
+  16 septembre 2026. Vérifier ensuite que « Report a vulnerability »
+  apparaît dans l'onglet Security, puis retirer cette entrée.
 - [ ] **Générer `CHANGELOG.md` ou le retirer** (consigné le 13 septembre
   2026). Le fichier ne contient aucune entrée alors que 16 tags existent :
   `release.yml` n'appelle git-cliff que pour les notes de la release en

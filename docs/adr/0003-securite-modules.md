@@ -262,14 +262,15 @@ est un changement cassant de `fyp-plugin-api`, avec changement de version.
   rendus inertes (il faut pouvoir écrire dans le dossier des modules).
 - Époque : un thread d'époque par exécution. Avec N exécutions, chaque store
   est interrompu N fois par tic de 10 ms, ce qui reste négligeable à 8.
-- Fuzzing : la cible `host_wasi` n'a tourné qu'une fois, en local
+- Fuzzing : la cible `host_wasi` n'avait tourné qu'une fois, en local
   (148 668 scripts en 8 minutes avec ASan, sans divergence du modèle ni
-  plantage) ; libFuzzer n'a pas dépassé des scripts de 261 octets, et la
-  mémoire des scripts reste de 1 à 4 pages. Elle n'est pas dans la CI, où
-  tourne le test à graine fixe `random_scripts_agree_with_the_model`. Sous
-  Windows, cargo-fuzz ne lie la cible qu'avec `--sanitizer address`, et la
-  lance si `clang_rt.asan_dynamic-x86_64.dll` (outils MSVC) est dans le
-  `PATH`.
+  plantage), avant le 16 septembre 2026, où `fuzz.yml` s'est mis à la
+  lancer chaque nuit pendant dix minutes, à côté du test à graine fixe
+  `random_scripts_agree_with_the_model` de `cargo test` ; libFuzzer n'a
+  pas dépassé des scripts de 261 octets, et la mémoire des scripts reste
+  de 1 à 4 pages. Sous Windows, cargo-fuzz ne lie la cible qu'avec
+  `--sanitizer address`, et la lance si `clang_rt.asan_dynamic-x86_64.dll`
+  (outils MSVC) est dans le `PATH`.
 - Wasmtime : aucun avis RustSec ne touche 48.0.2 dans la base du
   2026-09-09. Les 44 avis sur `wasmtime` sont tous corrigés dans une
   version antérieure, et plusieurs portent sur ce que l'hôte n'utilise
