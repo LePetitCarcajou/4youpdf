@@ -1,23 +1,23 @@
-# Contribuer à 4YouPDF
+# Contributing to 4YouPDF
 
-## Règle n°1 : DCO, pas de CLA
+## Rule no. 1: DCO, no CLA
 
-Chaque commit doit être signé avec `git commit -s`, ce qui ajoute une ligne
-`Signed-off-by: Nom <email>`. Cela signifie que vous certifiez le
-[Developer Certificate of Origin](https://developercertificate.org/) : vous
-avez le droit de soumettre ce code sous AGPL-3.0-or-later.
+Every commit must be signed off with `git commit -s`, which adds a
+`Signed-off-by: Name <email>` line. It means that you certify the
+[Developer Certificate of Origin](https://developercertificate.org/): you
+have the right to submit this code under AGPL-3.0-or-later.
 
-Nous n'utilisons **pas** de CLA. Un CLA transfère des droits à une entité qui
-peut ensuite changer la licence. Avec le DCO, chaque contributeur garde ses
-droits ; relicencier exigerait l'accord de tous. C'est la garantie que le
-projet reste libre.
+We do **not** use a CLA. A CLA transfers rights to an entity that can then
+change the licence. With the DCO, every contributor keeps their rights;
+relicensing would require everyone's agreement. That is the guarantee that
+the project stays free.
 
-## Compiler sous Linux
+## Building on Linux
 
-Le workspace contient l'application desktop (`app/`, crate `fyp-app`),
-construite sur Tauri 2 et liée à WebKitGTK. `cargo clippy --workspace` et
-`cargo test --workspace` la compilent, donc il faut d'abord installer ses
-bibliothèques système. Sous Debian ou Ubuntu (la CI tourne sur Ubuntu 24.04) :
+The workspace contains the desktop application (`app/`, crate `fyp-app`),
+built on Tauri 2 and linked against WebKitGTK. `cargo clippy --workspace` and
+`cargo test --workspace` compile it, so its system libraries have to be
+installed first. On Debian or Ubuntu (CI runs on Ubuntu 24.04):
 
 ```
 sudo apt-get update
@@ -25,46 +25,47 @@ sudo apt-get install libwebkit2gtk-4.1-dev libgtk-3-dev \
   libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev pkg-config
 ```
 
-Sans ces paquets, la compilation s'arrête sur une erreur de `pkg-config`
-(`glib-2.0`, `gobject-2.0`…). Pour les autres distributions, voir les
-[prérequis de Tauri 2](https://v2.tauri.app/start/prerequisites/) et
-`app/README.md`. Pour travailler sur le noyau ou la CLI sans les installer,
-`cargo test --workspace --exclude fyp-app` suffit localement ; la CI, elle,
-compile tout.
+Without these packages, the build stops on a `pkg-config` error (`glib-2.0`,
+`gobject-2.0`…). For other distributions, see the
+[Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/) and
+`app/README.md` (in French). To work on the core or the CLI without
+installing them, `cargo test --workspace --exclude fyp-app` is enough
+locally; CI, for its part, compiles everything.
 
-Windows (WebView2, présent sur Windows 11) et macOS ne demandent rien de plus.
+Windows (WebView2, present on Windows 11) and macOS need nothing more.
 
-## Flux de travail
+## Workflow
 
-1. Ouvrez une issue avant tout changement non trivial.
-2. Branche depuis `main` : `feat/<sujet>` ou `fix/<sujet>`.
-3. Commits en [Conventional Commits](https://www.conventionalcommits.org/) :
+1. Open an issue before any non-trivial change.
+2. Branch from `main`: `feat/<subject>` or `fix/<subject>`.
+3. Commits in [Conventional Commits](https://www.conventionalcommits.org/):
    `feat(core): parse xref streams`, `fix(cli): ...`, `docs(adr): ...`.
-   Un changement cassant porte un `!` : `refactor(plugin-api)!: ...`.
-4. PR vers `main`, fusionnée en *squash*. La CI doit être verte :
-   `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+   A breaking change carries a `!`: `refactor(plugin-api)!: ...`.
+4. PR to `main`, merged as a *squash*. CI must be green:
+   `cargo fmt --all --check`,
+   `cargo clippy --workspace --all-targets -- -D warnings`,
    `cargo test --workspace`, `cargo deny check`.
-5. Une PR qui touche `crates/fyp-plugin-api` doit dire si le changement est
-   compatible ou cassant et ajuster la version de ce crate en conséquence.
+5. A PR that touches `crates/fyp-plugin-api` must say whether the change is
+   compatible or breaking and adjust the version of that crate accordingly.
 
-## Rampes et paliers
+## Rampes and paliers
 
-Le projet alterne des rampes, qui ajoutent des fonctionnalités, et des
-paliers, qui n'ajoutent rien et soldent la dette ; une trouvaille faite
-pendant un travail va au backlog, sauf si elle empêche d'atteindre son
-objectif. La PR qui clôt un palier recopie et coche la grille de sortie de
-`docs/paliers.md`, qui décrit la méthode.
+The project alternates *rampes*, which add features, and *paliers*, which add
+nothing and settle the debt; a finding made during a piece of work goes to
+the backlog, unless it stands in the way of that work's objective. The PR
+that closes a palier copies and ticks the exit grid of `docs/paliers.md`
+(in French), which describes the method.
 
-## Règles de code
+## Code rules
 
-- `unsafe` est interdit dans tout le workspace.
-- Le noyau ne panique jamais sur une entrée : toute erreur est une valeur.
-  Pas de `unwrap()` / `expect()` hors tests.
-- Tout nouveau cas de fichier pathologique donne une fixture + un test.
-- Anglais pour le code et les commits ; français bienvenu dans les issues et
-  la documentation utilisateur.
+- `unsafe` is forbidden throughout the workspace.
+- The core never panics on an input: every error is a value. No `unwrap()` /
+  `expect()` outside tests.
+- Every new pathological file case gives a fixture + a test.
+- English for the code and the commits; French welcome in issues and in the
+  user documentation.
 
-## Décisions d'architecture
+## Architecture decisions
 
-Les choix structurants sont consignés dans `docs/adr/`. Proposer un changement
-d'architecture = proposer un nouvel ADR.
+The structuring choices are recorded in `docs/adr/` (in French). Proposing an
+architecture change = proposing a new ADR.

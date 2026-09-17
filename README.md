@@ -1,162 +1,157 @@
 # 4YouPDF
 
-**Le VLC du PDF.** Un logiciel PDF libre, gratuit, sans compte, sans pub, sans
-envoi de fichiers sur Internet depuis son cœur, et hors du contrôle de tout
-organisme lucratif.
+**The VLC of PDF.** Free software for PDF, at no cost, with no account, no
+ads, no files sent over the Internet by its core, and outside the control of
+any for-profit organisation.
 
-- Ouvre les PDF, même cassés — et explique pourquoi quand il ne peut pas.
-- Un noyau en Rust (`#![forbid(unsafe_code)]`). Chaque nuit, la CI fuzze
-  l'ouverture complète d'un document sur des octets arbitraires, amorcée par
-  les fixtures et le corpus public : tables de références croisées,
-  reconstruction, filtres, déchiffrement, opérations de pages et écriture ;
-  puis les filtres seuls, le lexer et le parseur d'objets, la lecture rapide
-  de l'en-tête, le contrat des modules et les fonctions WASI de l'hôte
-  (`fuzz/README.md` ; ce qui reste hors de portée :
-  `docs/backlog-technique.md`).
-- Un cœur, tout ce qui s'exécute hors de la sandbox des modules, qui n'accède
-  jamais au réseau : ni télémétrie, ni mise à jour automatique, ni réglage pour
-  l'activer.
-- Des modules sandboxés (WebAssembly) avec permissions explicites : un module de
-  fusion ne peut pas parler au réseau, et un module qui en a besoin ne pourra
-  joindre que les serveurs exacts qu'il déclare, affichés et soumis à votre
-  accord (voir `docs/adr/0006-fonctionnement-local.md`).
-- Visées, pas encore là : la conformité visible en permanence (PDF/A, PDF/X,
-  PDF/E, PDF/UA, PDF/VT, PAdES) avec correction assistée, et l'écriture native
-  de PDF 2.0 (ISO 32000-2:2020).
+- Opens PDFs, even broken ones — and explains why when it cannot.
+- A core written in Rust (`#![forbid(unsafe_code)]`). Every night, CI fuzzes
+  the complete opening of a document on arbitrary bytes, seeded by the
+  fixtures and the public corpus: cross-reference tables, reconstruction,
+  filters, decryption, page operations and writing; then the filters alone,
+  the lexer and the object parser, the quick read of the header, the module
+  contract and the host's WASI functions (`fuzz/README.md` (in French); what
+  remains out of reach: `docs/backlog-technique.md` (in French)).
+- A core — everything that runs outside the module sandbox — that never
+  reaches the network: no telemetry, no automatic update, no setting to turn
+  one on.
+- Sandboxed modules (WebAssembly) with explicit permissions: a merge module
+  cannot talk to the network, and a module that needs to will only be able to
+  reach the exact servers it declares, shown to you and subject to your
+  agreement (see `docs/adr/0006-fonctionnement-local.md` (in French)).
+- Aimed at, not there yet: conformance visible at all times (PDF/A, PDF/X,
+  PDF/E, PDF/UA, PDF/VT, PAdES) with assisted correction, and native writing
+  of PDF 2.0 (ISO 32000-2:2020).
 
-## Installer
+## Install
 
-Aucune release publiée n'a encore de fichier à télécharger : celles de
-v0.0.4 à v0.3.3 n'en ont aucun. Le workflow de release attachera aux
-suivantes, sur la page
-[Releases](https://github.com/LePetitCarcajou/4youpdf/releases), deux
-fichiers par version pour Windows 10 et 11 (x64), au choix :
+No published release has a file to download yet: those from v0.0.4 to v0.3.3
+have none. The release workflow will attach to the following ones, on the
+[Releases](https://github.com/LePetitCarcajou/4youpdf/releases) page, two
+files per version for Windows 10 and 11 (x64), whichever you prefer:
 
-- **`4YouPDF_<version>_x64-setup.exe`**, l'installeur. Il installe 4YouPDF
-  pour votre compte seulement, sans droits d'administrateur, dans
-  `%LOCALAPPDATA%\4YouPDF`, avec un raccourci dans le menu Démarrer et, si
-  vous laissez la case cochée, sur le bureau. La désinstallation, depuis
-  « Applications installées », retire tout ce qu'il a mis en place. Si
-  WebView2, le moteur d'affichage de Windows, manque (il fait partie de
-  Windows 11), l'installeur le fait installer par Microsoft, ce qui demande
-  une connexion à Internet.
-- **`4YouPDF_<version>_x64_portable.zip`**, la version portable. Extrayez
-  l'archive où vous voulez, clé USB comprise, puis lancez
-  `4YouPDF\4YouPDF.exe`. Rien n'est installé et 4YouPDF n'écrit rien dans le
-  registre : ce qu'il écrit, le cache du moteur d'affichage, reste dans
-  `4YouPDF\data`, et supprimer le dossier supprime tout. WebView2 doit déjà
-  être présent.
+- **`4YouPDF_<version>_x64-setup.exe`**, the installer. It installs 4YouPDF
+  for your account only, without administrator rights, in
+  `%LOCALAPPDATA%\4YouPDF`, with a shortcut in the Start menu and, if you
+  leave the box ticked, on the desktop. Uninstalling, from "Installed apps",
+  removes everything it put in place. If WebView2, the display engine of
+  Windows, is missing (it is part of Windows 11), the installer has Microsoft
+  install it, which requires an Internet connection.
+- **`4YouPDF_<version>_x64_portable.zip`**, the portable version. Extract the
+  archive wherever you want, USB stick included, then run
+  `4YouPDF\4YouPDF.exe`. Nothing is installed and 4YouPDF writes nothing to
+  the registry: what it does write, the display engine's cache, stays in
+  `4YouPDF\data`, and deleting the folder deletes everything. WebView2 must
+  already be present.
 
-`SHA256SUMS.txt`, sur la même page, donnera l'empreinte de chaque fichier.
-macOS et Linux n'ont pas encore de paquet : voir `app/README.md` pour
-compiler l'application.
+`SHA256SUMS.txt`, on the same page, will give the hash of each file. macOS
+and Linux have no package yet: see `app/README.md` (in French) to build the
+application.
 
-### « Windows a protégé votre ordinateur »
+### "Windows protected your PC"
 
-Au premier lancement d'un fichier téléchargé, l'installeur comme le
-`4YouPDF.exe` de l'archive, Microsoft Defender SmartScreen affiche « Windows
-a protégé votre ordinateur » : il « a empêché le démarrage d'une application
-non reconnue ». C'est attendu : les fichiers ne sont pas signés. Signer
-suppose un certificat de signature de code, payant et renouvelé chaque année,
-que le projet n'a pas ; sans signature ni réputation établie auprès de
-Microsoft, SmartScreen avertit par principe, sans avoir rien détecté. Pour
-continuer : « Informations complémentaires », puis « Exécuter quand même ».
+On the first run of a downloaded file, the installer as well as the
+`4YouPDF.exe` from the archive, Microsoft Defender SmartScreen shows
+"Windows protected your PC": it "prevented an unrecognized app from
+starting". This is expected: the files are not signed. Signing requires a
+code signing certificate, paid for and renewed every year, which the project
+does not have; without a signature and without an established reputation with
+Microsoft, SmartScreen warns on principle, having detected nothing. To carry
+on: "More info", then "Run anyway".
 
-Ce n'est pas une confiance aveugle : le code est public, et ces fichiers
-seront construits publiquement par la CI du dépôt, à partir du tag de la
-version et sans intervention manuelle (`.github/workflows/release.yml` ;
-chaque exécution et son journal sont visibles dans l'onglet Actions). Pour
-vérifier que le fichier téléchargé est bien celui-là, comparez son empreinte
-(`Get-FileHash <fichier>` dans PowerShell) à `SHA256SUMS.txt`, ou vérifiez
-l'attestation de provenance que GitHub signe au moment de la construction :
-`gh attestation verify <fichier> --repo LePetitCarcajou/4youpdf`.
+This is not blind trust: the code is public, and these files will be built
+publicly by the repository's CI, from the version tag and without manual
+intervention (`.github/workflows/release.yml`; each run and its log are
+visible in the Actions tab). To check that the downloaded file is indeed that
+one, compare its hash (`Get-FileHash <file>` in PowerShell) with
+`SHA256SUMS.txt`, or verify the provenance attestation that GitHub signs at
+build time: `gh attestation verify <file> --repo LePetitCarcajou/4youpdf`.
 
-Si le contrôle intelligent des applications de Windows 11 est activé, il
-bloque les programmes non signés sans proposer de passer outre : 4YouPDF ne
-s'y lance pas tant qu'il n'est pas signé.
+If Windows 11's Smart App Control is on, it blocks unsigned programs without
+offering a way past: 4YouPDF does not start under it as long as it is not
+signed.
 
-## État
+## State
 
-Version 0.3.3. Aucune release n'a encore de fichier à télécharger. Ce qui
-existe :
+Version 0.3.3. No release has a file to download yet. What exists:
 
-- **Noyau** (`fyp-core`, `fyp-crypto`) : lecture des tables de références
-  croisées (classiques, en flux, hybrides, chaîne `/Prev`), des object
-  streams et des filtres Flate avec prédicteurs, ASCIIHex, ASCII85 et
-  RunLength ; réparation par scan d'une table inutilisable ; déchiffrement
-  du handler standard (RC4 et AES, révisions 2 à 6) ; écriture d'un fichier
-  propre à une seule section, toujours en clair. Relevé du 13 septembre 2026
-  sur le corpus public de 4 529 fichiers : 4 472 round-trips complets
-  (ouverture, réécriture, relecture, comparaison), 44 refus à l'ouverture et
-  13 échecs, chacun classé dans `docs/architecture.md`, aucune panique.
-- **Opérations de pages** : fusion, extraction, découpage, rotation et
-  suppression, par la ligne de commande `fyp`.
-- **Modules** : modules WebAssembly exécutés dans une sandbox Wasmtime, avec
-  limites de temps, de mémoire et de sortie, et re-validation par le noyau de
-  ce qu'ils renvoient ; un module, la fusion, que lance `fyp run`. Seules les
-  permissions de lecture et d'écriture de documents existent, et les modules
-  ne sont pas signés (ADR 0003, « Limites connues »).
-- **Application desktop** (`app/`, Tauri 2) : ouvrir un PDF, voir ses pages
-  en vignettes ou une par une en grand, les réordonner, les faire pivoter,
-  les supprimer, annuler et refaire, enregistrer le résultat. Les pages sont
-  dessinées par PDFium (ADR 0005).
-- **Empaquetage Windows** : un installeur NSIS et une archive portable, non
-  signés, construits par `tools/package_app.py`.
+- **Core** (`fyp-core`, `fyp-crypto`): reading of cross-reference tables
+  (classic, in streams, hybrid, `/Prev` chain), of object streams and of the
+  Flate filters with predictors, ASCIIHex, ASCII85 and RunLength; repair by
+  scan of an unusable table; decryption of the standard handler (RC4 and AES,
+  revisions 2 to 6); writing of a clean single-section file, always in the
+  clear. Measured on 13 September 2026 on the public corpus of 4,529 files:
+  4,472 complete round-trips (opening, rewriting, reading back, comparison),
+  44 refusals at opening and 13 failures, each one classified in
+  `docs/architecture.md` (in French), no panic.
+- **Page operations**: merge, extract, split, rotate and delete, through the
+  `fyp` command line.
+- **Modules**: WebAssembly modules run in a Wasmtime sandbox, with limits on
+  time, memory and output, and re-validation by the core of what they return;
+  one module, merge, which `fyp run` launches. Only the document read and
+  write permissions exist, and modules are not signed (ADR 0003, "Limites
+  connues", in French).
+- **Desktop application** (`app/`, Tauri 2): open a PDF, see its pages as
+  thumbnails or one at a time in full size, reorder them, rotate them, delete
+  them, undo and redo, save the result. The pages are drawn by PDFium
+  (ADR 0005, in French).
+- **Windows packaging**: an NSIS installer and a portable archive, unsigned,
+  built by `tools/package_app.py`.
 
-Pas encore : chiffrement à l'écriture, écriture PDF 2.0, conformité
-(`fyp-conformance` ne définit que des types), modules dans l'application,
-palette de commandes, paquets pour macOS et Linux. La suite :
-`docs/architecture.md`, « Feuille de route ».
+Not yet: encryption on writing, PDF 2.0 writing, conformance
+(`fyp-conformance` only defines types), modules in the application, command
+palette, packages for macOS and Linux. What comes next:
+`docs/architecture.md` (in French), "Feuille de route".
 
-## Compiler
+## Build
 
-Rust 1.95 au minimum pour le produit (`rust-version` de `Cargo.toml`, imposé
-par Wasmtime 48), installé par rustup, et Python 3.11 ou plus pour les
-scripts de `tools/`. Dans le dépôt, rustup prend la toolchain stable de
-`rust-toolchain.toml`, avec la cible `wasm32-wasip1` des modules ; avec une
-autre toolchain, Rust 1.95 compris, ajouter cette cible
-(`rustup target add wasm32-wasip1 --toolchain 1.95`). Sous Linux,
-l'application demande d'abord les bibliothèques système de `app/README.md`,
-« Prérequis système ». Le contrat des modules, `fyp-plugin-api`, que
-compilent les auteurs de modules, se contente de Rust 1.85.
+Rust 1.95 at minimum for the product (`rust-version` of `Cargo.toml`, imposed
+by Wasmtime 48), installed by rustup, and Python 3.11 or later for the
+scripts in `tools/`. Inside the repository, rustup takes the stable toolchain
+of `rust-toolchain.toml`, with the `wasm32-wasip1` target of the modules;
+with another toolchain, Rust 1.95 included, add that target
+(`rustup target add wasm32-wasip1 --toolchain 1.95`). On Linux, the
+application first asks for the system libraries of `app/README.md`
+(in French), "Prérequis système". The module contract, `fyp-plugin-api`,
+which module authors compile, makes do with Rust 1.85.
 
-Dans cet ordre, depuis la racine du dépôt (sous Linux et macOS, `python`
-s'appelle souvent `python3`) :
+In this order, from the root of the repository (on Linux and macOS, `python`
+is often called `python3`):
 
 ```
 cargo build --workspace
 cargo test --workspace
 cargo run -p fyp-cli -- info tests/fixtures/minimal.pdf
 cargo run -p fyp-cli -- modules plugins --trusted
-python tools/build_modules.py      # modules de plugins/ -> plugins/<nom>/module.wasm
-cargo run --release --manifest-path tools/bench_host/Cargo.toml -- hog 8   # mesures du chargeur (ADR 0003, « Limites connues ») ; sans argument : la liste des commandes
+python tools/build_modules.py      # modules of plugins/ -> plugins/<name>/module.wasm
+cargo run --release --manifest-path tools/bench_host/Cargo.toml -- hog 8   # loader measurements (ADR 0003, "Limites connues", in French); without an argument: the list of commands
 cargo run -p fyp-cli -- run merge tests/fixtures/minimal.pdf tests/fixtures/objstm.pdf -o fusion.pdf
 python tools/fetch_ui_tools.py
 python tools/fetch_pdfium.py
 python tools/build_ui.py
 cargo run -p fyp-app
-cargo run --release -p fyp-render-bench   # banc de fidélité du rendu, après fetch_pdfium.py et tools/fetch_corpus.py -> target/render-bench/ (docs/banc-rendu.md)
-python tools/package_app.py        # Windows : installeur et archive portable -> target/release/bundle/
+cargo run --release -p fyp-render-bench   # rendering fidelity bench, after fetch_pdfium.py and tools/fetch_corpus.py -> target/render-bench/ (docs/banc-rendu.md, in French)
+python tools/package_app.py        # Windows: installer and portable archive -> target/release/bundle/
 ```
 
-## Structure
+## Layout
 
-| Dossier | Rôle |
+| Folder | Role |
 |---|---|
-| `crates/fyp-core` | syntaxe PDF, modèle objet, xref, filtres, écriture |
-| `crates/fyp-crypto` | chiffrement standard (RC4, AES, révisions 2 à 6) |
-| `crates/fyp-conformance` | types du futur moteur de règles PDF/A, X, E, UA, VT : aucune règle encore |
-| `crates/fyp-plugin-api` | **contrat des modules** — versionné séparément |
-| `crates/fyp-host` | chargement des modules, permissions, limites |
-| `crates/fyp-cli` | binaire `fyp` |
-| `plugins/` | modules officiels |
-| `app/` | application desktop Tauri 2 : voir `app/README.md` |
-| `tests/` | fixtures ; corpus public récupéré par `tools/fetch_corpus.py`, ignoré par Git |
-| `fuzz/` | cibles cargo-fuzz |
-| `docs/` | architecture, ADR, format de manifeste |
+| `crates/fyp-core` | PDF syntax, object model, xref, filters, writing |
+| `crates/fyp-crypto` | standard encryption (RC4, AES, revisions 2 to 6) |
+| `crates/fyp-conformance` | types of the future PDF/A, X, E, UA, VT rule engine: no rule yet |
+| `crates/fyp-plugin-api` | **module contract** — versioned separately |
+| `crates/fyp-host` | module loading, permissions, limits |
+| `crates/fyp-cli` | the `fyp` binary |
+| `plugins/` | official modules |
+| `app/` | Tauri 2 desktop application: see `app/README.md` (in French) |
+| `tests/` | fixtures; public corpus fetched by `tools/fetch_corpus.py`, ignored by Git |
+| `fuzz/` | cargo-fuzz targets |
+| `docs/` | architecture, ADRs, manifest format (in French) |
 
 ## Licence
 
-AGPL-3.0-or-later. Contributions sous DCO (`git commit -s`), pas de CLA :
-personne ne peut changer la licence de ce projet sans l'accord de chaque
-contributeur. Voir `CONTRIBUTING.md`.
+AGPL-3.0-or-later. Contributions under the DCO (`git commit -s`), no CLA:
+nobody can change the licence of this project without the agreement of every
+contributor. See `CONTRIBUTING.md`.
