@@ -219,6 +219,93 @@ test("a rotation still running counts as unsaved, its result being unknown", asy
   equal([history.modified, history.unsaved], [false, false], "refused");
 });
 
+test("a merge appends the pages of other files, undone and redone like a move", async () => {
+  const rust = new RustSide();
+  const history = new PageHistory(pages(0, 0), rust.rotator);
+  history.move([0], 2);
+  const merged = history.merge(() => Promise.resolve(pages(0, 0, 90, 0)));
+  equal([history.busy, history.unsaved], [true, true], "busy while the Rust side works");
+  equal(await merged, { kind: "merged", added: [2, 3], at: 2 }, "outcome");
+  equal(
+    [history.order, history.pages, history.busy, history.modified],
+    [[1, 0, 2, 3], pages(0, 0, 90, 0), false, true],
+    "appended at the end, the pages as the Rust side describes them",
+  );
+  equal([0, 1, 2, 3].map((page) => history.ofFile(page)), [true, true, false, false], "the merged pages are not pages of the file");
+
+  equal(await history.undo(), { kind: "order" }, "undo the merge");
+  equal([history.order, history.pages.length, history.modified], [[1, 0], 4, true], "out of the order, still in the file");
+  equal(await history.undo(), { kind: "order" }, "undo the move");
+  equal([history.order, history.modified], [[0, 1], false], "as opened, whatever the file holds beyond");
+  equal(await history.redo(), { kind: "order" }, "redo the move");
+  equal(await history.redo(), { kind: "order" }, "redo the merge");
+  equal(history.order, [1, 0, 2, 3], "merged again");
+  equal(rust.calls, [], "the Rust side is not asked to undo or redo a merge");
+
+  // Saving takes the merged pages: back before the merge differs from the
+  // file written.
+  history.saved(history.toSave);
+  equal(history.modified, false, "saved");
+  await history.undo();
+  equal(history.modified, true, "before the merge");
+});
+
+test("a merge at a position puts the pages there, and out of range means the ends", async () => {
+  const rust = new RustSide();
+  const history = new PageHistory(pages(0, 0, 0), rust.rotator);
+  history.move([0], 3);
+  equal(await history.merge(() => Promise.resolve(pages(0, 0, 0, 0)), 1), { kind: "merged", added: [3], at: 1 }, "at 1");
+  equal(history.order, [1, 3, 2, 0], "in front of the page at position 1");
+  equal(await history.undo(), { kind: "order" }, "undone");
+  equal(history.order, [1, 2, 0], "as before the merge");
+  equal(await history.merge(() => Promise.resolve(pages(0, 0, 0, 0, 0, 0)), -4), { kind: "merged", added: [4, 5], at: 0 }, "below 0");
+  equal(history.order, [4, 5, 1, 2, 0], "at the start");
+  equal(await history.merge(() => Promise.resolve(pages(0, 0, 0, 0, 0, 0, 0)), 99), { kind: "merged", added: [6], at: 5 }, "past the end");
+  equal(history.order, [4, 5, 1, 2, 0, 6], "at the end");
+});
+
+test("a merge that brings nothing, or that the Rust side refuses, is not an edit", async () => {
+  const rust = new RustSide();
+  const history = new PageHistory(pages(0), rust.rotator);
+  equal(await history.merge(() => Promise.resolve(null)), { kind: "none" }, "no file merged");
+  equal(await history.merge(() => Promise.resolve(pages(0))), { kind: "none" }, "no page added");
+  const refused: AppError = { kind: "other", message: "disque plein" };
+  equal(await history.merge(() => Promise.reject(refused)), { kind: "failed", message: "disque plein" }, "refused");
+  equal(
+    [history.order, history.pages, history.canUndo, history.modified, history.busy],
+    [[0], pages(0), false, false, false],
+    "nothing changed",
+  );
+});
+
+test("a merge takes its turn among the rotations", async () => {
+  const rust = new RustSide();
+  const history = new PageHistory(pages(0), rust.rotator);
+  const turned = history.rotate([0], 90);
+  let asked = false;
+  let answer: (pages: PageInfo[]) => void = () => {};
+  const merged = history.merge(() => {
+    asked = true;
+    return new Promise((resolve) => {
+      answer = resolve;
+    });
+  });
+  const after = history.rotate([0], 90);
+  await settle();
+  equal([rust.calls.length, asked], [1, false], "the merge waits for the rotation before it");
+  rust.answer(pages(90));
+  await turned;
+  await settle();
+  equal([asked, rust.calls.length, history.busy], [true, 1, true], "the merge runs, the rotation after it waits");
+  answer(pages(90, 0));
+  equal(await merged, { kind: "merged", added: [1], at: 1 }, "merged");
+  await settle();
+  equal(rust.calls.length, 2, "then the rotation");
+  rust.answer(pages(180, 0));
+  await after;
+  equal([history.order, history.pages, history.busy], [[0, 1], pages(180, 0), false], "done in order");
+});
+
 test("saving makes the document intact, until it differs from the file written", async () => {
   const rust = new RustSide();
   const history = new PageHistory(pages(0, 0, 0), rust.rotator);

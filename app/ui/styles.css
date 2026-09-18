@@ -646,6 +646,12 @@ button[aria-pressed="true"] {
   background: var(--accent-soft);
 }
 
+/* An entry that acts on the document rather than on the selection, set
+   apart from the others by spacing alone. */
+.context-menu button.apart {
+  margin-top: 6px;
+}
+
 .drop-overlay {
   position: fixed;
   inset: 12px;

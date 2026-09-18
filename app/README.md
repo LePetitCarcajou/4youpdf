@@ -259,11 +259,12 @@ ici).
 
 | Fichier | Rôle |
 |---|---|
-| `src/main.rs` | commandes exposées à l'interface : ouvrir, fermer, état du rendu, fichier passé en ligne de commande, rendre une page, faire pivoter des pages, enregistrer, dialogues de fichiers, modifications non enregistrées déclarées, fermeture de la fenêtre ; ouverture de la fenêtre (profil WebView2 d'une copie portable) ; fermeture refusée et portée à l'interface tant que le document est déclaré modifié ; message et arrêt si WebView2 manque |
-| `src/session.rs` | le document ouvert vu par `fyp-core` : pages, réparation, chiffrement ; rotation par `ops::rotate`, qui réécrit le document gardé en mémoire ; enregistrement par `ops::extract_pages` |
+| `src/main.rs` | commandes exposées à l'interface : ouvrir, fermer, état du rendu, fichier passé en ligne de commande, rendre une page, faire pivoter des pages, fusionner des fichiers à la suite, enregistrer, dialogues de fichiers, modifications non enregistrées déclarées, fermeture de la fenêtre ; ouverture de la fenêtre (profil WebView2 d'une copie portable) ; fermeture refusée et portée à l'interface tant que le document est déclaré modifié ; message et arrêt si WebView2 manque |
+| `src/session.rs` | le document ouvert vu par `fyp-core` : pages, réparation, chiffrement ; rotation par `ops::rotate` et fusion par `ops::merge`, qui réécrivent le document gardé en mémoire, chaque fichier à fusionner ouvert et vérifié d'abord, ignoré et signalé sinon ; enregistrement par `ops::extract_pages` |
 | `src/render.rs` | images des pages (vignettes, vue d'une page) : thread dédié qui charge PDFium et sert les demandes une à une ; où chercher la bibliothèque ; seul endroit qui connaît `pdfium-render`. Le banc de fidélité du rendu (`tools/render_bench`) compile ce fichier tel quel et appelle ses trois étapes une à une : ouvrir, dessiner, encoder |
-| `ui/src/main.ts` | la fenêtre : grille, glisser-déposer, sélection, menu contextuel, panneau de vignettes à côté de la vue d'une page, clavier, raccourcis du navigateur neutralisés, avis en place, question posée avant de perdre des modifications |
-| `ui/src/history.ts` | ordre et rotation des pages, avec annuler et refaire ; une rotation est faite par le côté Rust, une à la fois ; ce qui compte comme modifié, et le point d'enregistrement |
+| `ui/src/main.ts` | la fenêtre : grille, glisser-déposer, sélection, menu contextuel, fusion de fichiers, panneau de vignettes à côté de la vue d'une page, clavier, raccourcis du navigateur neutralisés, avis en place, question posée avant de perdre des modifications |
+| `ui/src/history.ts` | ordre et rotation des pages, pages fusionnées, avec annuler et refaire ; une rotation ou une fusion est faite par le côté Rust, une à la fois ; ce qui compte comme modifié, et le point d'enregistrement |
+| `ui/src/merge.ts` | ce que la fenêtre dit après une fusion, sans DOM : un bandeau par fichier ignoré, ou fusionné après réparation ou déchiffrement ; la barre d'état |
 | `ui/src/notices.ts` | bandeaux au-dessus de la grille, sans DOM : seule une ouverture réussie les remplace ; la question avant de perdre des modifications et ses trois issues |
 | `ui/src/pagenumber.ts` | numéros de la vue d'une page, sans DOM : légende, lecture du numéro tapé pour aller à une page (une position dans l'ordre actuel), aide et refus |
 | `ui/src/shortcuts.ts` | raccourcis du navigateur neutralisés, sans DOM : la liste, chacun reconnu par son code de touche virtuelle et ses modificateurs exacts |
@@ -290,6 +291,11 @@ ici).
   Ctrl+Z et Ctrl+Y annulent et refont. Un document garde au moins une page.
 - R et Maj+R, ou les boutons ↷ et ↶ de la barre d'outils, font pivoter les
   pages sélectionnées d'un quart de tour (voir « Rotation »).
+- `Fusionner…` (Ctrl+M) ajoute toutes les pages d'un ou plusieurs fichiers
+  à la suite de celles du document, et `Fusionner ici…`, dans le menu
+  contextuel d'une vignette, devant la page visée, comme une modification
+  que Ctrl+Z annule ; un fichier qui ne s'ouvre pas est ignoré et signalé,
+  les autres sont fusionnés sans lui (voir « Fusion »).
 - Double-cliquer sur une vignette, ou appuyer sur Entrée, montre la page en
   grand (voir « Vue d'une page ») ; Ctrl+molette l'agrandit sous le pointeur
   (voir « Zoom »).
@@ -571,6 +577,47 @@ qui fait pivoter l'écran avec certains pilotes graphiques. Ctrl+[ et Ctrl+],
 la convention des lecteurs PDF de Chrome et d'Edge, demandent AltGr sur un
 clavier AZERTY ; Ctrl+flèches reste libre pour déplacer le focus sans
 changer la sélection, comme dans une liste.
+
+### Fusion
+
+`Fusionner…` (Ctrl+M) ouvre le sélecteur de fichiers, plusieurs à la fois,
+et ajoute toutes les pages de chaque fichier choisi, dans l'ordre choisi, à
+la suite des pages du document. `Fusionner ici…`, dernière entrée du menu
+contextuel d'une vignette, les insère devant la première page sélectionnée
+(le clic droit sélectionne la vignette visée), ce qui couvre aussi le début
+du document. Depuis la grille seulement : la vue d'une page ne change pas
+l'ordre.
+
+- C'est `ops::merge`, appelé côté Rust avec le document gardé en mémoire et
+  chaque fichier lu depuis le disque : le noyau reçoit des documents
+  ouverts, pas des chemins (ADR 0004). Le document est réécrit en mémoire
+  comme pour une rotation, relu sans réparation, en clair s'il était
+  chiffré ; le catalogue, les métadonnées et l'`/ID` restent ceux du
+  document (`docs/architecture.md`, « Fusion »).
+- Les pages ajoutées prennent des indices nouveaux, à la suite de celles du
+  fichier, et entrent dans l'historique comme un déplacement : Ctrl+Z les
+  retire de l'ordre sans rien demander au côté Rust, elles restent dans le
+  document en mémoire, où l'enregistrement les laisse, et Ctrl+Y les rend.
+  Elles sont sélectionnées, la première amenée en vue, et leur étiquette
+  dit « (ajoutée) » plutôt que « (était N) » : elles n'ont pas de numéro
+  dans le fichier ouvert.
+- Une fusion attend son tour parmi les rotations, et les rotations demandées
+  après l'attendent.
+- Chaque fichier est ouvert sans mot de passe et vérifié avant la fusion.
+  Un fichier protégé par un mot de passe, un fichier illisible ou que le
+  noyau refuse même après réparation est ignoré, avec un bandeau qui le
+  nomme et dit pourquoi ; les autres sont fusionnés sans lui, et la barre
+  d'état compte les pages ajoutées et les fichiers ignorés. Un fichier
+  réparé à la lecture, ou chiffré avec un mot de passe utilisateur vide,
+  est fusionné et annoncé de même, ses pages en clair. Quand aucun fichier
+  ne peut l'être, rien ne change et il n'y a rien à annuler. Le mot de passe
+  d'un fichier à fusionner n'est pas demandé (`docs/backlog-ui.md`).
+- Une fusion ne perd rien : elle ne pose pas la question des modifications
+  non enregistrées, à la différence de l'ouverture d'un autre fichier. Le
+  temps qu'elle dure, le document compte comme non enregistré, comme
+  pendant une rotation.
+- Toutes les pages de chaque fichier, à la fin ou devant une page : choisir
+  les pages d'un fichier reste à faire (`docs/backlog-ui.md`).
 
 ### Modifications non enregistrées
 

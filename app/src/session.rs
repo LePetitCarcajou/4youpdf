@@ -1,8 +1,9 @@
 //! The open document: its bytes, what `fyp-core` says about it, and the
 //! operations the window needs, all through `fyp_core::ops`: listing
-//! pages, turning some of them, saving a new page order.
+//! pages, turning some of them, appending the pages of other files, saving
+//! a new page order.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use fyp_core::document::Document;
@@ -63,9 +64,65 @@ pub struct SaveReport {
     pub pages: usize,
 }
 
-/// An open file, as it stands after the rotations applied to it: the
-/// bytes read at first, then the rewrite made by each rotation
-/// ([`Session::replace`]). The bytes are shared with the renderer.
+/// What became of one file asked to be merged.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SourceOutcome {
+    /// Its pages follow those of the document.
+    Merged {
+        /// How many pages it brought.
+        pages: usize,
+        /// Why its table was rebuilt by scanning, if it was.
+        reconstructed: Option<String>,
+        /// How it is encrypted, in words, when it is: its pages are
+        /// merged in the clear.
+        encryption: Option<String>,
+    },
+    /// Protected by a password, which merging does not ask for: skipped.
+    Protected,
+    /// Not read, or refused by the core even after repair: skipped.
+    Refused {
+        /// Why, worded for the user.
+        message: String,
+    },
+}
+
+/// One file asked to be merged, and what became of it.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct SourceReport {
+    /// Path as given.
+    pub path: String,
+    /// File name alone, for the notices.
+    pub name: String,
+    pub outcome: SourceOutcome,
+}
+
+/// What merging produced: the document rewritten with the pages of the
+/// files that opened after its own, when at least one did, and what
+/// became of each file asked for.
+#[derive(Debug)]
+pub struct Merged {
+    /// `None` when no file could be merged: the document is as it was.
+    pub rewrite: Option<Rewrite>,
+    /// Pages brought by the files merged, all together.
+    pub added: usize,
+    /// One entry per file asked for, in the order given.
+    pub sources: Vec<SourceReport>,
+}
+
+/// What the interface is told after a merge.
+#[derive(Debug, Clone, Serialize)]
+pub struct MergeReport {
+    /// Every page as it now stands, or `None` when no file could be
+    /// merged and the document is as it was.
+    pub pages: Option<Vec<PageInfo>>,
+    pub sources: Vec<SourceReport>,
+}
+
+/// An open file, as it stands after the rotations and merges applied to
+/// it: the bytes read at first, then the rewrite made by each rotation
+/// ([`Session::replace`]) or merge ([`Session::extend`]). The bytes are
+/// shared with the renderer.
 #[derive(Debug)]
 pub struct Session {
     /// Distinguishes the bytes for the renderer's cache: a new id whenever
@@ -76,13 +133,14 @@ pub struct Session {
     /// are a rewrite, which is in the clear.
     pub password: String,
     /// What the interface was told when opening; `pages` follows the
-    /// rotations.
+    /// rotations and merges.
     pub info: DocumentInfo,
 }
 
-/// What a rotation produced: the whole document rewritten, and its pages.
+/// What a rotation or a merge produced: the whole document rewritten, and
+/// its pages.
 #[derive(Debug)]
-pub struct Rotated {
+pub struct Rewrite {
     /// Written by `fyp-core`, in the clear.
     pub bytes: Vec<u8>,
     /// Read back from `bytes`.
@@ -134,7 +192,7 @@ impl Session {
     /// Make `rotated` the document from now on, known to the renderer as
     /// `id`, and return its pages. Refused when the page count changed:
     /// the page indices the interface holds must stay valid.
-    pub fn replace(&mut self, id: u64, rotated: Rotated) -> Result<Vec<PageInfo>, AppError> {
+    pub fn replace(&mut self, id: u64, rotated: Rewrite) -> Result<Vec<PageInfo>, AppError> {
         if rotated.pages.len() != self.info.pages.len() {
             return Err(AppError::other(format!(
                 "la rotation a produit {} pages au lieu de {} ; elle n'a pas été appliquée",
@@ -142,11 +200,37 @@ impl Session {
                 self.info.pages.len()
             )));
         }
+        Ok(self.take(id, rotated))
+    }
+
+    /// Make `merged` the document from now on, known to the renderer as
+    /// `id`, and return its pages. Refused unless its pages are those of
+    /// this document followed by `added` more: the page indices the
+    /// interface holds must stay valid, and the pages of the files merged
+    /// must all be there.
+    pub fn extend(
+        &mut self,
+        id: u64,
+        merged: Rewrite,
+        added: usize,
+    ) -> Result<Vec<PageInfo>, AppError> {
+        let expected = self.info.pages.len().saturating_add(added);
+        if merged.pages.len() != expected {
+            return Err(AppError::other(format!(
+                "la fusion a produit {} pages au lieu de {expected} ; elle n'a pas été appliquée",
+                merged.pages.len()
+            )));
+        }
+        Ok(self.take(id, merged))
+    }
+
+    /// `rewrite`, in the clear, becomes the document known as `id`.
+    fn take(&mut self, id: u64, rewrite: Rewrite) -> Vec<PageInfo> {
         self.id = id;
-        self.bytes = Arc::new(rotated.bytes);
+        self.bytes = Arc::new(rewrite.bytes);
         self.password.clear();
-        self.info.pages.clone_from(&rotated.pages);
-        Ok(rotated.pages)
+        self.info.pages.clone_from(&rewrite.pages);
+        rewrite.pages
     }
 }
 
@@ -160,7 +244,7 @@ pub fn rotate(
     password: &str,
     pages: &[usize],
     degrees: i32,
-) -> Result<Rotated, AppError> {
+) -> Result<Rewrite, AppError> {
     let doc = Document::open_with_password(bytes, password.as_bytes())?;
     let out = ops::rotate(&doc, pages, degrees)?;
     let pages = {
@@ -172,7 +256,80 @@ pub fn rotate(
         }
         page_infos(&check)?
     };
-    Ok(Rotated { bytes: out, pages })
+    Ok(Rewrite { bytes: out, pages })
+}
+
+/// The document in `bytes`, opened with `password`, followed by every page
+/// of each file of `files` that opens, in that order, through
+/// [`ops::merge`]. The files are opened without a password: one that needs
+/// a password, one that cannot be read, and one the core refuses even after
+/// repair are each skipped and said so in the report, and the others are
+/// merged without them; a file is checked to have pages before the merge,
+/// so that the merge itself fails only for the lot. When no file opens,
+/// nothing is rewritten. Like a rotation, the rewrite must read back
+/// without repair before it is returned.
+pub fn merge(bytes: &[u8], password: &str, files: &[PathBuf]) -> Result<Merged, AppError> {
+    let doc = Document::open_with_password(bytes, password.as_bytes())?;
+    let read: Vec<Result<Vec<u8>, String>> = files
+        .iter()
+        .map(|path| std::fs::read(path).map_err(|e| e.to_string()))
+        .collect();
+    let mut docs: Vec<Document<'_>> = vec![doc];
+    let mut sources = Vec::with_capacity(files.len());
+    let mut added = 0usize;
+    for (path, content) in files.iter().zip(&read) {
+        let outcome = match content {
+            Err(e) => SourceOutcome::Refused { message: e.clone() },
+            Ok(content) => match Document::open(content) {
+                Err(fyp_core::Error::WrongPassword) => SourceOutcome::Protected,
+                Err(e) => SourceOutcome::Refused {
+                    message: e.to_string(),
+                },
+                Ok(other) => match ops::pages(&other) {
+                    Err(e) => SourceOutcome::Refused {
+                        message: e.to_string(),
+                    },
+                    Ok(pages) => {
+                        added = added.saturating_add(pages.len());
+                        let outcome = SourceOutcome::Merged {
+                            pages: pages.len(),
+                            reconstructed: other.reconstructed().map(ToString::to_string),
+                            encryption: other.encryption().map(|e| describe_encryption(&e)),
+                        };
+                        docs.push(other);
+                        outcome
+                    }
+                },
+            },
+        };
+        sources.push(SourceReport {
+            path: path.display().to_string(),
+            name: file_name(path),
+            outcome,
+        });
+    }
+    if docs.len() == 1 {
+        return Ok(Merged {
+            rewrite: None,
+            added: 0,
+            sources,
+        });
+    }
+    let out = ops::merge(&docs)?;
+    let pages = {
+        let check = Document::open(&out)?;
+        if let Some(reason) = check.reconstructed() {
+            return Err(AppError::other(format!(
+                "le document produit a dû être réparé à la relecture ({reason}) ; la fusion n'a pas été appliquée"
+            )));
+        }
+        page_infos(&check)?
+    };
+    Ok(Merged {
+        rewrite: Some(Rewrite { bytes: out, pages }),
+        added,
+        sources,
+    })
 }
 
 /// Open the bytes and gather what the interface shows about this opening,
@@ -188,10 +345,7 @@ pub fn describe(
     Ok(DocumentInfo {
         document,
         path: path.display().to_string(),
-        name: path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default(),
+        name: file_name(path),
         size: bytes.len() as u64,
         version: doc.version().to_string(),
         pages,
@@ -199,6 +353,13 @@ pub fn describe(
         relocated_startxref: doc.relocated_startxref(),
         encryption: doc.encryption().map(|e| describe_encryption(&e)),
     })
+}
+
+/// The last component of `path`; empty when it has none.
+fn file_name(path: &Path) -> String {
+    path.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 /// Width, height and rotation of every page of `doc`, in reading order.
@@ -437,6 +598,154 @@ mod tests {
             [Some(Object::Integer(270)), Some(Object::Integer(180))]
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Merge `files` into `session`, as the application does.
+    fn append(session: &mut Session, files: &[PathBuf]) -> Merged {
+        let mut merged = merge(&session.bytes, &session.password, files).expect("merge");
+        if let Some(rewrite) = merged.rewrite.take() {
+            let id = session.id + 1;
+            let pages = session.extend(id, rewrite, merged.added).expect("extend");
+            merged.rewrite = Some(Rewrite {
+                bytes: Vec::new(),
+                pages,
+            });
+        }
+        merged
+    }
+
+    fn outcomes(merged: &Merged) -> Vec<&SourceOutcome> {
+        merged.sources.iter().map(|s| &s.outcome).collect()
+    }
+
+    #[test]
+    fn merging_appends_the_pages_of_the_files_that_open() {
+        let mut session = Session::open(40, &fixture("minimal.pdf"), "").expect("open");
+        let before = session.info.pages.clone();
+        let merged = append(
+            &mut session,
+            &[fixture("objstm.pdf"), fixture("bad-offsets.pdf")],
+        );
+        assert_eq!(merged.added, 2);
+        assert_eq!(
+            merged
+                .sources
+                .iter()
+                .map(|s| s.name.as_str())
+                .collect::<Vec<_>>(),
+            ["objstm.pdf", "bad-offsets.pdf"]
+        );
+        // A damaged file merges, and the report says it was repaired.
+        assert!(
+            matches!(
+                outcomes(&merged)[..],
+                [
+                    SourceOutcome::Merged {
+                        pages: 1,
+                        reconstructed: None,
+                        encryption: None
+                    },
+                    SourceOutcome::Merged {
+                        pages: 1,
+                        reconstructed: Some(_),
+                        encryption: None
+                    }
+                ]
+            ),
+            "{:?}",
+            outcomes(&merged)
+        );
+        // The pages of the document come first, unchanged; the others
+        // follow, and the document is a clean rewrite.
+        assert_eq!(session.id, 41);
+        assert_eq!(session.info.pages.len(), 3);
+        assert_eq!(session.info.pages[0], before[0]);
+        let doc = Document::open(&session.bytes).expect("open the rewrite");
+        assert_eq!(doc.reconstructed(), None);
+        assert_eq!(doc.page_count(), Ok(3));
+        // A rotation applies to a merged page as to the others, and saving
+        // takes the order the interface holds, merged pages in it or not.
+        assert_eq!(turn(&mut session, &[2], 90), [0, 0, 90]);
+        let dir = std::env::temp_dir().join(format!("fyp-app-merge-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let out = dir.join("out.pdf");
+        assert_eq!(session.save(&[2, 0], &out).expect("save").pages, 2);
+        let saved = std::fs::read(&out).unwrap();
+        assert_eq!(Document::open(&saved).unwrap().page_count(), Ok(2));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_protected_or_refused_file_is_skipped_and_the_others_merged() {
+        let mut session = Session::open(50, &fixture("minimal.pdf"), "").expect("open");
+        let not_pdf = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        let merged = append(
+            &mut session,
+            &[
+                fixture("encrypted-user-password.pdf"),
+                not_pdf,
+                fixture("absent.pdf"),
+                fixture("encrypted-rc4.pdf"),
+            ],
+        );
+        assert!(
+            matches!(
+                outcomes(&merged)[..],
+                [
+                    SourceOutcome::Protected,
+                    SourceOutcome::Refused { .. },
+                    SourceOutcome::Refused { .. },
+                    SourceOutcome::Merged {
+                        pages: 1,
+                        reconstructed: None,
+                        encryption: Some(_)
+                    }
+                ]
+            ),
+            "{:?}",
+            outcomes(&merged)
+        );
+        // Each refusal says why; the file with an empty user password is
+        // merged, in the clear.
+        for source in &merged.sources[1..3] {
+            if let SourceOutcome::Refused { message } = &source.outcome {
+                assert!(!message.is_empty(), "{}", source.path);
+            }
+        }
+        assert_eq!(merged.added, 1);
+        assert_eq!(session.info.pages.len(), 2);
+        assert!(Document::open(&session.bytes)
+            .expect("open")
+            .encryption()
+            .is_none());
+
+        // Nothing merges: nothing is rewritten, and the report still says
+        // why.
+        let bytes = Arc::clone(&session.bytes);
+        let none = append(&mut session, &[fixture("encrypted-user-password.pdf")]);
+        assert!(none.rewrite.is_none());
+        assert_eq!(none.added, 0);
+        assert_eq!(outcomes(&none), [&SourceOutcome::Protected]);
+        assert!(Arc::ptr_eq(&session.bytes, &bytes));
+
+        // A rewrite whose pages do not add up is not taken.
+        let other = merge(&session.bytes, "", &[fixture("minimal.pdf")]).expect("merge");
+        let rewrite = other.rewrite.expect("rewritten");
+        assert!(session.extend(52, rewrite, 5).is_err());
+        assert_eq!(session.id, 51);
+        assert_eq!(session.info.pages.len(), 2);
+    }
+
+    #[test]
+    fn an_encrypted_document_is_extended_in_the_clear() {
+        let mut session =
+            Session::open(60, &fixture("encrypted-aes256.pdf"), "owner").expect("open");
+        let merged = append(&mut session, &[fixture("minimal.pdf")]);
+        assert_eq!(merged.added, 1);
+        assert_eq!(session.password, "");
+        let doc = Document::open(&session.bytes).expect("open the rewrite");
+        assert!(doc.encryption().is_none());
+        assert_eq!(doc.page_count(), Ok(2));
     }
 
     #[test]

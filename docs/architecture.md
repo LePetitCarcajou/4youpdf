@@ -398,8 +398,9 @@ récupérés par `tools/fetch_ui_tools.py` : aucun Node.js requis. Voir
 
 État à la version 0.3.3 : une fenêtre qui ouvre un PDF, montre ses pages en
 vignettes ou une par une en grand, permet de les réordonner, de les faire
-pivoter et de les supprimer, avec annuler et refaire, et enregistre le
-résultat ; pour Windows, un installeur et une archive portable. Répartition :
+pivoter, de les supprimer et d'y ajouter à la suite les pages d'autres
+fichiers, avec annuler et refaire, et enregistre le résultat ; pour Windows,
+un installeur et une archive portable. Répartition :
 
 - **Côté Rust (`app/src/`)**, la seule partie qui touche au disque et au
   noyau. `session.rs` ouvre le fichier par `Document::open_with_password`,
@@ -409,11 +410,15 @@ résultat ; pour Windows, un installeur et une archive portable. Répartition :
   par `ops::rotate` : le document gardé en mémoire est réécrit, relu sans
   réparation (et en clair s'il était chiffré), puis rendu et enregistré
   tel quel. Elle nomme l'ouverture qu'elle vise et n'est jamais appliquée
-  à un autre fichier ouvert entre-temps. `main.rs` expose neuf commandes :
+  à un autre fichier ouvert entre-temps. Une fusion passe de même par
+  `ops::merge`, avec le document en mémoire et les fichiers choisis lus
+  depuis le disque, chacun ouvert sans mot de passe et vérifié avant,
+  ignoré et signalé s'il ne s'ouvre pas : même réécriture, même relecture,
+  même règle sur l'ouverture visée. `main.rs` expose onze commandes :
   ouvrir, fermer, état du rendu, fichier passé en ligne de commande, rendre
-  une page, faire pivoter des pages, enregistrer, et les deux sélecteurs de
-  fichiers du système (appelés depuis Rust par le plugin `dialog`, pas
-  depuis l'interface). Une ouverture qui échoue ne remplace pas le document
+  une page, faire pivoter des pages, fusionner des fichiers à la suite,
+  enregistrer, et les trois sélecteurs de fichiers du système (appelés
+  depuis Rust par le plugin `dialog`, pas depuis l'interface). Une ouverture qui échoue ne remplace pas le document
   en cours. `main.rs` ouvre aussi la fenêtre, avec le profil de WebView2
   dans le dossier `data` d'une copie portable, et s'arrête sur un message
   quand WebView2 manque.
@@ -434,8 +439,10 @@ résultat ; pour Windows, un installeur et une archive portable. Répartition :
   connaît que le document ouvert, tourné au fil des rotations. L'interface
   ne calcule aucune rotation : elle garde la taille et la rotation des
   pages que le côté Rust lui renvoie, annule une rotation en demandant la
-  rotation inverse, et fait passer les rotations une par une, les autres
-  modifications étant refusées jusqu'à la fin. Les vignettes se chargent
+  rotation inverse et une fusion en retirant de l'ordre les pages ajoutées,
+  que le document garde pour le rétablissement, et fait passer rotations et
+  fusions une par une, les autres modifications étant refusées jusqu'à la
+  fin. Les vignettes se chargent
   au fil du défilement (`thumbnails.ts`, `IntersectionObserver`, trois demandes à la
   fois, pages visibles d'abord) et sont mises en cache par page source, si
   bien que réordonner ne redessine rien. Le glisser-déposer des vignettes

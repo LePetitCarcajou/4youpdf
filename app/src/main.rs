@@ -4,10 +4,11 @@
 //!
 //! The interface (`ui/`, TypeScript) talks to this side through the
 //! commands below and nothing else: file dialogs, reading, rendering,
-//! turning pages and writing all happen here. The page order and the undo
-//! history live in the interface; this side only knows the open document,
-//! as turned so far: the interface undoes a rotation by asking for the
-//! opposite one.
+//! turning pages, merging files and writing all happen here. The page
+//! order and the undo history live in the interface; this side only knows
+//! the open document, as turned and extended so far: the interface undoes
+//! a rotation by asking for the opposite one, and a merge by leaving the
+//! pages merged out of the order it saves.
 //!
 //! Whether the document carries unsaved changes is decided by the
 //! interface too, which reports it here (`document_modified`): on that
@@ -32,7 +33,7 @@ use tauri::{Emitter, Manager, State, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
 
 use render::RenderService;
-use session::{DocumentInfo, PageInfo, Rotated, SaveReport, Session};
+use session::{DocumentInfo, MergeReport, PageInfo, SaveReport, Session};
 
 /// What a command reports when it fails. `WrongPassword` lets the
 /// interface ask for one in place; everything else is shown as text.
@@ -147,28 +148,56 @@ impl AppState {
     ) -> Result<Vec<PageInfo>, AppError> {
         let current = self.current()?;
         if current.document != document {
-            return Err(changed());
+            return Err(changed(ROTATION));
         }
         let rotated = session::rotate(&current.bytes, &current.password, pages, degrees)?;
-        self.commit(document, current.id, rotated)
+        self.commit(document, current.id, ROTATION, |session, id| {
+            session.replace(id, rotated)
+        })
     }
 
-    /// Make `rotated`, made from the bytes known as `from` of the opening
-    /// `document`, the current document. Refused when they are no longer
-    /// current (another file opened, the document closed or turned
-    /// meanwhile): a rotation is never applied to what it was not made from.
-    fn commit(
+    /// Append every page of each file of `files`, in that order, to the
+    /// opening `document` (`session::merge`) and make the result current;
+    /// returns every page as it now stands, and what became of each file.
+    /// A file that does not open is skipped, said so, and the others are
+    /// merged without it; when none opens, the document is left as it is.
+    /// Like a rotation, the rewrite runs without holding the document.
+    fn merge(&self, document: u64, files: &[PathBuf]) -> Result<MergeReport, AppError> {
+        let current = self.current()?;
+        if current.document != document {
+            return Err(changed(MERGE));
+        }
+        let merged = session::merge(&current.bytes, &current.password, files)?;
+        let pages = match merged.rewrite {
+            Some(rewrite) => Some(self.commit(document, current.id, MERGE, |session, id| {
+                session.extend(id, rewrite, merged.added)
+            })?),
+            None => None,
+        };
+        Ok(MergeReport {
+            pages,
+            sources: merged.sources,
+        })
+    }
+
+    /// Apply `take` to the current document, made from the bytes known as
+    /// `from` of the opening `document`, under a new id for the renderer.
+    /// Refused when they are no longer current (another file opened, the
+    /// document closed, turned or extended meanwhile): `what` is never
+    /// applied to what it was not made from.
+    fn commit<T>(
         &self,
         document: u64,
         from: u64,
-        rotated: Rotated,
-    ) -> Result<Vec<PageInfo>, AppError> {
+        what: &str,
+        take: impl FnOnce(&mut Session, u64) -> Result<T, AppError>,
+    ) -> Result<T, AppError> {
         let mut guard = self.session();
         match guard.as_mut() {
             Some(session) if session.info.document == document && session.id == from => {
-                session.replace(self.next_id.fetch_add(1, Ordering::Relaxed), rotated)
+                take(session, self.next_id.fetch_add(1, Ordering::Relaxed))
             }
-            _ => Err(changed()),
+            _ => Err(changed(what)),
         }
     }
 }
@@ -183,8 +212,14 @@ struct Current {
     password: String,
 }
 
-fn changed() -> AppError {
-    AppError::other("le document a changé ; la rotation n'a pas été appliquée")
+/// The edits `changed` names.
+const ROTATION: &str = "la rotation";
+const MERGE: &str = "la fusion";
+
+fn changed(what: &str) -> AppError {
+    AppError::other(format!(
+        "le document a changé ; {what} n'a pas été appliquée"
+    ))
 }
 
 /// Open `path` and make it the current document (see `AppState::open`).
@@ -313,6 +348,29 @@ async fn rotate_pages(
     .map_err(|e| AppError::other(format!("rotation interrompue : {e}")))?
 }
 
+/// Append every page of each file of `paths`, in that order, to the open
+/// document, through `ops::merge` (see `AppState::merge`): they render and
+/// save after its own from then on. `document` is the opening the
+/// interface means (`DocumentInfo::document`). Returns every page as it
+/// now stands, and what became of each file.
+#[tauri::command]
+async fn merge_documents(
+    app: tauri::AppHandle,
+    document: u64,
+    paths: Vec<String>,
+) -> Result<MergeReport, AppError> {
+    // Reading the files and rewriting the document take a while: off the
+    // async runtime's threads, like a rotation.
+    tauri::async_runtime::spawn_blocking(move || {
+        let files: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+        app.try_state::<AppState>()
+            .ok_or_else(|| AppError::other("état de l'application indisponible"))?
+            .merge(document, &files)
+    })
+    .await
+    .map_err(|e| AppError::other(format!("fusion interrompue : {e}")))?
+}
+
 /// Write the pages at `order` (0-based indices into the open document,
 /// in the wanted order) to `path`.
 #[tauri::command]
@@ -347,6 +405,24 @@ async fn pick_open_file(app: tauri::AppHandle) -> Option<String> {
         .blocking_pick_file()
         .and_then(|f| f.into_path().ok())
         .map(|p| p.display().to_string())
+}
+
+/// Native "open files" dialog for the files to merge, several at once, in
+/// the order chosen; `None` when cancelled.
+#[tauri::command]
+async fn pick_merge_files(app: tauri::AppHandle) -> Option<Vec<String>> {
+    app.dialog()
+        .file()
+        .add_filter("PDF", &["pdf"])
+        .set_title("Fusionner à la suite du document")
+        .blocking_pick_files()
+        .map(|files| {
+            files
+                .into_iter()
+                .filter_map(|f| f.into_path().ok())
+                .map(|p| p.display().to_string())
+                .collect()
+        })
 }
 
 /// Native "save as" dialog with a suggested name; `None` when cancelled.
@@ -456,8 +532,10 @@ fn main() {
             initial_file,
             render_page,
             rotate_pages,
+            merge_documents,
             save_document,
             pick_open_file,
+            pick_merge_files,
             pick_save_file,
         ])
         .run(tauri::generate_context!());
@@ -536,7 +614,10 @@ mod tests {
         let late = session::rotate(&turned_bytes, "", &[0], 90).expect("rotate");
         let second = state.open(&fixture("minimal.pdf"), "").expect("open again");
         let reopened = bytes_of(&state).unwrap();
-        assert!(state.commit(first.document, turned, late).is_err());
+        assert!(state
+            .commit(first.document, turned, ROTATION, |s, id| s
+                .replace(id, late))
+            .is_err());
         // Asked for the first opening, once the second is current.
         assert!(state.rotate(first.document, &[0], 90).is_err());
         assert_eq!(bytes_of(&state).unwrap(), reopened);
@@ -544,6 +625,37 @@ mod tests {
             state.rotate(second.document, &[0], -90).expect("rotate")[0].rotate,
             270
         );
+    }
+
+    /// A merge extends the document it was meant for, and only that one,
+    /// like a rotation; one that merges nothing leaves it as it is.
+    #[test]
+    fn a_merge_applies_only_to_the_document_it_was_meant_for() {
+        let state = AppState::new(Arc::new(RenderService::start(&[])));
+        let bytes_of = |state: &AppState| state.current().map(|c| (c.id, c.bytes));
+        let files = [fixture("objstm.pdf")];
+        assert!(state.merge(1, &files).is_err(), "no document open");
+        let first = state.open(&fixture("minimal.pdf"), "").expect("open");
+        let (id, _) = bytes_of(&state).unwrap();
+
+        let report = state.merge(first.document, &files).expect("merge");
+        assert_eq!(report.pages.map(|pages| pages.len()), Some(2));
+        assert_eq!(report.sources.len(), 1);
+        let (extended, _) = bytes_of(&state).unwrap();
+        assert_ne!(extended, id, "the renderer must not reuse its images");
+
+        // Nothing to merge: the document, and its id, stay.
+        let report = state
+            .merge(first.document, &[fixture("encrypted-user-password.pdf")])
+            .expect("merge");
+        assert!(report.pages.is_none());
+        assert_eq!(bytes_of(&state).unwrap().0, extended);
+
+        // Asked for the first opening, once a second is current.
+        let second = state.open(&fixture("minimal.pdf"), "").expect("open again");
+        assert!(state.merge(first.document, &files).is_err());
+        assert_eq!(state.current().unwrap().document, second.document);
+        assert_eq!(state.rotate(second.document, &[0], 90).unwrap().len(), 1);
     }
 
     /// Closing asks only on the interface's word that the document carries

@@ -1,7 +1,8 @@
 // The window: open a PDF (dialog, drop, Ctrl+O), show its pages as
-// tiles, reorder them by dragging, turn them, delete them, undo and redo,
-// look at one page at a time, beside the grid reduced to a panel of
-// thumbnails or over it, save through `fyp_core::ops` on the Rust side.
+// tiles, reorder them by dragging, turn them, delete them, merge other
+// files after them (Ctrl+M), undo and redo, look at one page at a time,
+// beside the grid reduced to a panel of thumbnails or over it, save
+// through `fyp_core::ops` on the Rust side.
 // One window, no modal dialog but the system file pickers; every message
 // appears in place (ADR 0004). Unsaved changes are never lost without a
 // word: closing the window or opening another file first asks, in place,
@@ -14,9 +15,11 @@ import {
   documentModified,
   hasTauri,
   initialFile,
+  mergeDocuments,
   onCloseRequested,
   onFileDrop,
   openDocument,
+  pickMergeFiles,
   pickOpenFile,
   pickSaveFile,
   rendererStatus,
@@ -24,8 +27,10 @@ import {
   saveDocument,
   setWindowTitle,
   type DocumentInfo,
+  type SourceReport,
 } from "./api.js";
 import { PageHistory, type Outcome } from "./history.js";
+import { mergeNotices, mergeStatus } from "./merge.js";
 import { attemptOpen, choices, NoticeBoard, type Leaving, type Notice, type NoticeKind } from "./notices.js";
 import { browserShortcut, stopsHere } from "./shortcuts.js";
 import { ThumbnailLoader, thumbnailSlots } from "./thumbnails.js";
@@ -44,6 +49,7 @@ function element<T extends HTMLElement>(id: string): T {
 const ui = {
   open: element<HTMLButtonElement>("open"),
   openEmpty: element<HTMLButtonElement>("open-empty"),
+  merge: element<HTMLButtonElement>("merge"),
   docName: element<HTMLSpanElement>("doc-name"),
   undo: element<HTMLButtonElement>("undo"),
   redo: element<HTMLButtonElement>("redo"),
@@ -375,7 +381,10 @@ function renderGrid(): void {
     tile.tabIndex = 0;
     tile.dataset["page"] = String(page);
     tile.dataset["position"] = String(position);
-    tile.setAttribute("aria-label", `Page ${position + 1} (page ${page + 1} du fichier)`);
+    tile.setAttribute(
+      "aria-label",
+      history.ofFile(page) ? `Page ${position + 1} (page ${page + 1} du fichier)` : `Page ${position + 1} (ajoutée par une fusion)`,
+    );
     if (state.selection.has(position)) {
       tile.classList.add("selected");
     }
@@ -398,7 +407,7 @@ function renderGrid(): void {
 
     const label = document.createElement("div");
     label.className = "label";
-    label.textContent = page === position ? `${position + 1}` : `${position + 1} (était ${page + 1})`;
+    label.textContent = pageLabel(history, page, position);
 
     const remove = document.createElement("button");
     remove.type = "button";
@@ -422,6 +431,16 @@ function renderGrid(): void {
   refreshButtons();
 }
 
+/// The label of a tile: its position, then, when that is not the number
+/// of the page in the file, where the page comes from: another place in
+/// the file, or a merge, whose pages have no number in the file.
+function pageLabel(history: PageHistory, page: number, position: number): string {
+  if (!history.ofFile(page)) {
+    return `${position + 1} (ajoutée)`;
+  }
+  return page === position ? `${position + 1}` : `${position + 1} (était ${page + 1})`;
+}
+
 function refreshButtons(): void {
   const history = state.history;
   const hasDoc = history !== null;
@@ -436,6 +455,8 @@ function refreshButtons(): void {
   ui.delete.disabled = !(selected && !history.busy);
   ui.rotateLeft.disabled = !selected;
   ui.rotateRight.disabled = !selected;
+  // A merge waits its turn among the rotations (history.ts).
+  ui.merge.disabled = !editable;
   ui.save.disabled = !hasDoc;
   const unsaved = hasDoc && history.unsaved;
   ui.docName.classList.toggle("modified", unsaved);
@@ -733,6 +754,57 @@ function turnSelection(degrees: number): void {
   void turnPages(pages, degrees, false);
 }
 
+/// Pick the files to merge, several at once, then merge them: at the end
+/// of the grid, or from position `at` (« Fusionner ici… » on a tile).
+async function chooseAndMerge(at?: number): Promise<void> {
+  if (state.history === null || viewer.isOpen) {
+    return;
+  }
+  const paths = await pickMergeFiles();
+  if (paths !== null && paths.length > 0) {
+    await mergeFiles(paths, at);
+  }
+}
+
+/// Append every page of the files at `paths`, in that order, to the
+/// document: the Rust side rewrites it through `ops::merge`, and the new
+/// pages go into the grid at the end, or from position `at`, selected, as
+/// one edit that Ctrl+Z undoes. A file that does not open is skipped and
+/// said so, and the others merge without it (merge.ts). Not while the page
+/// view is open, whose order must not change.
+async function mergeFiles(paths: readonly string[], at?: number): Promise<void> {
+  const info = state.info;
+  const history = state.history;
+  if (info === null || history === null || viewer.isOpen || paths.length === 0) {
+    return;
+  }
+  hideMenu();
+  // Filled by the merger, which runs once the rotations before are done.
+  const report: { sources: readonly SourceReport[] } = { sources: [] };
+  const running = history.merge(async () => {
+    const answer = await mergeDocuments(info.document, [...paths]);
+    report.sources = answer.sources;
+    return answer.pages;
+  }, at);
+  setStatus(`Fusion ${paths.length > 1 ? `de ${paths.length} fichiers` : "d'un fichier"}…`);
+  refreshButtons();
+  const outcome = await running;
+  if (state.history !== history) {
+    return;
+  }
+  for (const [kind, text] of mergeNotices(report.sources)) {
+    notices.event(kind, text);
+  }
+  renderNotices();
+  if (outcome.kind === "failed") {
+    notice("error", `Fusion impossible : ${outcome.message}`);
+    setStatus("Fusion impossible.");
+  } else {
+    setStatus(mergeStatus(report.sources));
+  }
+  edited(outcome);
+}
+
 async function undo(): Promise<void> {
   const history = state.history;
   if (history === null || refusedWhileTurning()) {
@@ -783,7 +855,8 @@ async function redo(): Promise<void> {
 
 /// Bring the window up to date after an edit that ended with `outcome`.
 /// Positions change only with the order: a rotation keeps the selection
-/// and the keyboard focus where they are.
+/// and the keyboard focus where they are; the pages a merge added become
+/// the selection, the first of them brought into sight.
 function edited(outcome: Outcome): void {
   const history = state.history;
   if (history === null) {
@@ -792,6 +865,10 @@ function edited(outcome: Outcome): void {
   if (outcome.kind === "order") {
     state.selection.clear();
     renderGrid();
+  } else if (outcome.kind === "merged") {
+    state.selection = new Set(outcome.added.map((_, i) => outcome.at + i));
+    renderGrid();
+    ui.grid.querySelector<HTMLElement>(`.tile[data-position="${outcome.at}"]`)?.scrollIntoView({ block: "nearest" });
   } else if (outcome.kind === "rotation") {
     thumbnails.invalidate(outcome.pages);
     viewer.pagesChanged(history.pages, outcome.pages);
@@ -1044,6 +1121,11 @@ ui.contextMenu.addEventListener("click", (event) => {
     case "move-last":
       movePositions(positions, count);
       break;
+    case "merge-here":
+      // In front of the first selected page: the right click selected the
+      // tile under the pointer.
+      void chooseAndMerge(positions[0]);
+      break;
     default:
       break;
   }
@@ -1121,6 +1203,9 @@ document.addEventListener("keydown", (event) => {
   } else if ((ctrl && event.key.toLowerCase() === "y") || (ctrl && event.shiftKey && event.key.toLowerCase() === "z")) {
     event.preventDefault();
     void redo();
+  } else if (ctrl && event.key.toLowerCase() === "m") {
+    event.preventDefault();
+    void chooseAndMerge();
   } else if (ctrl && event.key.toLowerCase() === "a" && state.history !== null) {
     event.preventDefault();
     state.selection = new Set(state.history.order.map((_, i) => i));
@@ -1163,6 +1248,7 @@ document.addEventListener("keydown", (event) => {
 
 ui.open.addEventListener("click", () => void chooseAndOpen());
 ui.openEmpty.addEventListener("click", () => void chooseAndOpen());
+ui.merge.addEventListener("click", () => void chooseAndMerge());
 ui.undo.addEventListener("click", () => void undo());
 ui.redo.addEventListener("click", () => void redo());
 ui.rotateLeft.addEventListener("click", () => turnSelection(-90));

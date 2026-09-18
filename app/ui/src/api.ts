@@ -27,6 +27,29 @@ export interface SaveReport {
   pages: number;
 }
 
+/// What became of one file asked to be merged (`session.rs`,
+/// `SourceOutcome`): merged, its pages after those of the document;
+/// protected by a password, which merging does not ask for; refused, not
+/// read or not opened even after repair.
+export type SourceOutcome =
+  | { kind: "merged"; pages: number; reconstructed: string | null; encryption: string | null }
+  | { kind: "protected" }
+  | { kind: "refused"; message: string };
+
+export interface SourceReport {
+  path: string;
+  name: string;
+  outcome: SourceOutcome;
+}
+
+export interface MergeReport {
+  /// Every page as it now stands, or `null` when no file could be merged
+  /// and the document is as it was.
+  pages: PageInfo[] | null;
+  /// One entry per file asked for, in the order given.
+  sources: SourceReport[];
+}
+
 export interface RendererStatus {
   available: boolean;
   detail: string;
@@ -110,6 +133,13 @@ export function rotatePages(document: number, pages: number[], degrees: number):
   return invoke<PageInfo[]>("rotate_pages", { document, pages, degrees });
 }
 
+/// Append every page of the files at `paths`, in that order, to the file
+/// opened as `document`: done on the Rust side, which answers with every
+/// page as it now stands, and what became of each file.
+export function mergeDocuments(document: number, paths: string[]): Promise<MergeReport> {
+  return invoke<MergeReport>("merge_documents", { document, paths });
+}
+
 export function saveDocument(path: string, order: number[]): Promise<SaveReport> {
   return invoke<SaveReport>("save_document", { path, order });
 }
@@ -120,6 +150,12 @@ export function initialFile(): Promise<string | null> {
 
 export function pickOpenFile(): Promise<string | null> {
   return invoke<string | null>("pick_open_file");
+}
+
+/// The files to merge, several at once, in the order chosen; `null` when
+/// cancelled.
+export function pickMergeFiles(): Promise<string[] | null> {
+  return invoke<string[] | null>("pick_merge_files");
 }
 
 export function pickSaveFile(suggested: string): Promise<string | null> {

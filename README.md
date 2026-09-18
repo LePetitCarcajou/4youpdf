@@ -93,8 +93,8 @@ Version 0.3.3. No release has a file to download yet. What exists:
   connues", in French).
 - **Desktop application** (`app/`, Tauri 2): open a PDF, see its pages as
   thumbnails or one at a time in full size, reorder them, rotate them, delete
-  them, undo and redo, save the result. The pages are drawn by PDFium
-  (ADR 0005, in French).
+  them, append the pages of other files, undo and redo, save the result. The
+  pages are drawn by PDFium (ADR 0005, in French).
 - **Windows packaging**: an NSIS installer and a portable archive, unsigned,
   built by `tools/package_app.py`.
 
