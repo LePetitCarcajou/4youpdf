@@ -293,3 +293,11 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
   couleur ou le `var()` d'une couleur brute, ainsi qu'un `var()` qui ne
   nomme rien. Il n'agirait sur les pushes qu'une fois `build_ui.py` lancé
   par `ci.yml` (« Vérifier l'interface dans la CI », plus haut).
+- [ ] **Accorder la date du relevé de corpus entre le README et
+  `docs/architecture.md`** (consigné le 17 septembre 2026, en traduisant le
+  README et `CONTRIBUTING.md` en anglais). Les deux annoncent les mêmes
+  chiffres, 4 529 fichiers, 4 472 round-trips, 44 refus et 13 échecs, mais
+  le README les date du 13 septembre 2026 et `docs/architecture.md` du 12 :
+  l'une des deux dates est fausse, et rien ne les tient ensemble. À trancher
+  en relançant le parcours du corpus, qui redonnera la date et vérifiera du
+  même coup que les chiffres tiennent toujours.

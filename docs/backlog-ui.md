@@ -257,3 +257,39 @@ la liste une fois fait.
   qu'avec plusieurs documents modifiés la fermeture les liste ; l'application
   n'en ouvre qu'un aujourd'hui, et `notices.ts` ne garde qu'une question à la
   fois, qui nomme ce document. À reprendre avec les documents multiples.
+- [ ] **Demander en place le mot de passe d'un fichier à fusionner**
+  (consigné le 17 septembre 2026, en ajoutant la fusion depuis la fenêtre).
+  `Fusionner…` ouvre chaque fichier sans mot de passe : un fichier protégé
+  est ignoré avec un bandeau qui renvoie à l'ouvrir seul, l'enregistrer en
+  clair, puis fusionner ce fichier. Le bandeau de mot de passe de
+  `notices.ts` ne sert que l'ouverture (`requestOpen`) ; il faudrait un
+  bandeau du même genre qui relance la fusion du seul fichier protégé avec
+  le mot de passe tapé, `merge_documents` prenant alors un mot de passe par
+  fichier.
+- [ ] **Choisir les pages de chaque fichier fusionné** (consigné le
+  17 septembre 2026, en ajoutant la fusion). Toutes les pages de chaque
+  fichier viennent, à la fin de la grille ou devant une page (« Fusionner
+  ici… ») ; on supprime ensuite à la main celles qu'on ne voulait pas.
+  `ops::merge` prend des documents entiers, mais son `Builder` travaille
+  déjà sur des paires (document, page) : une fonction publique qui prend une
+  sélection par document suffirait au noyau, `fyp merge` pourrait l'exposer
+  aussi.
+- [ ] **Plusieurs fichiers déposés d'un coup : seul le premier s'ouvre**
+  (consigné le 17 septembre 2026, en ajoutant la fusion). `main.ts` ouvre
+  le premier `.pdf` déposé et ignore les autres sans un mot. Avec la fusion
+  dans la fenêtre, deux lectures se défendent : ouvrir le premier et
+  fusionner les suivants, ou, sur un document déjà ouvert, fusionner tous
+  les fichiers déposés au lieu de remplacer le document. L'ADR 0004 (« les
+  opérations multi-documents portent sur les documents déjà ouverts »)
+  tranchera avec les documents multiples ; d'ici là, dire au moins que les
+  autres fichiers ont été ignorés.
+- [ ] **Les raisons du noyau sont en anglais dans les bandeaux** (consigné
+  le 17 septembre 2026, en ajoutant la fusion). « Impossible d'ouvrir … :
+  missing or malformed %PDF header », « table des objets reconstruite …
+  (cross-reference error at byte 64: object 1 0 announced here, found
+  2 0) » : le texte de `fyp_core::Error` et la raison d'une reconstruction
+  sont écrits pour le développeur, en anglais, et l'interface les cite tels
+  quels, à l'ouverture comme à la fusion. Il faudrait ou bien des messages
+  du noyau traduisibles par un code (`Error` porte déjà des variantes,
+  `reconstructed()` une chaîne libre), ou bien une table côté interface
+  pour les cas fréquents, avec le texte anglais en détail.
