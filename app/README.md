@@ -286,6 +286,10 @@ ici).
 - Les vignettes arrivent au fil du défilement, trois à la fois, les pages
   visibles d'abord ; une page qui sort de la vue avant son tour n'est pas
   dessinée.
+- Chaque vignette réserve la hauteur d'une page en portrait, quelle que soit
+  l'orientation de la sienne : une page en paysage, tournée ou non, y est
+  centrée, et son numéro reste en bas, aligné sur ceux de sa ligne. Une page
+  plus haute qu'une feuille A4 agrandit sa ligne.
 - Glisser une vignette (ou une sélection : Ctrl+clic, Maj+clic, Ctrl+A)
   la déplace ; le bouton `×`, la touche Suppr ou le clic droit la supprime.
   Ctrl+Z et Ctrl+Y annulent et refont. Un document garde au moins une page.

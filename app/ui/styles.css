@@ -290,18 +290,36 @@ button[aria-pressed="true"] {
   align-content: start;
 }
 
+/* A tile is two rows: the page, then its number. The first row reserves
+   the height of a page in portrait whatever the proportions of this one
+   (`.tile::before`), and takes whatever height the grid gives the tile
+   beyond it: a page in landscape, turned or not, sits centred in the same
+   room as its neighbours, and every number lies at the bottom of its tile,
+   on one line across a row of the grid and at the same place in every
+   tile of the panel. */
 .tile {
   position: relative;
   background: var(--surface-raised);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  justify-items: center;
   gap: 6px;
   cursor: grab;
   outline: none;
+}
+
+/* The room reserved for the page: an empty box under its frame, as high
+   for its width as a sheet of A4 in portrait (ISO 216, √2), the frame
+   itself keeping the proportions of the page (main.ts). A page taller than
+   that makes its tile taller, and its row with it. */
+.tile::before {
+  content: "";
+  grid-area: 1 / 1;
+  width: 100%;
+  padding-top: 141.42%;
 }
 
 .tile:focus-visible,
@@ -315,6 +333,8 @@ button[aria-pressed="true"] {
 }
 
 .tile .page {
+  grid-area: 1 / 1;
+  align-self: center;
   width: 100%;
   background: var(--surface-raised);
   border: 1px solid var(--border);
