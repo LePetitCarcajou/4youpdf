@@ -99,6 +99,32 @@ fn aes256_fixture_is_deciphered() {
     );
 }
 
+/// A non-empty user password: the file is `Error::WrongPassword` until
+/// the user or the owner password is given, and the same file otherwise.
+#[test]
+fn user_password_fixture_needs_its_password() {
+    let bytes = fixture("encrypted-user-password.pdf");
+    assert_eq!(
+        Document::open(&bytes).map(|_| ()),
+        Err(Error::WrongPassword)
+    );
+    assert_eq!(
+        Document::open_with_password(&bytes, b"wrong").map(|_| ()),
+        Err(Error::WrongPassword)
+    );
+    let doc = Document::open_with_password(&bytes, b"user").expect("user password");
+    let e = doc.encryption().expect("encrypted");
+    assert_eq!(
+        (e.revision, e.streams, e.key_bits, e.owner),
+        (Revision::R3, Cipher::Rc4, 128, false)
+    );
+    assert_eq!(title(&doc), b"Encrypted RC4 128-bit, user password");
+    assert_eq!(content(&doc), CONTENT);
+    let owner = Document::open_with_password(&bytes, b"owner").expect("owner password");
+    assert!(owner.encryption().expect("encrypted").owner);
+    assert_eq!(content(&owner), CONTENT);
+}
+
 /// The writer produces a file in the clear: no `/Encrypt`, no security
 /// handler dictionary, strings and streams readable by any reader.
 #[test]

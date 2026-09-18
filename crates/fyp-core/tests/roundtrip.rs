@@ -56,7 +56,8 @@ fn minimal_fixture_objects_parse() {
 /// Open `bytes`, write it in `style`, open the result, compare, and check
 /// that writing the result again gives the same bytes.
 fn round_trip(name: &str, bytes: &[u8], style: XrefStyle) {
-    let doc = Document::open(bytes).unwrap_or_else(|e| panic!("{name}: open: {e}"));
+    let doc = Document::open_with_password(bytes, fixture_password(name))
+        .unwrap_or_else(|e| panic!("{name}: open: {e}"));
     let writer = Writer::new(doc.version()).xref_style(style);
     let out = writer
         .write(&doc)
@@ -95,6 +96,15 @@ fn round_trip(name: &str, bytes: &[u8], style: XrefStyle) {
         .write(&again)
         .unwrap_or_else(|e| panic!("{name}: second write ({style:?}): {e}"));
     assert_eq!(second, out, "{name} ({style:?}): rewriting is not stable");
+}
+
+/// The user password of a fixture that needs one (`tests/fixtures/README.md`);
+/// empty for the others.
+fn fixture_password(name: &str) -> &'static [u8] {
+    match name {
+        "encrypted-user-password.pdf" => b"user",
+        _ => b"",
+    }
 }
 
 #[test]

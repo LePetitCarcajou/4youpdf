@@ -314,6 +314,24 @@ fn encrypted_trailer(b: &mut Builder) -> usize {
 #[test]
 #[ignore = "rewrites tests/fixtures/encrypted-rc4.pdf"]
 fn generate_encrypted_rc4() {
+    generate_rc4(b"", "Encrypted RC4 128-bit", "encrypted-rc4.pdf");
+}
+
+/// `encrypted-user-password.pdf`: the same file, whose user password is
+/// `user`: without a password, it does not open.
+#[test]
+#[ignore = "rewrites tests/fixtures/encrypted-user-password.pdf"]
+fn generate_encrypted_user_password() {
+    generate_rc4(
+        b"user",
+        "Encrypted RC4 128-bit, user password",
+        "encrypted-user-password.pdf",
+    );
+}
+
+/// A revision 3, RC4 128-bit fixture with the user password `user` and
+/// the owner password `owner`, titled `title`.
+fn generate_rc4(user_password: &[u8], title: &str, name: &str) {
     let base = Params {
         revision: Revision::R3,
         key_bits: 128,
@@ -327,15 +345,16 @@ fn generate_encrypted_rc4() {
         strings: Cipher::Rc4,
         file_id: FILE_ID.to_vec(),
     };
-    let (owner, user) = fyp_crypto::legacy_owner_user(&base, b"owner", b"").expect("values");
+    let (owner, user) =
+        fyp_crypto::legacy_owner_user(&base, b"owner", user_password).expect("values");
     let params = Params {
         owner: owner.clone(),
         user: user.clone(),
         ..base
     };
-    let d = Decryptor::open(&params, b"").expect("empty user password");
+    let d = Decryptor::open(&params, user_password).expect("user password");
     let mut b = Builder::new("1.4");
-    encrypted_objects(&mut b, &d, Cipher::Rc4, "Encrypted RC4 128-bit");
+    encrypted_objects(&mut b, &d, Cipher::Rc4, title);
     b.object(
         6,
         format!(
@@ -346,7 +365,7 @@ fn generate_encrypted_rc4() {
         .as_bytes(),
     );
     let table = encrypted_trailer(&mut b);
-    b.finish(table, "encrypted-rc4.pdf");
+    b.finish(table, name);
 }
 
 /// `encrypted-aes256.pdf`: revision 6 (PDF 2.0), AES-256 through the

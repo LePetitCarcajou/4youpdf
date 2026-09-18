@@ -77,10 +77,14 @@ dictionnaire `/Info` dont le `/Title` est une chaîne chiffrée :
 - `encrypted-rc4.pdf` — révision 3, `/V 2`, RC4 128 bits, PDF 1.4.
 - `encrypted-aes256.pdf` — révision 6, `/V 5`, AES-256 par le crypt filter
   `/StdCF` (`/CFM /AESV3`), PDF 2.0.
+- `encrypted-user-password.pdf` — `encrypted-rc4.pdf` avec le mot de passe
+  utilisateur `user` : sans mot de passe, `Error::WrongPassword`. Le seul
+  fichier du dépôt qui ne s'ouvre pas sans mot de passe, pour les cas où
+  l'application en rencontre un sans pouvoir le demander (fusion).
 
 `xrefstream.pdf`, `objstm.pdf`, `hybrid.pdf`, `inuse-offset-zero.pdf`,
-`object-zero.pdf`, `root-direct.pdf`, `encrypted-rc4.pdf` et
-`encrypted-aes256.pdf` sont produits par les tests
+`object-zero.pdf`, `root-direct.pdf`, `encrypted-rc4.pdf`,
+`encrypted-aes256.pdf` et `encrypted-user-password.pdf` sont produits par les tests
 `#[ignore]` de `crates/fyp-core/tests/fixtures_gen.rs`, qui calculent les
 offsets et écrivent des fichiers identiques à chaque exécution :
 
