@@ -458,9 +458,24 @@ fn portable_data_dir(exe_dir: &Path) -> Option<PathBuf> {
     Some(dir)
 }
 
+/// The title of the main window: the one of `tauri.conf.json`, followed by
+/// « — DEV » in a debug build (`cargo run`, `cargo tauri dev`), so that the
+/// build being tried is never taken for a packaged one: a fix tried in the
+/// wrong executable shows nothing, and nothing said so. A release build
+/// keeps the title as configured. The one visible difference between the
+/// two builds, and it names itself.
+fn window_title(configured: &str) -> String {
+    if cfg!(debug_assertions) {
+        format!("{configured} — DEV")
+    } else {
+        configured.to_owned()
+    }
+}
+
 /// Open the main window described in `tauri.conf.json`, where `create` is
-/// `false` so that it opens here: in the profile folder of a portable copy
-/// when this is one ([`portable_data_dir`]).
+/// `false` so that it opens here: under the title of this build
+/// ([`window_title`]), and in the profile folder of a portable copy when
+/// this is one ([`portable_data_dir`]).
 fn open_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let config = app
         .config()
@@ -469,7 +484,8 @@ fn open_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> 
         .iter()
         .find(|window| window.label == "main")
         .ok_or("tauri.conf.json ne décrit pas la fenêtre « main »")?;
-    let mut window = tauri::WebviewWindowBuilder::from_config(app.handle(), config)?;
+    let mut window = tauri::WebviewWindowBuilder::from_config(app.handle(), config)?
+        .title(window_title(&config.title));
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(Path::to_path_buf));
@@ -554,6 +570,19 @@ mod tests {
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../tests/fixtures")
             .join(name)
+    }
+
+    /// A debug build says so in its title and a release build does not:
+    /// what this checks follows the profile `cargo test` runs under, as
+    /// the window does.
+    #[test]
+    fn the_title_marks_a_debug_build_only() {
+        let expected = if cfg!(debug_assertions) {
+            "4YouPDF — DEV"
+        } else {
+            "4YouPDF"
+        };
+        assert_eq!(window_title("4YouPDF"), expected);
     }
 
     /// When a file does not open, the interface keeps showing the current

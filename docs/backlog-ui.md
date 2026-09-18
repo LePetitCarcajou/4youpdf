@@ -132,7 +132,10 @@ la liste une fois fait.
   faudrait `core:window:allow-set-title`) : la demande est refusée, et
   `main.ts` ignore le refus. Seule la barre d'outils nomme le document.
   Constaté par script : lancée avec `minimal.pdf` en argument, la fenêtre
-  s'appelle encore « 4YouPDF » quinze secondes plus tard.
+  s'appelle encore « 4YouPDF » quinze secondes plus tard. Depuis le
+  17 septembre 2026, un build de développement suffixe ce titre de
+  « — DEV » côté Rust (`window_title`, `app/src/main.rs`) : la correction
+  devra garder le suffixe quand le nom du document entrera dans le titre.
 - [ ] **Bug : les champs remplis d'un formulaire sans `/AcroForm` ne
   s'affichent pas** (consigné le 14 septembre 2026, par le banc de fidélité).
   PDFium contre hayro. Les annotations `/Widget` de ces documents ont une
@@ -167,35 +170,17 @@ la liste une fois fait.
   le filtre ; Maj+F6 et un déplacement du focus n'ont pas été vérifiés. À
   essayer au clavier avant de décider s'ils rejoignent la liste
   (`app/README.md`, « Raccourcis du navigateur neutralisés »).
-- [ ] **Rien ne distingue à l'écran un build de développement d'un build
-  empaqueté ou d'une version installée** (consigné le 14 septembre 2026, en
-  essayant la neutralisation des raccourcis du navigateur). La fenêtre
-  s'appelle « 4YouPDF » quel que soit le build (`app/tauri.conf.json`,
-  `ui/index.html`), et aucun écran ne donne la version. Le correctif a
-  d'abord été essayé dans `target\release\4YouPDF.exe`, empaqueté le
-  13 septembre, avant le filtre, sans moyen de s'en apercevoir ; ce détour
-  se reproduira à chaque essai. Un marqueur visible l'éviterait : la version
-  dans la barre d'état, ou un titre différent en développement. La version
-  seule n'aurait pas suffi cette fois : cet exécutable et le build de
-  développement du 14 septembre portent tous deux 0.3.3 dans leurs
-  propriétés de fichier (lues par script) ; il y faudrait aussi le commit ou
-  la date de compilation. Un titre propre au développement ferait différer
-  ce que montrent les deux builds, alors que « le build qu'on essaie doit se
-  comporter comme celui qu'on livre » (`app/README.md`, « Outils de
-  développement neutralisés dans tous les builds »), et `main.ts` ne peut
-  pas encore changer le titre (« Bug : le titre de la fenêtre ne prend pas
-  le nom du document », plus haut).
-- [ ] **La vignette d'une page tournée casse l'alignement de sa ligne**
-  (consigné le 14 septembre 2026, corrigé le 15). Une page en paysage donne
-  une vignette moins haute, et son numéro se retrouve plus haut que ceux de
-  ses voisines (vu à l'écran : la première version de cette entrée disait
-  l'inverse). C'est ce que dit le code : le cadre de l'image prend les
-  proportions de la page affichée, `/Rotate` compris (`pageRatio`, dans
-  `viewer.ts`), et le numéro le suit, collé sous une image moins haute,
-  dans une tuile que la grille étire à la hauteur de sa ligne
-  (`styles.css`) ; toute page en paysage le fait, tournée ou non. Les tuiles
-  devraient réserver la même hauteur quelle que soit l'orientation, le
-  numéro se plaçant toujours en bas.
+- [ ] **Aucun écran ne donne la version ni le commit du build** (consigné
+  le 14 septembre 2026 comme « Rien ne distingue à l'écran un build de
+  développement d'un build empaqueté », réduit le 17). Depuis le
+  17 septembre 2026, un build de développement porte « — DEV » à la fin du
+  titre de sa fenêtre, posé côté Rust (`window_title`, `app/src/main.rs`),
+  et un build empaqueté non (`app/README.md`, « Construire et lancer »).
+  Reste la version : aucun écran ne la donne, et deux builds de la même
+  version, empaquetés à des jours différents, ne se distingueraient pas
+  plus par elle, qui est la même dans leurs propriétés de fichier ; il y
+  faudrait aussi le commit ou la date de compilation, dans la barre d'état
+  ou un écran « À propos ».
 - [ ] **L'icône laisse des coutures translucides, et sa plaque de fond n'est
   pas transparente** (consigné le 16 septembre 2026, en mettant à jour la
   documentation de l'icône posée la veille). Dans `app/icons/icon.svg`, le

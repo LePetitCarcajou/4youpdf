@@ -34,6 +34,13 @@ un dépôt fraîchement cloné, pourvu que les prérequis système ci-dessous
 soient installés. Sans PDFium, l'application fonctionne avec des vignettes
 vides et dit pourquoi dans sa barre d'état.
 
+Un build de développement (`cargo run`, `cargo tauri dev`) porte « — DEV »
+à la fin du titre de sa fenêtre, « 4YouPDF — DEV » ; un build empaqueté
+s'appelle « 4YouPDF ». Le suffixe est posé côté Rust à l'ouverture de la
+fenêtre (`window_title`, `src/main.rs`), sur `debug_assertions`, et c'est la
+seule chose visible qui distingue les deux builds : elle évite d'essayer un
+correctif dans le mauvais exécutable sans s'en apercevoir.
+
 ### Prérequis système
 
 - **Windows** : WebView2, présent sur Windows 11.
@@ -775,7 +782,9 @@ agirait encore malgré tout s'ajoute à `BROWSER_SHORTCUTS`.
   cet arrêt, chacune de ces touches ouvrait les outils. Le clic droit
   (« Inspecter ») et le port de débogage de WebView2 les ouvrent toujours
   dans un build de développement. Que la release les garde coupés ne dépend
-  pas de l'interface (`docs/backlog-technique.md`).
+  pas de l'interface (`docs/backlog-technique.md`). Seul le titre de la
+  fenêtre distingue les deux builds, « — DEV » (voir « Construire et
+  lancer »).
 - **Le zoom reste d'abord à la configuration.** Tauri garde le zoom de
   WebView2 coupé (`zoomHotkeysEnabled`, faux par défaut) : Ctrl+molette,
   pincement et, d'après la documentation de WebView2, Ctrl+plus et
