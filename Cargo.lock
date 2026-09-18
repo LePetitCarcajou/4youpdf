@@ -1396,7 +1396,7 @@ dependencies = [
 
 [[package]]
 name = "fyp-app"
-version = "0.3.3"
+version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "fyp-core",
@@ -1412,7 +1412,7 @@ dependencies = [
 
 [[package]]
 name = "fyp-cli"
-version = "0.3.3"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1423,14 +1423,14 @@ dependencies = [
 
 [[package]]
 name = "fyp-conformance"
-version = "0.3.3"
+version = "0.4.0"
 dependencies = [
  "fyp-core",
 ]
 
 [[package]]
 name = "fyp-core"
-version = "0.3.3"
+version = "0.4.0"
 dependencies = [
  "flate2",
  "fyp-crypto",
@@ -1439,7 +1439,7 @@ dependencies = [
 
 [[package]]
 name = "fyp-crypto"
-version = "0.3.3"
+version = "0.4.0"
 dependencies = [
  "aes",
  "cbc",

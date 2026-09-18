@@ -167,12 +167,15 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
   `private-vulnerability-reporting` répondait encore `"enabled": false` le
   16 septembre 2026. Vérifier ensuite que « Report a vulnerability »
   apparaît dans l'onglet Security, puis retirer cette entrée.
-- [ ] **Générer `CHANGELOG.md` ou le retirer** (consigné le 13 septembre
-  2026). Le fichier ne contient aucune entrée alors que 16 tags existent :
-  `release.yml` n'appelle git-cliff que pour les notes de la release en
-  cours (`--latest --strip header`), et rien n'écrit le fichier. Décider
-  s'il est produit et commité avant chaque tag, ou si les notes des releases
-  suffisent.
+- [ ] **`CHANGELOG.md` : les versions d'avant 0.4.0, et qui l'écrit**
+  (consigné le 13 septembre 2026 comme « Générer `CHANGELOG.md` ou le
+  retirer », réduit le 17). Depuis le 17 septembre 2026, le fichier est
+  rédigé à la main, en français, une section par version à partir de la
+  0.4.0, d'après `git log` depuis le tag précédent ; `release.yml` continue
+  de produire les notes de chaque Release par git-cliff (`--latest
+  --strip header`), depuis les sujets des commits, sans écrire le fichier.
+  Reste : les 17 versions taguées avant, v0.0.1 à v0.3.4, n'ont pas de
+  section, et rien ne vérifie qu'une section précède chaque tag.
 - [ ] **Empêcher un build de développement en release de charger une
   `pdfium.dll` restée dans `target/release/`** (consigné le 13 septembre
   2026, en préparant le moteur PDFium du banc de fidélité). Il y en a une,
@@ -301,3 +304,19 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
   l'une des deux dates est fausse, et rien ne les tient ensemble. À trancher
   en relançant le parcours du corpus, qui redonnera la date et vérifiera du
   même coup que les chiffres tiennent toujours.
+- [ ] **Les documents disent encore qu'aucune release n'a de fichier, et
+  nomment 0.3.3 comme version courante** (consigné le 17 septembre 2026, en
+  préparant v0.4.0). La Release GitHub v0.3.4, publiée le 17 septembre 2026
+  à 03:41 UTC depuis `ecbee36`, attache `4YouPDF_0.3.3_x64-setup.exe`,
+  `4YouPDF_0.3.3_x64_portable.zip` et `SHA256SUMS.txt` (lu dans l'API des
+  releases), et ses notes git-cliff listent le panneau de vignettes, les
+  raccourcis neutralisés, la palette, la question avant de perdre des
+  modifications, l'icône et le zoom. Or `README.md` (« No release has a
+  file to download yet », « Version 0.3.3 »), `app/README.md` (« il n'a
+  encore attaché aucun fichier : poussé sur v0.3.4 le 17 septembre 2026, il
+  s'est arrêté à `version-check` »), `CLAUDE.md` (« aucune release n'a
+  encore de fichier à télécharger. Prochaine version : le palier v0.3.4 »)
+  et `docs/architecture.md` (« État à la version 0.3.3 », et v0.3.4 encore
+  sous « Ensuite ») disent le contraire ; le passage du workspace à 0.4.0
+  périme de plus chaque « 0.3.3 » donné comme version courante. À reprendre
+  ensemble, avec la feuille de route.
