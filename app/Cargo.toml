@@ -32,5 +32,10 @@ base64 = "0.22"
 [target.'cfg(windows)'.dependencies]
 rfd = { version = "0.16", default-features = false, features = ["common-controls-v6"] }
 
+# Reads this manifest in a test, to check that tauri's `devtools` feature
+# stays off (ADR 0007); already in the tree through fyp-plugin-api.
+[dev-dependencies]
+toml = { workspace = true }
+
 [lints]
 workspace = true

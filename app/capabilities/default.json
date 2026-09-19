@@ -1,7 +1,22 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main window: invoke the application's commands and listen to window events (file drop).",
+  "description": "Main window: the commands of src/main.rs that the interface calls (permissions/commands.toml, one permission per command), and listening to events, for the refused closing (fyp://close-requested) and the file drop. Nothing else: the file dialogs are opened from the Rust side, and the title is not set from the page (docs/backlog-ui.md). ADR 0007.",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:default"]
+  "permissions": [
+    "core:event:allow-listen",
+    "allow-open-document",
+    "allow-close-document",
+    "allow-document-modified",
+    "allow-close-window",
+    "allow-renderer-status",
+    "allow-initial-file",
+    "allow-render-page",
+    "allow-rotate-pages",
+    "allow-merge-documents",
+    "allow-save-document",
+    "allow-pick-open-file",
+    "allow-pick-merge-files",
+    "allow-pick-save-file"
+  ]
 }

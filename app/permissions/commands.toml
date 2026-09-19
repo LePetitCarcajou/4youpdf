@@ -1,0 +1,71 @@
+# What the page may ask the Rust side for: one permission per command of
+# `src/main.rs`, granted to the window « main » by `capabilities/default.json`.
+# tauri-build reads this directory as the permission manifest of the
+# application, and from then on a command without a permission here, or not
+# granted there, is refused to the page (ADR 0007). Each description says
+# why the interface needs the command; `ui/src/api.ts` is the only caller.
+
+[[permission]]
+identifier = "allow-open-document"
+description = "Open the file chosen, dropped or given on the command line, and make it the current document."
+commands.allow = ["open_document"]
+
+[[permission]]
+identifier = "allow-close-document"
+description = "Forget the current document when the page unloads."
+commands.allow = ["close_document"]
+
+[[permission]]
+identifier = "allow-document-modified"
+description = "Report whether the document carries unsaved changes, so that closing the window asks first."
+commands.allow = ["document_modified"]
+
+[[permission]]
+identifier = "allow-close-window"
+description = "Close the window for good once the unsaved changes are settled in place."
+commands.allow = ["close_window"]
+
+[[permission]]
+identifier = "allow-renderer-status"
+description = "Say in the status bar whether pages can be drawn, and why not otherwise."
+commands.allow = ["renderer_status"]
+
+[[permission]]
+identifier = "allow-initial-file"
+description = "Open at start the file given on the command line."
+commands.allow = ["initial_file"]
+
+[[permission]]
+identifier = "allow-render-page"
+description = "Draw a page as a thumbnail or in the page view."
+commands.allow = ["render_page"]
+
+[[permission]]
+identifier = "allow-rotate-pages"
+description = "Turn the selected pages, and undo or redo a rotation."
+commands.allow = ["rotate_pages"]
+
+[[permission]]
+identifier = "allow-merge-documents"
+description = "Merge the chosen files after the pages of the document."
+commands.allow = ["merge_documents"]
+
+[[permission]]
+identifier = "allow-save-document"
+description = "Write the pages in their current order to the file chosen."
+commands.allow = ["save_document"]
+
+[[permission]]
+identifier = "allow-pick-open-file"
+description = "Show the native « open file » dialog, from the Rust side."
+commands.allow = ["pick_open_file"]
+
+[[permission]]
+identifier = "allow-pick-merge-files"
+description = "Show the native « open files » dialog for the files to merge, from the Rust side."
+commands.allow = ["pick_merge_files"]
+
+[[permission]]
+identifier = "allow-pick-save-file"
+description = "Show the native « save as » dialog with a suggested name, from the Rust side."
+commands.allow = ["pick_save_file"]
