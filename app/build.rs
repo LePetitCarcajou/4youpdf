@@ -12,10 +12,13 @@
 
 use std::path::Path;
 
+// A `<style>` element rather than a `style` attribute: the window admits no
+// inline style (ADR 0007), and Tauri gives a `<style>` element of an
+// embedded page a nonce its policy accepts, which an attribute cannot carry.
 const PLACEHOLDER: &str = "<!doctype html><meta charset=\"utf-8\">\
 <title>4YouPDF</title>\
-<p style=\"font-family: sans-serif; margin: 2em\">\
-Interface non compilée : lancez <code>python tools/build_ui.py</code> \
+<style>p { font-family: sans-serif; margin: 2em }</style>\
+<p>Interface non compilée : lancez <code>python tools/build_ui.py</code> \
 puis recompilez l'application.</p>\n";
 
 fn main() {

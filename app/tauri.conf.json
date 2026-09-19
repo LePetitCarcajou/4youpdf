@@ -21,7 +21,16 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+      "freezePrototype": true,
+      "csp": {
+        "default-src": ["'none'"],
+        "script-src": ["'self'"],
+        "style-src": ["'self'"],
+        "img-src": ["'self'", "data:"],
+        "connect-src": ["ipc:", "http://ipc.localhost"],
+        "base-uri": ["'none'"],
+        "form-action": ["'none'"]
+      }
     }
   },
   "bundle": {
