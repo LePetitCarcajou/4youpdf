@@ -37,9 +37,14 @@ vides et dit pourquoi dans sa barre d'état.
 Un build de développement (`cargo run`, `cargo tauri dev`) porte « — DEV »
 à la fin du titre de sa fenêtre, « 4YouPDF — DEV » ; un build empaqueté
 s'appelle « 4YouPDF ». Le suffixe est posé côté Rust à l'ouverture de la
-fenêtre (`window_title`, `src/main.rs`), sur `debug_assertions`, et c'est la
-seule chose visible qui distingue les deux builds : elle évite d'essayer un
-correctif dans le mauvais exécutable sans s'en apercevoir.
+fenêtre (`window_title`, `src/main.rs`), sur `debug_assertions` : il évite
+d'essayer un correctif dans le mauvais exécutable sans s'en apercevoir.
+Deux choses visibles distinguent les deux builds : ce titre, et le menu
+contextuel natif de WebView2, gardé dans un build de développement, où
+« Inspecter » ouvre les outils de développement, et fermé en release. Hors
+de la vue, un build de développement honore de plus la variable de
+débogage `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`, que la release retire de
+son environnement (voir « Fenêtre durcie » et l'ADR 0007).
 
 ### Prérequis système
 
@@ -266,7 +271,7 @@ ici).
 
 | Fichier | Rôle |
 |---|---|
-| `src/main.rs` | commandes exposées à l'interface : ouvrir, fermer, état du rendu, fichier passé en ligne de commande, rendre une page, faire pivoter des pages, fusionner des fichiers à la suite, enregistrer, dialogues de fichiers, modifications non enregistrées déclarées, fermeture de la fenêtre ; ouverture de la fenêtre (profil WebView2 d'une copie portable) ; fermeture refusée et portée à l'interface tant que le document est déclaré modifié ; message et arrêt si WebView2 manque |
+| `src/main.rs` | commandes exposées à l'interface : ouvrir, fermer, état du rendu, fichier passé en ligne de commande, rendre une page, faire pivoter des pages, fusionner des fichiers à la suite, enregistrer, dialogues de fichiers, modifications non enregistrées déclarées, fermeture de la fenêtre ; ouverture de la fenêtre (profil WebView2 d'une copie portable) ; fermeture refusée et portée à l'interface tant que le document est déclaré modifié ; message et arrêt si WebView2 manque ; script d'initialisation qui ferme le menu contextuel natif en release, variable de débogage de WebView2 retirée en release |
 | `src/session.rs` | le document ouvert vu par `fyp-core` : pages, réparation, chiffrement ; rotation par `ops::rotate` et fusion par `ops::merge`, qui réécrivent le document gardé en mémoire, chaque fichier à fusionner ouvert et vérifié d'abord, ignoré et signalé sinon ; enregistrement par `ops::extract_pages` |
 | `src/render.rs` | images des pages (vignettes, vue d'une page) : thread dédié qui charge PDFium et sert les demandes une à une ; où chercher la bibliothèque ; seul endroit qui connaît `pdfium-render`. Le banc de fidélité du rendu (`tools/render_bench`) compile ce fichier tel quel et appelle ses trois étapes une à une : ouvrir, dessiner, encoder |
 | `ui/src/main.ts` | la fenêtre : grille, glisser-déposer, sélection, menu contextuel, fusion de fichiers, panneau de vignettes à côté de la vue d'une page, clavier, raccourcis du navigateur neutralisés, avis en place, question posée avant de perdre des modifications |
@@ -281,11 +286,12 @@ ici).
 | `ui/src/api.ts` | façade typée des commandes ; `tauri.d.ts` décrit le sous-ensemble de l'API globale de Tauri utilisé |
 | `ui/styles.css` | la feuille de style ; en tête, les couleurs en deux niveaux, couleurs brutes puis rôles, décrites par [docs/couleurs.md](../docs/couleurs.md) |
 | `ui/tests/` | tests de la logique sans DOM, exécutés par QuickJS-ng ; `check.ts` est leur harnais |
-| `tauri.conf.json`, `capabilities/` | fenêtre unique, ouverte par `main.rs`, `withGlobalTauri`, permissions `core:default` et `dialog:default`, plus larges que ce que l'interface utilise (`docs/backlog-technique.md`) ; identité de l'application, icônes, réglages de l'installeur et de WebView2 |
+| `tauri.conf.json`, `capabilities/` | fenêtre unique, ouverte par `main.rs`, `withGlobalTauri` ; CSP stricte, à partir de `default-src 'none'`, et `freezePrototype` ; permissions réduites à ce que l'interface appelle, `core:event:allow-listen` et une par commande (voir « Fenêtre durcie ») ; identité de l'application, icônes, réglages de l'installeur et de WebView2 |
+| `permissions/commands.toml` | manifeste de permissions de l'application, lu par tauri-build : une permission par commande de `src/main.rs`, avec la raison pour laquelle l'interface en a besoin ; dès qu'il existe, une commande sans permission accordée est refusée à la page |
 | `tauri.bundle.json` | fusionné à `tauri.conf.json` par `tools/package_app.py` : active l'empaquetage et liste les fichiers livrés à côté de l'exécutable |
 | `windows/installer-hooks.nsh` | ce que l'installeur et le désinstalleur font de plus que ceux de Tauri |
 | `icons/` | `icon.svg`, source de toutes les icônes |
-| `build.rs` | page d'attente quand l'interface n'est pas compilée ; version du workspace dans les propriétés de l'exécutable Windows |
+| `build.rs` | page d'attente quand l'interface n'est pas compilée, stylée par un élément `<style>` que la CSP admet, Tauri lui donnant un nonce, plutôt que par un attribut `style=` ; version du workspace dans les propriétés de l'exécutable Windows |
 
 ## Comportement
 
@@ -335,6 +341,11 @@ ici).
   l'imprimeraient ou y chercheraient (F5, Ctrl+P, Ctrl+F…) sont neutralisés,
   et leurs touches restent libres pour l'application (voir « Raccourcis du
   navigateur neutralisés »).
+- En release, le menu contextuel natif de WebView2 ne s'ouvre jamais, que le
+  clic droit, la touche Menu ou Maj+F10 tombent sur la grille, la barre
+  d'état, la vue d'une page ou un champ de texte ; les vignettes gardent
+  leur propre menu. Un build de développement garde le menu natif (voir
+  « Fenêtre durcie »).
 
 ### Vue d'une page
 
@@ -779,12 +790,16 @@ agirait encore malgré tout s'ajoute à `BROWSER_SHORTCUTS`.
   modificateurs et la disposition (AltGr+Maj+I, Win+Ctrl+Maj+I, Ctrl+Maj+D en
   Bépo), sans regarder l'action par défaut. Arrêter ces touches n'empêche
   pas ce qu'elles tapent. Constaté le 14 septembre 2026 par DevTools : sans
-  cet arrêt, chacune de ces touches ouvrait les outils. Le clic droit
-  (« Inspecter ») et le port de débogage de WebView2 les ouvrent toujours
-  dans un build de développement. Que la release les garde coupés ne dépend
-  pas de l'interface (`docs/backlog-technique.md`). Seul le titre de la
-  fenêtre distingue les deux builds, « — DEV » (voir « Construire et
-  lancer »).
+  cet arrêt, chacune de ces touches ouvrait les outils. Un build de
+  développement garde deux autres chemins vers eux, le clic droit
+  (« Inspecter ») du menu contextuel natif et le port de débogage de
+  WebView2, ouvert par `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`. La release
+  les ferme côté Rust : la feature `devtools` de tauri reste absente, ce
+  qu'un test vérifie, `src/main.rs` retire la variable de l'environnement
+  et un script d'initialisation ferme le menu natif. Le menu est, avec le
+  titre « — DEV », l'une des deux différences visibles entre les deux
+  builds, et la variable, l'écart hors de la vue (voir « Fenêtre durcie »
+  et « Construire et lancer »).
 - **Le zoom reste d'abord à la configuration.** Tauri garde le zoom de
   WebView2 coupé (`zoomHotkeysEnabled`, faux par défaut) : Ctrl+molette,
   pincement et, d'après la documentation de WebView2, Ctrl+plus et
@@ -806,8 +821,90 @@ agirait encore malgré tout s'ajoute à `BROWSER_SHORTCUTS`.
   envoyées ainsi : elles restent à essayer au clavier, et le même essai
   (F5, Ctrl+R, Ctrl+P) dira après chaque mise à jour de WebView2 si c'est
   toujours vrai.
-- **Reste actif** le menu contextuel par défaut de WebView2, hors des
-  vignettes, avec « Actualiser » et « Imprimer » (`docs/backlog-ui.md`).
+- **Le menu contextuel natif de WebView2**, hors des vignettes, avec
+  « Actualiser » et « Imprimer », est fermé en release par le script
+  d'initialisation de `src/main.rs`, et gardé dans un build de
+  développement pour son « Inspecter » (voir « Fenêtre durcie »).
+  `docs/backlog-ui.md` n'en garde qu'un menu d'édition propre à
+  l'application pour les champs de texte, si le besoin apparaît.
+
+### Fenêtre durcie
+
+Le 19 septembre 2026, la fenêtre a reçu quatre mesures, décidées et
+justifiées ligne par ligne par l'ADR 0007, et tenues par des tests de
+`src/main.rs` (voir « Tests ») : une CSP stricte, des permissions réduites
+à ce que l'interface appelle, une release sans outils de développement,
+une release sans menu contextuel natif.
+
+- **La CSP** (`tauri.conf.json`, `app.security.csp`), une directive par
+  ligne à partir de `default-src 'none'`, n'admet que `main.js` et
+  `styles.css` (`'self'`), les images `data:` des vignettes et de la vue
+  d'une page, et l'IPC de Tauri (`connect-src ipc: http://ipc.localhost`,
+  servi dans le processus, jamais par le réseau) ; `base-uri` et
+  `form-action` sont à `'none'`. Ni `'unsafe-eval'` ni `'unsafe-inline'` :
+  l'interface ne pose que des propriétés CSSOM (`menu.style.left = …`), que
+  la CSP n'interdit pas, et la page d'attente de `build.rs` est passée d'un
+  attribut `style=` à un élément `<style>`, auquel Tauri donne un nonce.
+  L'ancienne CSP (ADR 0006, `default-src 'self'`) admettait
+  `'unsafe-inline'` sans besoin et, faute de `connect-src`, refusait l'IPC à
+  chaque lancement, rabattu sur `postMessage` avec un avertissement. Pas de
+  `devCsp` : le build d'essai tourne sous la politique du build livré.
+  `freezePrototype: true` (Tauri gèle `Object.prototype` avant tout script
+  de la page ; l'interface n'assigne jamais de propriété héritée) et
+  `withGlobalTauri: true` (`ui/src/api.ts` lit `window.__TAURI__`, sans
+  Node.js ni npm) sont gardés. La CSP ne régit pas la navigation de la
+  fenêtre elle-même (`on_navigation`, `docs/backlog-technique.md`).
+- **Les permissions** (`capabilities/default.json`, fenêtre `main`) sont
+  `core:event:allow-listen`, pour la fermeture refusée et le glisser-déposer,
+  que Rust émet, et une permission par commande de `src/main.rs`, chacune
+  définie avec sa raison dans `permissions/commands.toml`, que tauri-build
+  lit comme manifeste de l'application : dès qu'il existe, une commande sans
+  permission est refusée à la page. `core:default` et `dialog:default`, des
+  ensembles entiers que la page n'appelait jamais, sont retirés ; les
+  sélecteurs de fichiers sont ouverts côté Rust (`app.dialog()`), où le
+  plugin reste initialisé. La page ne peut plus émettre d'événement
+  (`event.emit`) : l'interface n'émet jamais. `core:window:allow-set-title`
+  n'est pas accordé, à dessein : `setTitle` reste refusé comme avant
+  (`docs/backlog-ui.md`, « le titre de la fenêtre ne prend pas le nom du
+  document »), parce que l'accorder ferait entrer le nom du document dans
+  le titre sans le suffixe « — DEV » de `window_title` ; c'est la correction
+  de ce bug, une session à part.
+- **Les outils de développement** restent hors de la release : la feature
+  `devtools` de tauri est absente (`Cargo.toml`, `features = []`), aucun
+  `open_devtools(` n'apparaît dans `src/`, et un test le garde ; sans la
+  feature, wry pose `SetAreDevToolsEnabled(false)` hors `debug_assertions`.
+  Restait `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` : WebView2 lit les
+  variables d'environnement, puis le registre, et ajoute les arguments
+  trouvés à ceux de l'application, si bien que `--remote-debugging-port=…`
+  ouvrait le port de débogage du build release (mesuré le 19 septembre
+  2026). `main()` la retire de l'environnement avant que WebView2 ne
+  démarre, en release seulement (`keeps_webview2_browser_arguments()` vaut
+  `cfg!(debug_assertions)`) ; mesuré après sur `target/release/fyp-app.exe`,
+  port fermé, application démarrée normalement. La surcharge par le
+  registre (`AdditionalBrowserArguments`) et les autres variables
+  `WEBVIEW2_*` ne sont pas neutralisées : `docs/backlog-technique.md`, avec
+  la condition qui rouvrirait le sujet.
+- **Le menu contextuel natif** de WebView2 ne s'ouvre jamais en release :
+  `src/main.rs` injecte par `initialization_script` la constante
+  `NO_NATIVE_CONTEXT_MENU`, un écouteur de `contextmenu` posé sur la fenêtre
+  en phase de capture, avant les scripts de la page et à chaque chargement,
+  qui empêche l'action par défaut où que tombent le clic droit, la touche
+  Menu ou Maj+F10. Le menu des vignettes continue de fonctionner : `main.ts`
+  écoute `contextmenu` sur la grille sans regarder `defaultPrevented`. Rien
+  côté natif : Tauri 2.11 ne transmet pas `with_default_context_menus` de
+  wry, et l'atteindre par `with_webview` demanderait un appel COM `unsafe`,
+  interdit. Conséquence assumée : les champs de texte (mot de passe, numéro
+  de page) perdent le menu couper/copier/coller de WebView2, Ctrl+X, Ctrl+C
+  et Ctrl+V y fonctionnant toujours (`docs/backlog-ui.md`). Que le menu ne
+  s'ouvre pas sur le build release n'est pas vérifié par script, son port
+  de débogage étant fermé : c'est la checklist manuelle, sur ce build.
+
+Le menu natif, gardé dans un build de développement, est avec le titre
+« — DEV » l'une des deux différences visibles entre les deux builds, et la
+variable de débogage, gardée elle aussi, l'écart hors de la vue (voir
+« Construire et lancer ») ; le test
+`a_release_build_alone_closes_the_native_menu_and_the_debugging_port`
+vérifie que la release seule injecte le script et retire la variable.
 
 ## Tests
 
@@ -823,7 +920,13 @@ ratée garde les modifications ; l'interface injoignable, la fenêtre se
 ferme), emplacements de PDFium (un paquet ne cherche jamais dans le
 dépôt dont il vient), dossier `data` qui rend une copie portable,
 configuration (fenêtre ouverte par l'application, pas de version propre,
-zoom de WebView2 laissé coupé),
+zoom de WebView2 laissé coupé ; CSP stricte, présente et sans
+`'unsafe-eval'`, `'unsafe-inline'` ni source distante ; permissions
+exactement celles de l'interface, chaque commande de `generate_handler!`
+définie dans `permissions/commands.toml` avec sa raison ; feature
+`devtools` absente et aucun `open_devtools` ; script du menu contextuel et
+variable de débogage réservés à la release, selon le profil sous lequel les
+tests tournent),
 et, quand `app/pdfium/` est présent, rendu réel d'une page en
 PNG, à la taille d'une vignette et à celle de la vue d'une page, et d'une
 page tournée, dessinée couchée.

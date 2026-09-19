@@ -25,16 +25,16 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
     crate du relais portant l'autorisation, ce qui résiste mieux qu'une
     recherche textuelle aux alias d'import.
   - [ ] **Vérifier que la fenêtre ne peut pas naviguer vers une adresse
-    extérieure, et sinon l'imposer côté Rust.** La CSP `default-src 'self'`
-    ne régit que les ressources et les connexions, pas la navigation de la
-    page elle-même, et Tauri 2.11 n'en bloque aucune tant qu'aucun
-    `on_navigation` n'est fourni : à confirmer dans la fenêtre réelle, puis
-    à imposer par un `on_navigation` (celui d'un plugin couvre aussi la
-    fenêtre déclarée dans `tauri.conf.json`) qui n'accepte que l'origine de
-    l'application, `tauri://localhost` sous Linux et macOS mais
-    `http://tauri.localhost` sous Windows, si bien que l'exemple de la
-    documentation de Tauri, qui ne teste que le schéma `tauri`, bloquerait
-    l'application sous Windows.
+    extérieure, et sinon l'imposer côté Rust.** La CSP (`default-src 'none'`
+    depuis le 19 septembre 2026, ADR 0007) ne régit que les ressources et les
+    connexions, pas la navigation de la page elle-même, et Tauri 2.11 n'en
+    bloque aucune tant qu'aucun `on_navigation` n'est fourni : à confirmer
+    dans la fenêtre réelle, puis à imposer par un `on_navigation` (celui d'un
+    plugin couvre aussi la fenêtre déclarée dans `tauri.conf.json`) qui
+    n'accepte que l'origine de l'application, `tauri://localhost` sous Linux
+    et macOS mais `http://tauri.localhost` sous Windows, si bien que
+    l'exemple de la documentation de Tauri, qui ne teste que le schéma
+    `tauri`, bloquerait l'application sous Windows.
 - [ ] **Tenir les workflows figés et vérifiés** (consigné le 13 septembre
   2026, réduit le 16). Fait le 16 septembre 2026 : actionlint 1.7.12, avec
   shellcheck 0.11.0 pour les scripts `run`, ne signale plus rien sur
@@ -145,18 +145,6 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
   dense »). Un rendu ne peut pas être interrompu : `pdfium-render` n'expose
   pas le rendu progressif de PDFium, et la vue s'en tient à une demande à
   la fois, 200 ms après le dernier cran.
-- [ ] **Réduire les permissions de la fenêtre à ce que l'interface utilise,
-  dans la session de durcissement de la WebView** (consigné le 13 septembre
-  2026). `app/capabilities/default.json` accorde aux scripts de la page
-  `core:default` et `dialog:default` : les ensembles par défaut de
-  `core:app`, `core:event`, `core:image`, `core:menu`, `core:path`,
-  `core:resources`, `core:tray`, `core:webview` et `core:window`, et les
-  dialogues `open`, `save` et `message` du plugin. L'interface n'appelle
-  pourtant que ses propres commandes, écoute le dépôt de fichiers
-  (`core:event`) et demande `setTitle`, que ces ensembles n'accordent pas
-  (`docs/backlog-ui.md`) ; les sélecteurs de fichiers sont appelés depuis
-  Rust. Relevé dans `app/gen/schemas/acl-manifests.json`, que génère
-  tauri-build.
 - [ ] **Activer le signalement privé des vulnérabilités sur le dépôt, avant
   la première release publique** (consigné le 13 septembre 2026, réduit le
   16). Choix fait le 16 septembre 2026 : le signalement privé de GitHub
@@ -255,30 +243,27 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
   `docs/mesure-hayro.md`, la deuxième, « un rendu qui ne fait ni tomber ni
   figer l'application », dont la mesure juge la meilleure forme un processus
   à part ou la sandbox WebAssembly, où hayro compile.
-- [ ] **Garder les outils de développement coupés en release par la
-  configuration de Tauri, dans la session de durcissement de la WebView**
-  (consigné le 14 septembre 2026, en neutralisant les raccourcis du
-  navigateur). L'interface neutralise F12 et Ctrl+Maj+I, J et C dans tous les
-  builds (`app/README.md`, « Raccourcis du navigateur neutralisés »), mais ce
-  n'est pas elle qui coupe les outils de développement en release : c'est une
-  valeur par défaut. wry pose `devtools: false` hors `debug_assertions`, et
-  tauri-runtime-wry 2.11 ne le change qu'en debug ou avec la fonctionnalité
-  Cargo `devtools` de `tauri`, que `app/Cargo.toml` n'active pas. Rien dans
-  le dépôt ne fixe ni ne vérifie cette absence. Le levier est la
-  fonctionnalité Cargo, pas `tauri.conf.json` : la clé `devtools` d'une
-  fenêtre n'y agit en release qu'avec cette fonctionnalité (documentation de
-  `tauri-utils`), et la mettre à `false` couperait les outils des builds de
-  développement, où le clic droit les ouvre. Dans ces builds, Tauri ajoute
-  aussi à la page un script qui ouvre les outils sur Ctrl+Maj+I, par la
-  position de la touche et quels que soient les autres modificateurs, par la
-  commande `plugin:webview|internal_toggle_devtools`, qu'accorde
-  `core:default` : l'interface arrête ces touches, et refuser cette commande
-  dans les permissions de la fenêtre (`core:webview:deny-internal-toggle-devtools`)
-  le ferait sans dépendre de la façon dont le script les reconnaît. À
-  vérifier au même moment : si
-  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=…`, par
-  lequel les essais pilotent l'application, ouvre aussi ce port sur une copie
-  release.
+- [ ] **Neutraliser la surcharge de WebView2 par le registre et les autres
+  variables `WEBVIEW2_*`, reste de « garder les outils de développement
+  coupés en release »** (consigné le 14 septembre 2026, réduit le
+  19 septembre 2026). Fait le
+  19 septembre 2026 : un test de `app/src/main.rs` garde la fonctionnalité
+  Cargo `devtools` de `tauri` hors de `app/Cargo.toml` et `open_devtools`
+  hors de `main.rs`, `render.rs` et `session.rs` ; en release seulement,
+  `main()` retire `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` de son
+  environnement avant que WebView2 ne démarre : le port de débogage que
+  cette variable ouvrait sur `target/release/fyp-app.exe` est fermé, mesuré
+  avant et après. Reste, non neutralisé : le registre
+  (`Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments`,
+  sous `HKLM` puis `HKCU`, valeur nommée d'après l'AppId : AUMID, puis nom
+  de l'exécutable, puis `*`), dont WebView2 ajoute les arguments à ceux de
+  l'application ; `WEBVIEW2_BROWSER_EXECUTABLE_FOLDER`, qui charge un runtime
+  depuis un dossier arbitraire ; `WEBVIEW2_USER_DATA_FOLDER`, qui déplace le
+  profil et écraserait le dossier `data` d'une copie portable. À traiter pour
+  une distribution signée, ou sur un rapport de vulnérabilité qui les vise.
+- [ ] **Décider si `tauri` garde sa fonctionnalité Cargo par défaut
+  `dynamic-acl`** (consigné le 19 septembre 2026, en durcissant la WebView).
+  Elle permet d'ajouter des capabilities à l'exécution, sans usage ici.
 - [ ] **Imposer `eol=lf` aux fichiers de l'interface dans `.gitattributes`**
   (consigné le 14 septembre 2026, en neutralisant les raccourcis du
   navigateur). `.gitattributes` fixe les fins de ligne des `*.rs`, `*.toml`

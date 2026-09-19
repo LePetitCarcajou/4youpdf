@@ -27,9 +27,10 @@ la liste une fois fait.
 - [ ] **Imprimer le document** (consigné le 14 septembre 2026). L'application
   n'imprime rien. Ctrl+P attend cette commande : l'interface empêche son
   action par défaut dans la page et laisse la touche libre (`app/README.md`,
-  « Raccourcis du navigateur neutralisés ») ; le menu contextuel de WebView2
-  propose encore d'imprimer l'interface (« Neutraliser le menu contextuel par
-  défaut de WebView2 », plus bas).
+  « Raccourcis du navigateur neutralisés ») ; le menu contextuel de WebView2,
+  qu'un build de développement garde, propose encore d'imprimer l'interface
+  (« Neutraliser le menu contextuel par défaut de WebView2 », plus bas) ; en
+  release ce menu ne s'ouvre plus.
 - [ ] **Attribuer les touches neutralisées selon les conventions communes**
   (consigné le 14 septembre 2026). Quand elles recevront des commandes de
   l'application, se caler sur les conventions partagées par Acrobat, pdf.js
@@ -43,20 +44,17 @@ la liste une fois fait.
   Ctrl+P attendent encore (`app/README.md`, « Raccourcis du navigateur
   neutralisés »).
 - [ ] **Neutraliser le menu contextuel par défaut de WebView2** (consigné le
-  14 septembre 2026, en neutralisant les raccourcis du navigateur). Hors des
-  vignettes, où l'interface montre son propre menu, un clic droit ouvre celui
-  de WebView2 : `AreDefaultContextMenusEnabled` garde sa valeur par défaut,
-  que wry ne change pas et que Tauri 2.11 n'expose pas. Relevé par UI
-  Automation dans un build de développement, après un clic droit envoyé comme
-  message de fenêtre sur la barre d'état : « Retour », « Actualiser »
-  (Ctrl+R), « Enregistrer sous », « Imprimer » (Ctrl+P), « Outils
-  supplémentaires », « Inspecter ». « Actualiser » rechargerait l'interface
-  et perdrait le travail non enregistré avec son historique, comme F5 le
-  faisait, et « Imprimer » imprimerait l'interface. Empêcher `contextmenu` dans
-  l'interface retirerait aussi « Inspecter », par lequel un build de
-  développement ouvre les outils de développement (`app/README.md`,
-  « Raccourcis du navigateur neutralisés »). La touche Menu et Maj+F10
-  n'ont pas été essayées.
+  14 septembre 2026, réduit le 19 septembre 2026). Hors des vignettes, un clic
+  droit ouvrait le menu de WebView2, dont « Actualiser », qui rechargerait
+  l'interface et perdrait le travail non enregistré, et « Imprimer », qui
+  imprimerait l'interface. Fait en release par le script d'initialisation de
+  `app/src/main.rs` (`NO_NATIVE_CONTEXT_MENU`), en phase de capture : ni le
+  clic droit, ni la touche Menu, ni Maj+F10 n'ouvrent plus le menu natif, et
+  celui des vignettes reste. Un build de développement garde le menu natif à
+  dessein, « Inspecter » y ouvrant les outils de développement (ADR 0007).
+  Reste, en release, où les champs de texte (mot de passe du bandeau, numéro
+  de page de la vue) n'ont plus de menu couper/copier/coller mais gardent
+  Ctrl+X/C/V : un menu d'édition de l'application, si le besoin apparaît.
 - [ ] **Barre d'annotation sur une sélection de texte** (surligner,
   souligner, barrer, copier), qui apparaît au clic-glisser sur du texte,
   comme dans PDF24. C'est l'interaction de PDF24 que retient l'ADR 0004
@@ -127,7 +125,7 @@ la liste une fois fait.
 - [ ] **Bug : le titre de la fenêtre ne prend pas le nom du document**
   (consigné le 13 septembre 2026). À l'ouverture d'un fichier, `main.ts`
   demande le titre « nom — 4YouPDF » par `setTitle`, mais
-  `capabilities/default.json` n'accorde que `core:default`, dont
+  `capabilities/default.json` n'accordait alors que `core:default`, dont
   `core:window:default` permet de lire le titre sans le changer (il y
   faudrait `core:window:allow-set-title`) : la demande est refusée, et
   `main.ts` ignore le refus. Seule la barre d'outils nomme le document.
@@ -136,6 +134,12 @@ la liste une fois fait.
   17 septembre 2026, un build de développement suffixe ce titre de
   « — DEV » côté Rust (`window_title`, `app/src/main.rs`) : la correction
   devra garder le suffixe quand le nom du document entrera dans le titre.
+  Depuis le 19 septembre 2026, `capabilities/default.json` n'accorde plus
+  `core:default` et, à dessein, pas `core:window:allow-set-title` (ADR 0007,
+  capabilities minimales) : la correction devra l'ajouter à ce fichier et à
+  la liste des permissions qu'attend le test
+  `the_window_is_allowed_the_commands_of_the_interface_and_nothing_else` de
+  `app/src/main.rs`.
 - [ ] **Bug : les champs remplis d'un formulaire sans `/AcroForm` ne
   s'affichent pas** (consigné le 14 septembre 2026, par le banc de fidélité).
   PDFium contre hayro. Les annotations `/Widget` de ces documents ont une
