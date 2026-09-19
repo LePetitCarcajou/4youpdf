@@ -170,7 +170,10 @@ ou d'un module qu'il a autorisé, dont le réseau est limité et visible.
 
 ### Vérification
 - **CSP de la fenêtre** : `default-src 'self'` et `img-src 'self' data:`
-  restent la règle, et les assouplir contredirait cet ADR. La CSP ne couvre
+  restent la règle, et les assouplir contredirait cet ADR ; depuis le
+  19 septembre 2026, l'ADR 0007 la resserre (`default-src 'none'`,
+  `connect-src` limité à l'IPC de Tauri) et un test de `app/src/main.rs` la
+  tient. La CSP ne couvre
   pas la navigation de la fenêtre elle-même : qu'elle soit refusée vers
   toute adresse extérieure est à vérifier et, au besoin, à imposer côté
   Rust.

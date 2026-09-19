@@ -484,8 +484,10 @@ un installeur et une archive portable. Répartition :
   raccourcis des outils de développement, dont Ctrl+Maj+I et les touches
   qu'un écouteur ajouté par Tauri prend pour lui, et qui ouvriraient sinon
   les outils dans un build de développement ; le zoom de WebView2 reste
-  coupé par la configuration de Tauri, et le menu contextuel de WebView2
-  reste actif (`backlog-ui.md`). Cette logique, sans DOM, est testée dans
+  coupé par la configuration de Tauri, et le menu contextuel natif de
+  WebView2 est, depuis le 19 septembre 2026, fermé en release par un script
+  d'initialisation de `main.rs` et gardé dans un build de développement
+  pour son « Inspecter » (ADR 0007). Cette logique, sans DOM, est testée dans
   `app/ui/tests/` par QuickJS-ng, que lance `tools/build_ui.py`.
 - **ADR 0004 appliqué** : une seule fenêtre, aucune boîte modale hors des
   sélecteurs de fichiers du système et du message qui dit quoi installer
