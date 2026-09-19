@@ -472,10 +472,54 @@ fn window_title(configured: &str) -> String {
     }
 }
 
+/// The script a release build runs in the page before any of its own, on
+/// every load: the native context menu of WebView2 never opens, wherever
+/// the click, the Menu key or Maj+F10 lands. That menu offers
+/// « Actualiser », which would reload the interface and lose the unsaved
+/// work with its history, « Imprimer », « Enregistrer sous », and
+/// « Inspecter ». The interface keeps its own menu on the thumbnails: it
+/// listens to `contextmenu` on the grid, and preventing the default action
+/// here first, in the capture phase, takes nothing from that listener.
+/// Tauri 2.11 does not pass on wry's `with_default_context_menus`, and
+/// reaching `AreDefaultContextMenusEnabled` otherwise would be an `unsafe`
+/// COM call, forbidden in this repository. A development build keeps the
+/// native menu: « Inspecter » is how it opens the developer tools
+/// (ADR 0007).
+const NO_NATIVE_CONTEXT_MENU: &str =
+    "window.addEventListener('contextmenu', (event) => event.preventDefault(), true);";
+
+/// The scripts the window runs before the page's own: none in a
+/// development build, [`NO_NATIVE_CONTEXT_MENU`] in a release build.
+fn initialization_scripts() -> &'static [&'static str] {
+    if cfg!(debug_assertions) {
+        &[]
+    } else {
+        &[NO_NATIVE_CONTEXT_MENU]
+    }
+}
+
+/// The environment variable by which WebView2 takes arguments for its
+/// browser process, `--remote-debugging-port` among them: read in this
+/// process when the webview is created, appended to what the application
+/// asks for, and looked up before the registry override of the same name
+/// (`Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments`).
+/// A release build removes it before WebView2 starts, so that a variable
+/// left in the environment does not open the debugging port of a copy
+/// users get; the registry override stays with the policies of the machine
+/// (`docs/backlog-technique.md`). A development build keeps it: it is how
+/// the interface is driven by script (ADR 0007).
+const WEBVIEW2_BROWSER_ARGUMENTS: &str = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS";
+
+/// Whether this build lets [`WEBVIEW2_BROWSER_ARGUMENTS`] reach WebView2.
+fn keeps_webview2_browser_arguments() -> bool {
+    cfg!(debug_assertions)
+}
+
 /// Open the main window described in `tauri.conf.json`, where `create` is
 /// `false` so that it opens here: under the title of this build
-/// ([`window_title`]), and in the profile folder of a portable copy when
-/// this is one ([`portable_data_dir`]).
+/// ([`window_title`]), with its scripts ([`initialization_scripts`]), and
+/// in the profile folder of a portable copy when this is one
+/// ([`portable_data_dir`]).
 fn open_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let config = app
         .config()
@@ -486,6 +530,9 @@ fn open_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> 
         .ok_or("tauri.conf.json ne décrit pas la fenêtre « main »")?;
     let mut window = tauri::WebviewWindowBuilder::from_config(app.handle(), config)?
         .title(window_title(&config.title));
+    for script in initialization_scripts() {
+        window = window.initialization_script(*script);
+    }
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(Path::to_path_buf));
@@ -525,6 +572,9 @@ fn require_webview2() {
 }
 
 fn main() {
+    if !keeps_webview2_browser_arguments() {
+        std::env::remove_var(WEBVIEW2_BROWSER_ARGUMENTS);
+    }
     #[cfg(windows)]
     require_webview2();
     // A development build (`cargo run`, not `tauri build`) also finds PDFium
@@ -796,5 +846,219 @@ mod tests {
         ] {
             assert!(!dir.join(name).exists(), "{name}");
         }
+    }
+
+    /// The sources a directive of the Content-Security-Policy may name: the
+    /// page itself, `data:` images, and the origins of Tauri's IPC, served
+    /// inside the process (`http://ipc.localhost` under Windows and Android,
+    /// `ipc:` elsewhere). Nothing distant, nothing inline, nothing evaluated.
+    const LOCAL_SOURCES: [&str; 5] = ["'none'", "'self'", "data:", "ipc:", "http://ipc.localhost"];
+
+    /// The window's Content-Security-Policy stays, and stays strict: one
+    /// directive per entry, `default-src 'none'` under all of them, and no
+    /// source outside [`LOCAL_SOURCES`], so neither `'unsafe-eval'` nor
+    /// `'unsafe-inline'` nor a distant origin. A development build runs
+    /// under the same policy (no `devCsp`), Tauri may still add its nonces
+    /// to it, the page keeps the global API it is written against, and
+    /// `Object.prototype` is frozen before any script of the page runs
+    /// (ADR 0007).
+    #[test]
+    fn the_configuration_keeps_a_strict_content_security_policy() {
+        use tauri::utils::config::{Csp, DisabledCspModificationKind};
+
+        let config: tauri::utils::config::Config =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let security = &config.app.security;
+        let Some(Csp::DirectiveMap(directives)) = &security.csp else {
+            panic!("tauri.conf.json must give the CSP as a map of directives");
+        };
+        let sources = |directive: &str| -> Vec<String> {
+            directives
+                .get(directive)
+                .cloned()
+                .map(Vec::from)
+                .unwrap_or_else(|| panic!("{directive} is missing"))
+        };
+        assert_eq!(sources("default-src"), ["'none'"]);
+        assert_eq!(sources("script-src"), ["'self'"]);
+        assert_eq!(sources("style-src"), ["'self'"]);
+        assert_eq!(sources("img-src"), ["'self'", "data:"]);
+        assert_eq!(sources("connect-src"), ["ipc:", "http://ipc.localhost"]);
+        // Neither falls back on default-src: each needs its own line.
+        assert_eq!(sources("base-uri"), ["'none'"]);
+        assert_eq!(sources("form-action"), ["'none'"]);
+        for (directive, sources) in directives {
+            for source in Vec::from(sources.clone()) {
+                assert!(
+                    LOCAL_SOURCES.contains(&source.as_str()),
+                    "{directive}: {source}"
+                );
+            }
+        }
+        assert!(
+            security.dev_csp.is_none(),
+            "a development build runs under the same policy"
+        );
+        assert!(
+            security.capabilities.is_empty(),
+            "the window's permissions live in capabilities/default.json alone"
+        );
+        assert_eq!(
+            security.dangerous_disable_asset_csp_modification,
+            DisabledCspModificationKind::Flag(false)
+        );
+        assert!(security.freeze_prototype);
+        assert!(
+            config.app.with_global_tauri,
+            "ui/src/api.ts reads window.__TAURI__"
+        );
+    }
+
+    /// The commands `main` hands to `generate_handler!`, in its order.
+    const COMMANDS: [&str; 13] = [
+        "open_document",
+        "close_document",
+        "document_modified",
+        "close_window",
+        "renderer_status",
+        "initial_file",
+        "render_page",
+        "rotate_pages",
+        "merge_documents",
+        "save_document",
+        "pick_open_file",
+        "pick_merge_files",
+        "pick_save_file",
+    ];
+
+    /// The window may call the commands of the interface and listen to
+    /// events, and nothing else: one permission per command, defined in
+    /// `permissions/commands.toml` with its reason and granted by
+    /// `capabilities/default.json`, plus `core:event:allow-listen` for the
+    /// refused closing and the file drop. No `core:default`, no dialog
+    /// plugin from the page, no `set_title` (`docs/backlog-ui.md`). And the
+    /// handler exposes exactly [`COMMANDS`] (ADR 0007).
+    #[test]
+    fn the_window_is_allowed_the_commands_of_the_interface_and_nothing_else() {
+        use std::collections::{BTreeMap, BTreeSet};
+
+        // One capability file and one permission file: tauri-build reads
+        // every file of both folders, and a second one would grant, or
+        // define, more than this test reads.
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        for (folder, only) in [
+            ("capabilities", "default.json"),
+            ("permissions", "commands.toml"),
+        ] {
+            let names: Vec<String> = std::fs::read_dir(dir.join(folder))
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+                .collect();
+            assert_eq!(names, [only], "{folder}");
+        }
+
+        let capability: serde_json::Value =
+            serde_json::from_str(include_str!("../capabilities/default.json")).unwrap();
+        assert_eq!(capability["windows"], serde_json::json!(["main"]));
+        let granted: BTreeSet<String> = capability["permissions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|permission| permission.as_str().unwrap().to_owned())
+            .collect();
+        let allow = |command: &str| format!("allow-{}", command.replace('_', "-"));
+        let mut expected: BTreeSet<String> = COMMANDS.iter().map(|c| allow(c)).collect();
+        expected.insert("core:event:allow-listen".to_owned());
+        assert_eq!(granted, expected);
+
+        let permissions: toml::Value =
+            toml::from_str(include_str!("../permissions/commands.toml")).unwrap();
+        let defined: BTreeMap<&str, &toml::Value> = permissions["permission"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|permission| (permission["identifier"].as_str().unwrap(), permission))
+            .collect();
+        assert_eq!(defined.len(), COMMANDS.len());
+        for command in COMMANDS {
+            let permission = defined
+                .get(allow(command).as_str())
+                .unwrap_or_else(|| panic!("{command}: no permission defined"));
+            assert_eq!(
+                permission["commands"]["allow"],
+                toml::Value::Array(vec![toml::Value::String(command.to_owned())])
+            );
+            assert!(
+                permission["description"]
+                    .as_str()
+                    .is_some_and(|reason| !reason.trim().is_empty()),
+                "{command}: no reason given"
+            );
+        }
+
+        // What `main` hands to `generate_handler!`, read from this file: the
+        // macro keeps its list to itself. Its first occurrence is the call.
+        let source = include_str!("main.rs");
+        let handler = source
+            .split("generate_handler![")
+            .nth(1)
+            .and_then(|after| after.split(']').next())
+            .unwrap();
+        let exposed: Vec<&str> = handler
+            .split(',')
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .collect();
+        assert_eq!(exposed, COMMANDS);
+    }
+
+    /// The developer tools of WebView2 stay out of a release build: tauri
+    /// compiles them in with its `devtools` feature, which `Cargo.toml` must
+    /// not name, directly or through a feature of its own, and no code here
+    /// opens them. wry then leaves them off outside a development build,
+    /// where the native context menu opens them (ADR 0007).
+    #[test]
+    fn the_devtools_of_tauri_stay_out_of_the_release_build() {
+        let manifest: toml::Value = toml::from_str(include_str!("../Cargo.toml")).unwrap();
+        let tauri = &manifest["dependencies"]["tauri"];
+        let features = tauri["features"]
+            .as_array()
+            .expect("tauri lists its features explicitly");
+        assert!(!features.iter().any(|f| f.as_str() == Some("devtools")));
+        assert!(
+            manifest.get("features").is_none(),
+            "no feature of fyp-app may forward tauri/devtools"
+        );
+        let opening = ["open_", "devtools("].concat();
+        for source in [
+            include_str!("main.rs"),
+            include_str!("render.rs"),
+            include_str!("session.rs"),
+        ] {
+            assert!(!source.contains(&opening));
+        }
+    }
+
+    /// A release build alone runs the script that keeps the native context
+    /// menu of WebView2 closed, and alone drops the variable by which
+    /// WebView2 would open its debugging port; a development build keeps
+    /// both, « Inspecter » and the port being how it is inspected and driven
+    /// by script. Like the title, what this checks follows the profile
+    /// `cargo test` runs under.
+    #[test]
+    fn a_release_build_alone_closes_the_native_menu_and_the_debugging_port() {
+        if cfg!(debug_assertions) {
+            assert!(initialization_scripts().is_empty());
+            assert!(keeps_webview2_browser_arguments());
+        } else {
+            assert_eq!(initialization_scripts(), [NO_NATIVE_CONTEXT_MENU]);
+            assert!(!keeps_webview2_browser_arguments());
+        }
+        assert!(NO_NATIVE_CONTEXT_MENU.contains("'contextmenu'"));
+        assert!(NO_NATIVE_CONTEXT_MENU.contains("preventDefault()"));
+        assert_eq!(
+            WEBVIEW2_BROWSER_ARGUMENTS,
+            "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"
+        );
     }
 }
