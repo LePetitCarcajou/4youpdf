@@ -92,13 +92,15 @@ ADR fait de cet état une règle et en fixe la seule exception.
   c'est le navigateur du système qui le fait, sur un clic explicite, après
   avoir montré l'adresse.
 - **La feuille de route s'y plie.** Le catalogue signé (jalon 1.0,
-  ADR 0003, point 5) se consulte et se télécharge hors de l'application,
-  qui installe un module depuis un fichier et vérifie sa signature sans
-  réseau. Pour PAdES (jalon 0.5), le noyau signe et valide avec ce que
-  contiennent le document et la machine ; l'horodatage par une autorité et
-  la vérification de révocation en ligne passent par un module WebAssembly
-  qui déclare les hôtes du service, et une vérification impossible hors
-  ligne est présentée comme telle.
+  ADR 0003, point 5 ; depuis le 19 septembre 2026, bloc C de
+  `docs/feuille-de-route.md`) se consulte et se télécharge hors de
+  l'application, qui installe un module depuis un fichier et vérifie sa
+  signature sans réseau. Pour PAdES (jalon 0.5 ; depuis le 19 septembre
+  2026, bloc D, la 1.0 n'en promettant que la validation), le noyau signe
+  et valide avec ce que contiennent le document et la machine ;
+  l'horodatage par une autorité et la vérification de révocation en ligne
+  passent par un module WebAssembly qui déclare les hôtes du service, et
+  une vérification impossible hors ligne est présentée comme telle.
 - **Hors du champ de cet ADR** : le moteur web du système (WebView2 sous
   Windows, WebKitGTK sous Linux, WKWebView sous macOS) et le système
   lui-même, mis à jour et réglés par leur éditeur ; les scripts de

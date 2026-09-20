@@ -65,7 +65,10 @@ l'utilisateur regarde déjà.
   moins en français et en anglais, et la recherche indexe les deux langues.
   L'infrastructure de traduction (fichiers de messages, règle de repli
   quand une traduction manque) fait partie du premier jalon de l'interface,
-  pas d'une version ultérieure.
+  pas d'une version ultérieure. Celui-ci est pourtant sorti en français
+  seul : depuis le 19 septembre 2026, la feuille de route place la
+  traduction anglaise de l'interface au bloc E
+  (`docs/feuille-de-route.md`).
 - **Le manifeste doit évoluer.** Le champ `actions` ne porte aujourd'hui
   qu'un `label` dans une seule langue. Il lui faut des libellés traduits,
   la ligne d'explication, et de quoi savoir à quel contexte une action
@@ -147,6 +150,9 @@ l'utilisateur regarde déjà.
   jalon 0.3, une source d'octets qui lit le fichier par blocs à la demande,
   et un budget mémoire global de l'hôte qui libère les caches (object
   streams décodés, pages rendues) des documents qui ne sont pas à l'écran.
+  Le jalon 0.3, l'application, est passé sans l'un ni l'autre, et depuis le
+  19 septembre 2026 la feuille de route ne leur donne pas de jalon
+  (`docs/feuille-de-route.md` ; `docs/backlog-technique.md`).
 - **Les opérations reçoivent des documents, pas des chemins.** C'est déjà
   la forme du noyau (`ops::merge` prend des `Document` ouverts) et ce doit
   être celle du contrat des modules : l'hôte transmet au module les
