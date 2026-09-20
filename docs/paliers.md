@@ -46,8 +46,10 @@ propriétés de l'exécutable. Tant que la version du workspace reste sous le
 patch du tag, une Release v0.3.4 attache donc `4YouPDF_0.3.3_x64-setup.exe`.
 Faire avancer `[workspace.package] version` au patch du palier lève l'écart
 et passe la même vérification, le patch du tag valant alors celui du
-workspace. Décision à prendre avant la première release publique
-(`backlog-technique.md`).
+workspace. Décision prise au palier v0.4.1, le 20 septembre 2026 : la
+version du workspace avance au patch du palier, comme elle avance avec une
+rampe. La Release v0.3.4 reste le seul cas où les fichiers ne portent pas le
+numéro de leur release.
 
 ## Règle de périmètre
 

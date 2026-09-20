@@ -6,7 +6,60 @@ précédent. Les versions antérieures, jusqu'à v0.3.4, n'ont que les notes de
 leur Release GitHub, que `release.yml` produit par git-cliff (`cliff.toml`)
 à partir des sujets des commits ; les groupes ci-dessous sont les siens.
 
-## [0.4.0] — en préparation
+## [0.4.1] — 20 septembre 2026
+
+Un palier : rien de nouveau pour l'utilisateur, la dette soldée
+(`docs/paliers.md`).
+
+### Corrections
+
+- **app :** la Content-Security-Policy de la fenêtre part de
+  `default-src 'none'`, chaque directive ne nommant que ce dont l'interface
+  se sert ; `base-uri` et `form-action`, qui ne retombent pas sur
+  `default-src`, valent `'none'`, et `freezePrototype` est activé.
+  L'ancienne politique admettait `'unsafe-inline'` pour les styles sans en
+  avoir besoin et n'avait pas de `connect-src` : l'IPC de Tauri était refusé
+  à chaque lancement et retombait silencieusement sur `postMessage`.
+- **app :** la fenêtre ne reçoit que les commandes et les événements que
+  l'interface appelle, chacun avec sa raison dans
+  `app/permissions/commands.toml`. `core:default` et `dialog:default`
+  accordaient des ensembles entiers de permissions dont elle ne se sert pas.
+- **app :** en release, le port de débogage que
+  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` ouvrait est fermé, et le menu
+  contextuel natif de WebView2 — qui proposait « Actualiser », lequel
+  perdait le travail non enregistré, et « Imprimer », qui imprimait
+  l'interface — est bloqué par un script d'initialisation. Un build de
+  développement garde les deux, pour inspecter et pour piloter les essais.
+
+### Documentation
+
+- `docs/feuille-de-route.md` : la route jusqu'à la 1.0 en petits jalons,
+  les critères de sortie, les dettes connues et les décisions ouvertes.
+  `docs/architecture.md` et `CLAUDE.md` y renvoient désormais.
+- ADR 0007 : le durcissement de la fenêtre WebView, ses décisions, les
+  solutions écartées et les limites connues.
+- L'état du projet est vrai partout : la version courante, les releases qui
+  attachent des fichiers depuis v0.3.4, et les instructions de build — la
+  CLI de Tauri n'est requise que pour empaqueter, `python tools/build_ui.py`
+  puis `cargo run -p fyp-app` suffisent.
+- Les numéros de jalons cités par les ADR 0004 et 0006 sont datés et
+  renvoient aux blocs de la feuille de route.
+
+### Tests
+
+- Une fixture de douze pages, `tests/fixtures/mixed12.pdf`, et son
+  générateur : A4 portrait et paysage, `/Rotate 90`, Letter et une page de
+  300 × 800 points, de quoi voir si les vignettes restent alignées quelle
+  que soit la forme de la page. Un test du noyau tient son nombre de pages,
+  ses dimensions et ses rotations.
+
+### Build
+
+- `.gitattributes` garde tout fichier de texte en LF, dans le dépôt comme
+  dans la copie de travail : Git n'avertit plus « LF will be replaced by
+  CRLF » sur les fichiers de `app/`.
+
+## [0.4.0] — 18 septembre 2026
 
 ### Ajouts
 
