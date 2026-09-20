@@ -34,11 +34,16 @@ un dépôt fraîchement cloné, pourvu que les prérequis système ci-dessous
 soient installés. Sans PDFium, l'application fonctionne avec des vignettes
 vides et dit pourquoi dans sa barre d'état.
 
-Un build de développement (`cargo run`, `cargo tauri dev`) porte « — DEV »
-à la fin du titre de sa fenêtre, « 4YouPDF — DEV » ; un build empaqueté
-s'appelle « 4YouPDF ». Le suffixe est posé côté Rust à l'ouverture de la
-fenêtre (`window_title`, `src/main.rs`), sur `debug_assertions` : il évite
-d'essayer un correctif dans le mauvais exécutable sans s'en apercevoir.
+La CLI de Tauri n'est requise que pour empaqueter (voir plus bas) :
+`cargo run -p fyp-app` suffit à lancer l'application, et
+`cargo build --release -p fyp-app` à la compiler en release.
+
+Un build de développement (`cargo run`, ou `cargo tauri dev` si la CLI de
+Tauri est installée) porte « — DEV » à la fin du titre de sa fenêtre,
+« 4YouPDF — DEV » ; un build empaqueté s'appelle « 4YouPDF ». Le suffixe
+est posé côté Rust à l'ouverture de la fenêtre (`window_title`,
+`src/main.rs`), sur `debug_assertions` : il évite d'essayer un correctif
+dans le mauvais exécutable sans s'en apercevoir.
 Deux choses visibles distinguent les deux builds : ce titre, et le menu
 contextuel natif de WebView2, gardé dans un build de développement, où
 « Inspecter » ouvre les outils de développement, et fermé en release. Hors
@@ -80,8 +85,8 @@ l'empreinte SHA-256 de chaque fichier :
 
 | Fichier | Contenu |
 |---|---|
-| `nsis/4YouPDF_<version>_x64-setup.exe` | l'installeur NSIS (6,5 Mio en 0.3.3) |
-| `portable/4YouPDF_<version>_x64_portable.zip` | l'archive portable (6,5 Mio) : un dossier `4YouPDF/` |
+| `nsis/4YouPDF_<version>_x64-setup.exe` | l'installeur NSIS (6,6 Mio en 0.4.0) |
+| `portable/4YouPDF_<version>_x64_portable.zip` | l'archive portable (6,6 Mio) : un dossier `4YouPDF/` |
 
 Les deux livrent le même exécutable, `4YouPDF.exe`, et les mêmes fichiers à
 côté de lui : `pdfium.dll`, `LICENSE.txt` (AGPL-3.0) et `third-party/pdfium/`,
@@ -101,16 +106,20 @@ jamais un installeur privé de PDFium.
 de release du workspace (`docs/paliers.md`, « Nommage » : une rampe nomme sa
 version exactement, un palier ne partage que sa majeure et sa mineure) ;
 `--out dossier` y copie les deux fichiers. Tous deux portent la version du
-workspace, la seule inscrite dans le build, et non celle du tag : sous un tag
-de palier resté au-dessus d'elle, leurs noms ne donnent pas le numéro de la
-release (`docs/backlog-technique.md`). C'est ainsi que le workflow de
-release (`.github/workflows/release.yml`) est écrit pour
-les construire sur un tag `v*`, puis les attacher à la Release GitHub avec
-les notes produites par git-cliff, leurs empreintes (`SHA256SUMS.txt`) et une
-attestation de provenance de GitHub. Sous cette forme, il n'a encore attaché
-aucun fichier : poussé sur v0.3.4 le 17 septembre 2026, il s'est arrêté à
-`version-check`, qui refusait alors tout tag de palier, et les trois jobs
-suivants ont été sautés ; les releases publiées jusqu'à v0.3.3 n'ont aucun
+workspace, la seule inscrite dans le build, et non celle du tag : sous un
+tag de palier resté au-dessus d'elle, leurs noms ne donnent pas le numéro de
+la release, ce qui est arrivé à v0.3.4.
+
+C'est ainsi que le workflow de release (`.github/workflows/release.yml`) est
+écrit pour les construire sur un tag `v*`, puis les attacher à la Release
+GitHub avec les notes produites par git-cliff, leurs empreintes
+(`SHA256SUMS.txt`) et une attestation de provenance de GitHub. Il le fait
+depuis v0.3.4 : poussé une première fois sur ce tag le 17 septembre 2026, il
+s'était arrêté à `version-check`, qui refusait alors tout tag de palier ;
+relancé le même jour sur le tag re-poussé, il a attaché les deux fichiers et
+`SHA256SUMS.txt`, nommés `4YouPDF_0.3.3_*`. Ceux de v0.4.0, le 18 septembre
+2026, portent le numéro de leur release, la version du workspace ayant
+avancé avec la rampe. Les releases publiées jusqu'à v0.3.3 n'ont aucun
 fichier. Les paquets pour macOS et Linux viendront ensuite.
 
 ### Installeur et archive portable

@@ -396,7 +396,7 @@ et testée par trois binaires autonomes (esbuild, tsgo, QuickJS-ng)
 récupérés par `tools/fetch_ui_tools.py` : aucun Node.js requis. Voir
 `app/README.md` pour construire et lancer.
 
-État à la version 0.3.3 : une fenêtre qui ouvre un PDF, montre ses pages en
+État à la version 0.4.1 : une fenêtre qui ouvre un PDF, montre ses pages en
 vignettes ou une par une en grand, permet de les réordonner, de les faire
 pivoter, de les supprimer et d'y ajouter à la suite les pages d'autres
 fichiers, avec annuler et refaire, et enregistre le résultat ; pour Windows,
@@ -503,10 +503,10 @@ un installeur et une archive portable. Répartition :
 - **Distribution (Windows)** : un installeur NSIS, pour l'utilisateur
   courant et sans droits d'administrateur, et une archive portable, tous
   deux avec PDFium et les licences, non signés, construits par
-  `tools/package_app.py`. Le workflow de release est écrit pour les
-  construire sur un tag `v*` et les attacher à la Release GitHub, ce qu'il
-  n'a encore fait pour aucune ; les essais sur une machine sont à refaire
-  depuis le changement d'identifiant. Voir `app/README.md`, « Empaqueter
+  `tools/package_app.py`. Le workflow de release les construit sur un tag
+  `v*` et les attache à la Release GitHub, ce qu'il fait depuis v0.3.4, le
+  17 septembre 2026 ; les essais sur une machine sont à refaire depuis le
+  changement d'identifiant. Voir `app/README.md`, « Empaqueter
   pour Windows ».
 
 Ce qui manque encore : la palette de commandes, le panneau de conformité,
@@ -610,59 +610,15 @@ d'abord les modules.
 
 ## Feuille de route
 
-Les versions suivent `paliers.md` : une rampe ajoute des fonctionnalités
-(`v0.X.0`), le palier qui la suit n'ajoute rien et solde la dette (patch
-suivant). Les versions jusqu'à v0.3.3 ont précédé cette méthode.
-
-Fait :
-
-- **v0.0.1 à v0.0.10** — noyau : lexer et objets, xref (table, flux, chaîne
-  `/Prev`), filtres et object streams, reconstruction par scan, writer,
-  déchiffrement, tolérances issues du corpus ; `fyp info`, `fyp rewrite`.
-- **v0.1.0** — opérations de pages (`ops`) ; `fyp merge`, `fyp pages`,
-  `fyp split`.
-- **v0.2.0** — première fenêtre Tauri : ouvrir, vignettes, réordonner,
-  supprimer, enregistrer.
-- **v0.3.0** — modules WebAssembly exécutés en sandbox, permissions
-  `read_document` et `write_document`, module de fusion, `fyp run`.
-- **v0.3.1** — audit du chargeur de modules : budget mémoire partagé, texte
-  hostile neutralisé, dette consignée (ADR 0003, « Limites connues »).
-- **v0.3.2** — vue d'une page en grand.
-- **v0.3.3** — rotation depuis l'interface, annuler et refaire.
-- **Après v0.3.3, pour le prochain tag** — ADR 0006 (fonctionnement local) ;
-  empaquetage Windows (installeur NSIS, archive portable) ; versions et
-  identité re-basées (workspace 0.3.3, `org.fouryoupdf.desktop`, Rust 1.95 au
-  minimum, `tools/check_version.py`) ; banc de fidélité du rendu
-  (`tools/render_bench`, `docs/banc-rendu.md`) ; dans l'application, panneau
-  de vignettes à côté de la vue d'une page et accès à une page par son
-  numéro, raccourcis du navigateur neutralisés, vue d'une page qui ne se
-  ferme plus sur un clic à côté de la page, zoom dans la vue d'une page.
-
-Ensuite :
-
-- **v0.3.4, palier : première release publique.** Durcissement de la
-  fenêtre WebView, workflow de release terminé avec les notices de
-  licences, fuzzing étendu en CI et dette WebAssembly datée ; le détail est
-  dans `backlog-technique.md`, `backlog-ui.md` et l'ADR 0003, « Limites
-  connues ».
-- **v0.4.0, rampe** — moteur de rendu : voir l'ADR qui remplacera
-  l'ADR 0005.
-
-Ordre de travail retenu le 14 septembre 2026 : l'interface, puis
-l'isolation du rendu dans un processus séparé (`backlog-technique.md`), puis
-la convergence vers un moteur de rendu en Rust, mesurée par le banc de
-fidélité (`banc-rendu.md`, `mesure-hayro.md`), et non un moteur écrit de
-zéro.
-
-Plus tard, sans version attribuée : permissions de dossier, de réseau et de
-sous-processus ; chiffrement à l'écriture (révision 6), PDF 2.0 en écriture,
-PDF/X ; dans l'application, pipeline, palette de commandes, panneau de
-conformité PDF/A (validation veraPDF externe puis moteur interne) et
-modules ; OCR (module natif Tesseract), PAdES ; pour la 1.0, API des modules
-gelée, catalogue signé, PDF/E, PDF/UA.
+`docs/feuille-de-route.md` : l'état du projet, ce que promet la 1.0 et ses
+critères de sortie, les jalons proches et les blocs qui suivent, les dettes
+connues et les décisions ouvertes. C'est le document à lire en premier ; les
+versions y suivent `paliers.md`.
 
 Les ADR et quelques documents parlent des « jalons » de la première feuille
 de route, antérieure à ces numéros de version : jalon 0.1, le noyau (v0.0.1
 à v0.0.10) ; jalon 0.2, les opérations de pages et les modules (v0.1.0,
 v0.3.0, v0.3.1) ; jalon 0.3, l'application (v0.2.0, v0.3.2, v0.3.3). Les
-jalons 0.4, 0.5 et 1.0 sont repris ci-dessus.
+jalons 0.4, 0.5 et 1.0 n'ont plus d'équivalent : la feuille de route les
+remplace par des blocs, et chaque phrase d'ADR qui en cite un est datée et
+renvoie au bloc voulu.

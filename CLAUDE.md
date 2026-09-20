@@ -1,7 +1,8 @@
 # 4YouPDF — consignes pour Claude Code
 
-Lis d'abord : `README.md`, `docs/architecture.md`, `docs/diagrams.md`,
-`docs/adr/*.md`, `docs/paliers.md`.
+Lis d'abord : `docs/feuille-de-route.md`, `README.md`,
+`docs/architecture.md`, `docs/diagrams.md`, `docs/adr/*.md`,
+`docs/paliers.md`.
 
 ## Invariants à ne jamais casser
 - `unsafe` interdit partout (`[workspace.lints.rust] unsafe_code = "forbid"`).
@@ -55,11 +56,13 @@ cargo deny check
 - Références à la norme sous la forme `ISO 32000-2, 7.3.8` dans les commentaires.
 
 ## État et prochaine étape
-Version 0.3.3 : noyau (lecture, réparation, déchiffrement, écriture),
+Version 0.4.1 : noyau (lecture, réparation, déchiffrement, écriture),
 opérations de pages, modules WebAssembly exécutés par `fyp run`, application
-Tauri et empaquetage Windows ; aucune release n'a encore de fichier à
-télécharger. Prochaine version : le palier v0.3.4, première release publique.
-Feuille de route : `docs/architecture.md`, « Feuille de route ».
+Tauri (ouvrir, vignettes, réordonner, tourner, supprimer, fusionner,
+enregistrer) et empaquetage Windows ; depuis v0.3.4, chaque release attache
+l'installeur, l'archive portable et `SHA256SUMS.txt`. Prochaine version : la
+rampe v0.5.0, les outils de pages complets. Feuille de route :
+`docs/feuille-de-route.md`, à lire en premier.
 
 Chaque session suit `docs/paliers.md` : un objectif écrit, et toute
 trouvaille qui n'empêche pas de l'atteindre va au backlog

@@ -102,9 +102,11 @@ la liste une fois fait.
   entre sortir du plein écran et quitter la vue.
 - [ ] **OCR : reconnaissance du texte des pages scannées.** Priorité
   confirmée par plusieurs comparatifs d'éditeurs PDF ; la feuille de route
-  le prévoit, sans version attribuée, comme module natif Tesseract côté hôte
-  (`docs/architecture.md`), et non dans `fyp-core`, qui n'embarque ni code
-  natif ni `unsafe` et compile pour wasm32-wasip1 ; rien n'est commencé, ni
+  le repousse en 1.x (`docs/feuille-de-route.md`, § 4 et § 7), comme module
+  natif côté hôte (Tesseract ; ADR 0003, « Conséquences », qui réserve les
+  traitements lourds à des modules officiels natifs), et non dans
+  `fyp-core`, qui n'embarque ni code natif ni `unsafe` et compile pour
+  wasm32-wasip1 ; rien n'est commencé, ni
   le chargement des modules natifs, ni l'écriture par le noyau de la couche
   de texte invisible (ISO 32000-2, 9.3.6).
 - [ ] **Rédaction : masquage irréversible de zones sensibles** (texte ou

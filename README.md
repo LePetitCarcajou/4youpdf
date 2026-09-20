@@ -25,10 +25,9 @@ any for-profit organisation.
 
 ## Install
 
-No published release has a file to download yet: those from v0.0.4 to v0.3.3
-have none. The release workflow will attach to the following ones, on the
-[Releases](https://github.com/LePetitCarcajou/4youpdf/releases) page, two
-files per version for Windows 10 and 11 (x64), whichever you prefer:
+Since v0.3.4, every release attaches to the
+[Releases](https://github.com/LePetitCarcajou/4youpdf/releases) page two
+files for Windows 10 and 11 (x64), whichever you prefer:
 
 - **`4YouPDF_<version>_x64-setup.exe`**, the installer. It installs 4YouPDF
   for your account only, without administrator rights, in
@@ -44,8 +43,11 @@ files per version for Windows 10 and 11 (x64), whichever you prefer:
   `4YouPDF\data`, and deleting the folder deletes everything. WebView2 must
   already be present.
 
-`SHA256SUMS.txt`, on the same page, will give the hash of each file. macOS
-and Linux have no package yet: see `app/README.md` (in French) to build the
+`SHA256SUMS.txt`, on the same page, gives the hash of each file. The
+releases up to v0.3.3 have no file; the two files of v0.3.4 are named 0.3.3,
+the version of the workspace not having been raised before its tag, and
+those of the following releases carry the number of their release. macOS and
+Linux have no package yet: see `app/README.md` (in French) to build the
 application.
 
 ### "Windows protected your PC"
@@ -59,7 +61,7 @@ does not have; without a signature and without an established reputation with
 Microsoft, SmartScreen warns on principle, having detected nothing. To carry
 on: "More info", then "Run anyway".
 
-This is not blind trust: the code is public, and these files will be built
+This is not blind trust: the code is public, and these files are built
 publicly by the repository's CI, from the version tag and without manual
 intervention (`.github/workflows/release.yml`; each run and its log are
 visible in the Actions tab). To check that the downloaded file is indeed that
@@ -73,7 +75,7 @@ signed.
 
 ## State
 
-Version 0.3.3. No release has a file to download yet. What exists:
+Version 0.4.1. What exists:
 
 - **Core** (`fyp-core`, `fyp-crypto`): reading of cross-reference tables
   (classic, in streams, hybrid, `/Prev` chain), of object streams and of the
@@ -101,7 +103,7 @@ Version 0.3.3. No release has a file to download yet. What exists:
 Not yet: encryption on writing, PDF 2.0 writing, conformance
 (`fyp-conformance` only defines types), modules in the application, command
 palette, packages for macOS and Linux. What comes next:
-`docs/architecture.md` (in French), "Feuille de route".
+`docs/feuille-de-route.md` (in French).
 
 ## Build
 
