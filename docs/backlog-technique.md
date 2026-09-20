@@ -65,25 +65,6 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
   ses empreintes et son attestation, ou retirer le job, que le job `test` de
   `ci.yml` double déjà comme compilation de `fyp-cli` sur les trois
   systèmes.
-- [ ] **Décider si la version du workspace suit le tag d'un palier**
-  (consigné le 17 septembre 2026, en ouvrant `version-check` aux tags de
-  palier). Depuis ce jour, `tools/check_version.py` accepte `v0.3.4` sur un
-  workspace resté à 0.3.3 (`docs/paliers.md`, « Nommage »). Tant que
-  `[workspace.package] version` reste sous le patch du tag, la release porte
-  un numéro que ses fichiers n'ont pas : `tools/package_app.py` les nomme
-  avec la version du workspace, la seule que porte le build, et une Release
-  v0.3.4 attacherait `4YouPDF_0.3.3_x64-setup.exe` et
-  `4YouPDF_0.3.3_x64_portable.zip`, dont les propriétés de fichier et
-  l'entrée des « Applications installées » diraient 0.3.3 (`app/README.md`,
-  « Version, signature, icônes » ; c'est `build.rs` qui transmet
-  `CARGO_PKG_VERSION` à tauri-build). Deux issues : faire avancer la version
-  du workspace au patch du palier, que la même vérification accepte, le
-  patch du tag valant alors celui du workspace ; ou assumer l'écart et le
-  dire dans le `README.md`, dont « Installer » annonce
-  `4YouPDF_<version>_x64-setup.exe` sur la page des Releases. La grille de
-  sortie de palier (`docs/paliers.md`) demande des versions cohérentes entre
-  tag, workspace et exécutable : en l'état, sa case ne se coche pas. À
-  trancher avant la première release publique.
 - [ ] **Aucun test automatique ne couvre `tools/check_version.py`** (consigné
   le 17 septembre 2026, en ouvrant `version-check` aux tags de palier). La
   règle des rampes et des paliers, les deux lignées de versions et celle des
@@ -264,13 +245,6 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
 - [ ] **Décider si `tauri` garde sa fonctionnalité Cargo par défaut
   `dynamic-acl`** (consigné le 19 septembre 2026, en durcissant la WebView).
   Elle permet d'ajouter des capabilities à l'exécution, sans usage ici.
-- [ ] **Imposer `eol=lf` aux fichiers de l'interface dans `.gitattributes`**
-  (consigné le 14 septembre 2026, en neutralisant les raccourcis du
-  navigateur). `.gitattributes` fixe les fins de ligne des `*.rs`, `*.toml`
-  et `*.md`, pas celles des `*.ts`, `*.html` et `*.css` de `app/ui/`. Avec
-  `core.autocrlf=true`, Git avertit à chaque modification de ces fichiers, en
-  LF dans l'index comme dans la copie de travail (`git ls-files --eol`),
-  que « LF will be replaced by CRLF the next time Git touches it ».
 - [ ] **Faire tenir la règle des couleurs par l'outillage** (consigné le
   15 septembre 2026, en posant la palette ambre). `docs/couleurs.md`
   n'admet de valeur de couleur que dans le premier bloc `:root` de
@@ -289,19 +263,29 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
   l'une des deux dates est fausse, et rien ne les tient ensemble. À trancher
   en relançant le parcours du corpus, qui redonnera la date et vérifiera du
   même coup que les chiffres tiennent toujours.
-- [ ] **Les documents disent encore qu'aucune release n'a de fichier, et
-  nomment 0.3.3 comme version courante** (consigné le 17 septembre 2026, en
-  préparant v0.4.0). La Release GitHub v0.3.4, publiée le 17 septembre 2026
-  à 03:41 UTC depuis `ecbee36`, attache `4YouPDF_0.3.3_x64-setup.exe`,
-  `4YouPDF_0.3.3_x64_portable.zip` et `SHA256SUMS.txt` (lu dans l'API des
-  releases), et ses notes git-cliff listent le panneau de vignettes, les
-  raccourcis neutralisés, la palette, la question avant de perdre des
-  modifications, l'icône et le zoom. Or `README.md` (« No release has a
-  file to download yet », « Version 0.3.3 »), `app/README.md` (« il n'a
-  encore attaché aucun fichier : poussé sur v0.3.4 le 17 septembre 2026, il
-  s'est arrêté à `version-check` »), `CLAUDE.md` (« aucune release n'a
-  encore de fichier à télécharger. Prochaine version : le palier v0.3.4 »)
-  et `docs/architecture.md` (« État à la version 0.3.3 », et v0.3.4 encore
-  sous « Ensuite ») disent le contraire ; le passage du workspace à 0.4.0
-  périme de plus chaque « 0.3.3 » donné comme version courante. À reprendre
-  ensemble, avec la feuille de route.
+- [ ] **Les commentaires du code nomment encore les « jalons » de la
+  première feuille de route** (consigné le 20 septembre 2026, en rendant la
+  documentation vraie). `crates/fyp-core/src/ops.rs` (« Page operations
+  (milestone 0.2) ») et `app/src/main.rs` (« desktop application
+  (milestone 0.3, first step) ») portent des numéros que
+  `docs/feuille-de-route.md` ne connaît pas ; `parser.rs` et `writer.rs`
+  parlent d'un « next milestone » et d'un « a later milestone » sans numéro.
+  La session de documentation ne touchait pas au code de production.
+  `docs/architecture.md`, « Feuille de route », garde la clé de lecture de
+  ces numéros : à reprendre quand l'un de ces fichiers sera modifié pour
+  autre chose.
+- [ ] **La lecture par blocs et le budget mémoire de l'ADR 0004 n'ont ni
+  jalon ni bloc** (consigné le 20 septembre 2026, en datant les numéros de
+  jalons des ADR). L'ADR 0004 les voulait avant le jalon 0.3 ; l'application
+  est sortie sans, chaque document ouvert gardant son fichier entier en
+  mémoire, deux fois avec PDFium (`docs/architecture.md`, « Application
+  desktop »). `docs/feuille-de-route.md` ne les place nulle part, et l'ADR
+  0005 y adosse la reprise du rendu. À cadrer avec l'isolation du rendu
+  (palier v0.5.1), qui déplace l'une des deux copies.
+- [ ] **Deux commits de la rampe v0.4.0 ont un sujet en français**
+  (consigné le 20 septembre 2026, en rendant la documentation vraie).
+  `acaca26` (« feat(app): suffixer le titre de la fenêtre… ») et `ec7a290`
+  (« fix(ui): aligner le numéro des vignettes… »), alors que `CLAUDE.md` et
+  `CONTRIBUTING.md` demandent l'anglais pour le code et les commits ;
+  git-cliff les reprend tels quels dans les notes de la Release v0.4.0, où
+  ils voisinent avec des sujets anglais. Rien ne le vérifie dans la CI.

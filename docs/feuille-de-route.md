@@ -4,7 +4,7 @@
 > session Claude Code. Ce document dit où en est le projet, ce qu'on vise, et
 > quel est le prochain petit pas. Il est mis à jour à la fin de chaque jalon.
 >
-> Dernière mise à jour : 17 septembre 2026, à la clôture de la rampe v0.4.0.
+> Dernière mise à jour : 20 septembre 2026, à la clôture du palier v0.4.1.
 
 ---
 
@@ -66,26 +66,26 @@ le pourquoi. Code en anglais ; documentation et interface en français
 | v0.2.0 | rampe | Opérations de pages dans le noyau et la CLI (fusion, extraction, découpage, rotation, suppression) |
 | v0.3.0 – v0.3.3 | rampe | Chargeur de modules WASM audité, première fenêtre Tauri : vignettes PDFium, réordonner, supprimer, vue d'une page, rotation avec annuler/refaire |
 | v0.3.4 | palier | Release publiant de vrais binaires, CI épinglée, actionlint, fuzz étendu (0 crash / ~1,3 M exécutions), signalement privé de vulnérabilités — plus palette ambre, icône du carcajou, panneau F4, zoom, raccourcis navigateur neutralisés, avertissement avant perte |
-| **v0.4.0** | rampe | Fusion multi-documents depuis l'interface, vignettes alignées quelle que soit l'orientation, marqueur « — DEV » dans le titre, README/CONTRIBUTING en anglais — **commits faits, tag à poser** |
+| v0.4.0 | rampe | Fusion multi-documents depuis l'interface, vignettes alignées quelle que soit l'orientation, marqueur « — DEV » dans le titre, README/CONTRIBUTING en anglais |
+| **v0.4.1** | palier | WebView durcie (CSP stricte, capabilities réduites, port de débogage et menu contextuel natif fermés en release, ADR 0007) ; documentation rendue vraie ; fixture `mixed12.pdf` et son générateur ; fins de ligne du dépôt |
 
 Note : les binaires de la Release v0.3.4 portent le nom 0.3.3 (version du
-workspace non montée avant le tag). `release.yml` appelle désormais
-`tools/check_version.py --tag`, ce qui empêche la récidive.
+workspace non montée avant le tag) ; ceux de v0.4.0, publiée le
+18 septembre 2026, portent le numéro de leur release. `release.yml` appelle
+désormais `tools/check_version.py --tag`, et depuis v0.4.1 la version du
+workspace avance au patch du palier (`docs/paliers.md`, « Nommage ») : la
+récidive est empêchée des deux côtés.
 
 ### Dettes connues, par ordre de gravité
 
-1. **WebView non durcie** : pas de CSP, capabilities Tauri larges, DevTools
-   accessibles en release, menu contextuel natif. → palier v0.4.1.
-2. **PDFium dans le processus principal** : du C++ qui lit des fichiers
+1. **PDFium dans le processus principal** : du C++ qui lit des fichiers
    hostiles ; un crash tue l'application. → palier v0.5.1.
-3. **Documentation fausse** : des fichiers nomment encore 0.3.3, disent
-   qu'aucune release n'a de fichier, documentent `cargo tauri dev` (CLI
-   Tauri non requis) ; `README.md` et `CLAUDE.md` peuvent encore parler du
-   jalon 0.1 ; les numéros de jalons cités dans les ADR (PAdES « jalon 0.5 »)
-   ne correspondent plus à ce document. → palier v0.4.1.
-4. **Dette WASM** : compilation de module non bornée, modules non signés.
+2. **Dette WASM** : compilation de module non bornée, modules non signés.
    Acceptable tant qu'aucun module tiers n'est installable depuis un
    fichier. → palier obligatoire avant le bloc C.
+
+Soldées au palier v0.4.1 : la WebView non durcie, qui avait une CSP mais
+trop permissive (ADR 0007), et la documentation fausse.
 
 ## 4. Ce que promet la 1.0 (critères de sortie)
 
@@ -107,7 +107,8 @@ La 1.0 est une promesse de stabilité. Chaque critère doit être vérifiable.
 - [ ] Un enregistrement ne peut jamais laisser un fichier à moitié écrit.
 
 **Sécurité — aucune dette connue à la sortie**
-- [ ] WebView durcie (CSP, capabilities minimales, DevTools absents en release).
+- [x] WebView durcie (CSP, capabilities minimales, DevTools absents en
+      release) : fait au palier v0.4.1, ADR 0007.
 - [ ] Rendu isolé dans un processus séparé.
 - [ ] Compilation des modules bornée, modules signés et vérifiés hors ligne.
 - [ ] Fuzzing continu en CI ; politique de sécurité publiée (versions suivies).
@@ -145,31 +146,26 @@ décision contraire, voir § 7), bascule éventuelle vers hayro.
 Seuls les jalons proches sont numérotés et détaillés. Les autres (§ 6) sont
 dans un ordre indicatif, revu à chaque palier.
 
-### v0.4.0 — Rampe « fusion » : clôture ⏳
-- Reste : poser le tag, vérifier la Release, installer l'installeur publié
-  (titre « 4YouPDF », version 0.4.0), annoter la Release v0.3.4 (« les
-  fichiers portent 0.3.3 par erreur »).
+### v0.4.1 — Palier « WebView et documentation vraie » : fait
+**Session A — durcissement de la WebView** (19 septembre 2026). CSP stricte,
+écrite comme une table de directives à partir de `default-src 'none'` : il y
+en avait une, `default-src 'self'`, trop permissive. Capabilities réduites à
+`core:event:allow-listen` et une permission par commande, chacune avec sa
+raison. En release seulement : port de débogage de WebView2 fermé, menu
+contextuel natif fermé aussi, gardé en développement pour son
+« Inspecter ». ADR 0007, tests dans `app/src/main.rs`.
 
-### v0.4.1 — Palier « WebView et documentation vraie » (2 sessions)
-**Session A — durcissement de la WebView**
-- CSP stricte dans la configuration Tauri ; capabilities Tauri 2 réduites
-  aux seules commandes utilisées ; DevTools et port de débogage absents en
-  release ; menu contextuel natif neutralisé en release.
-- Fin : tests verts ; checklist manuelle sur le build **release** : F12,
-  Ctrl+Maj+I, clic droit n'ouvrent rien ; toutes les fonctions de l'interface
-  marchent encore (ouvrir, fusionner, tourner, zoomer, enregistrer).
+**Session B — documentation vraie** (20 septembre 2026). Versions, état des
+releases et instructions de build corrigés partout (la CLI de Tauri n'est
+requise que pour empaqueter) ; la section « Feuille de route » de
+`docs/architecture.md` et `CLAUDE.md` renvoient ici ; les numéros de jalons
+cités dans les ADR sont datés et renvoient aux blocs du § 6 ; fixture
+`mixed12.pdf`, son générateur et son test ; `.gitattributes` complété ;
+version du workspace montée à 0.4.1.
 
-**Session B — documentation vraie**
-- Corriger les documents qui nomment 0.3.3, disent qu'aucune release n'a de
-  fichier, documentent `cargo tauri dev`, ou annoncent le jalon 0.1.
-- Faire pointer la section « Feuille de route » de `docs/architecture.md`
-  et `CLAUDE.md` vers ce document ; aligner les numéros de jalons cités dans
-  les ADR (ou les remplacer par des noms de blocs).
-- Intégrer `mixed12.pdf` (et son script générateur, sauvegardés dans
-  `E:\CODE\4YouPDF-fixtures`) aux fixtures ou au corpus, avec un test.
-- Combler la lacune `.gitattributes` pour `app/ui` (avertissements CRLF).
-- Fin : une recherche de « 0.3.3 » ne trouve plus rien hors du CHANGELOG et
-  de l'historique ; CI verte.
+Reste à faire à la main, hors du dépôt : installer l'installeur publié de
+v0.4.0 et vérifier son titre et sa version, et annoter la Release v0.3.4
+(« les fichiers portent 0.3.3 par erreur »).
 
 ### v0.5.0 — Rampe « outils de pages complets » (2 sessions)
 - Session A (noyau) : `ops::merge` accepte une plage de pages par fichier ;
@@ -259,7 +255,9 @@ PDF/UA et, plus tard, OCR et rédaction en dépendent)*
 | OCR en 1.0 ou 1.x ? | Proposé : 1.x (dépend du bloc A et des modules natifs) | Après le bloc A |
 | PAdES : signer en 1.0 ? | Proposé : valider seulement en 1.0, signer en 1.x | Avant le bloc D |
 | Impression | Rendu PDFium vers l'impression du système, ou autre | ADR au début du bloc B |
-| Numérotation des jalons dans les ADR | Aligner sur ce document, ou citer des noms de blocs | Palier v0.4.1 |
+
+Tranché au palier v0.4.1 : un ADR garde le numéro de jalon qu'il citait,
+daté et suivi du bloc de ce document qui le remplace.
 
 ## 8. Reprendre dans une nouvelle discussion
 
