@@ -464,3 +464,105 @@ fn generate_root_direct() {
     b.out.extend_from_slice(text.as_bytes());
     b.finish(table, "root-direct.pdf");
 }
+
+// ---------------------------------------------------------------------------
+// Pages of mixed orientations
+// ---------------------------------------------------------------------------
+
+/// The twelve pages of `mixed12.pdf`: width, height, and `/Rotate` (0 for a
+/// page that carries none). A4 portrait and landscape, one A4 of each
+/// rotated by 90, Letter, and a 300 × 800 page taller than A4 for its width.
+const MIXED12: [(u32, u32, u32); 12] = [
+    (595, 842, 0),
+    (842, 595, 0),
+    (595, 842, 90),
+    (612, 792, 0),
+    (842, 595, 0),
+    (595, 842, 0),
+    (595, 842, 0),
+    (842, 595, 90),
+    (300, 800, 0),
+    (595, 842, 0),
+    (842, 595, 0),
+    (595, 842, 0),
+];
+
+/// Content stream of a page of `mixed12.pdf`: a 40-point grid inset by 20
+/// points, then the page number in Helvetica, so that the shape of a page
+/// and its number are both readable on a thumbnail.
+fn mixed12_content(number: usize, width: u32, height: u32) -> Vec<u8> {
+    let mut lines = vec![String::from("0.6 w 0 0 0 RG")];
+    let mut x = 40;
+    while x < width {
+        lines.push(format!("{x} 20 m {x} {} l S", height - 20));
+        x += 40;
+    }
+    let mut y = 40;
+    while y < height {
+        lines.push(format!("20 {y} m {} {y} l S", width - 20));
+        y += 40;
+    }
+    lines.push(format!(
+        "BT /F1 28 Tf 40 {} Td (Page {number}) Tj ET",
+        height - 60
+    ));
+    lines.join("\n").into_bytes()
+}
+
+/// `mixed12.pdf`: twelve pages mixing orientations, so that a row of the
+/// thumbnail grid holds pages of different shapes (`tests/fixtures/README.md`).
+/// Objects: the catalog, the page tree, the font, then a page (4, 6, 8, ...)
+/// and its content stream (5, 7, 9, ...) per page.
+#[test]
+#[ignore = "rewrites tests/fixtures/mixed12.pdf"]
+fn generate_mixed12() {
+    let mut b = Builder::new("1.7");
+    b.object(1, CATALOG.as_bytes());
+    let kids: Vec<String> = (0..MIXED12.len())
+        .map(|i| format!("{} 0 R", 4 + 2 * i))
+        .collect();
+    b.object(
+        2,
+        format!(
+            "<< /Type /Pages /Kids [{}] /Count {} >>",
+            kids.join(" "),
+            MIXED12.len()
+        )
+        .as_bytes(),
+    );
+    b.object(3, b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+    for (i, &(width, height, rotate)) in MIXED12.iter().enumerate() {
+        let num = 4 + 2 * i as u32;
+        let turn = if rotate == 0 {
+            String::new()
+        } else {
+            format!(" /Rotate {rotate}")
+        };
+        b.object(
+            num,
+            format!(
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width} {height}]{turn} \
+                 /Resources << /Font << /F1 3 0 R >> >> /Contents {} 0 R >>",
+                num + 1
+            )
+            .as_bytes(),
+        );
+        let content = mixed12_content(i + 1, width, height);
+        let mut body = format!("<< /Length {} >>\nstream\n", content.len()).into_bytes();
+        body.extend_from_slice(&content);
+        body.extend_from_slice(b"\nendstream");
+        b.object(num + 1, &body);
+    }
+    let objects = 3 + 2 * MIXED12.len() as u32;
+    let table = b.out.len();
+    let mut text = format!("xref\n0 {}\n0000000000 65535 f \n", objects + 1);
+    for num in 1..=objects {
+        text.push_str(&format!("{:010} 00000 n \n", b.offset(num)));
+    }
+    text.push_str(&format!(
+        "trailer\n<< /Size {} /Root 1 0 R >>\n",
+        objects + 1
+    ));
+    b.out.extend_from_slice(text.as_bytes());
+    b.finish(table, "mixed12.pdf");
+}

@@ -467,6 +467,57 @@ fn inherited_attributes_are_resolved_into_each_page() {
     );
 }
 
+/// `mixed12.pdf`: the twelve pages the thumbnail alignment of the
+/// application is checked on (`tests/fixtures/README.md`). Every one of
+/// them comes out of `ops::pages` with the size and the rotation the
+/// interface draws it from.
+#[test]
+fn mixed12_pages_keep_their_sizes_and_rotations() {
+    let bytes = fixture("mixed12.pdf");
+    let doc = Document::open(&bytes).expect("open");
+    assert_eq!(doc.reconstructed(), None, "mixed12.pdf needed repair");
+    assert_eq!(doc.page_count(), Ok(12));
+    let pages = ops::pages(&doc).expect("pages");
+    // Width, height and `/Rotate` of every page in reading order: A4
+    // portrait and landscape, one of each turned by 90, Letter, and a
+    // 300 x 800 page taller than A4 for its width.
+    let expected = [
+        (595, 842, None),
+        (842, 595, None),
+        (595, 842, Some(90)),
+        (612, 792, None),
+        (842, 595, None),
+        (595, 842, None),
+        (595, 842, None),
+        (842, 595, Some(90)),
+        (300, 800, None),
+        (595, 842, None),
+        (842, 595, None),
+        (595, 842, None),
+    ];
+    assert_eq!(pages.len(), expected.len());
+    for (i, (page, &(width, height, rotate))) in pages.iter().zip(expected.iter()).enumerate() {
+        let media = Object::Array(vec![
+            Object::Integer(0),
+            Object::Integer(0),
+            Object::Integer(width),
+            Object::Integer(height),
+        ]);
+        assert_eq!(
+            page.dict.get(&Name::new("MediaBox")),
+            Some(&media),
+            "page {}: /MediaBox",
+            i + 1
+        );
+        assert_eq!(
+            page.dict.get(&Name::new("Rotate")),
+            rotate.map(Object::Integer).as_ref(),
+            "page {}: /Rotate",
+            i + 1
+        );
+    }
+}
+
 #[test]
 fn links_to_dropped_pages_are_cleaned() {
     // Two pages. Page 3 carries a link to page 4 and a text annotation;

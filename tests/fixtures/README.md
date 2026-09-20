@@ -82,11 +82,22 @@ dictionnaire `/Info` dont le `/Title` est une chaîne chiffrée :
   fichier du dépôt qui ne s'ouvre pas sans mot de passe, pour les cas où
   l'application en rencontre un sans pouvoir le demander (fusion).
 
+Fichier régulier, pour l'interface plutôt que pour un écart à la norme :
+
+- `mixed12.pdf` — douze pages qui mélangent les orientations : A4 portrait et
+  paysage, une de chaque tournée par `/Rotate 90`, Letter, et une page de
+  300 × 800 points, plus haute qu'une A4 pour sa largeur. Chacune est
+  quadrillée et porte son numéro : c'est de quoi voir d'un coup d'œil si les
+  vignettes de l'application restent alignées quelle que soit la forme de la
+  page. Produit par `fixtures_gen.rs`, vérifié par
+  `crates/fyp-core/tests/ops.rs`.
+
 `xrefstream.pdf`, `objstm.pdf`, `hybrid.pdf`, `inuse-offset-zero.pdf`,
 `object-zero.pdf`, `root-direct.pdf`, `encrypted-rc4.pdf`,
-`encrypted-aes256.pdf` et `encrypted-user-password.pdf` sont produits par les tests
-`#[ignore]` de `crates/fyp-core/tests/fixtures_gen.rs`, qui calculent les
-offsets et écrivent des fichiers identiques à chaque exécution :
+`encrypted-aes256.pdf`, `encrypted-user-password.pdf` et `mixed12.pdf` sont
+produits par les tests `#[ignore]` de
+`crates/fyp-core/tests/fixtures_gen.rs`, qui calculent les offsets et
+écrivent des fichiers identiques à chaque exécution :
 
 ```
 cargo test -p fyp-core --test fixtures_gen -- --ignored
