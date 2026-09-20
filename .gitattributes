@@ -1,5 +1,9 @@
+# Text files are LF, in the repository as in the working copy, on every
+# system. Without a rule, Git with core.autocrlf=true warns "LF will be
+# replaced by CRLF" at every `git add` of a file it does not cover.
+* text=auto eol=lf
+
+# Binary whatever their bytes look like; the corpus goes through git-lfs
+# (tests/corpus/README.md).
 *.pdf binary
 tests/corpus/**/*.pdf filter=lfs diff=lfs merge=lfs -text
-*.rs text eol=lf
-*.toml text eol=lf
-*.md text eol=lf
