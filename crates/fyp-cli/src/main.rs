@@ -57,6 +57,12 @@ enum Cmd {
         /// PDFs to concatenate, in order
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
+        /// Pages to take from one input, 1-based, e.g. `1,3,5-8`, `8-5`
+        /// for reverse order, a page twice to repeat it, or `all`. Give it
+        /// once per input, in the same order; without it every input gives
+        /// all its pages.
+        #[arg(long = "pages", value_name = "PAGES")]
+        pages: Vec<String>,
         /// File to write
         #[arg(short, long)]
         output: PathBuf,
@@ -259,6 +265,25 @@ fn parse_pages(spec: &str, count: usize) -> anyhow::Result<Vec<usize>> {
     Ok(pages)
 }
 
+/// A `--pages` value of `fyp merge`, for one input: `all` for every page
+/// of that file, or a 1-based page list such as `1,3,5-8` (see
+/// [`parse_pages`], which a merge lets repeat a page).
+fn parse_selection(path: &Path, count: usize, spec: &str) -> anyhow::Result<ops::Selection> {
+    let spec = spec.trim();
+    if spec.eq_ignore_ascii_case("all") {
+        return Ok(ops::Selection::All);
+    }
+    if spec.is_empty() {
+        anyhow::bail!(
+            "{}: aucune page indiquée (exemple : 1,3,5-8, ou « all » pour tout le fichier)",
+            path.display()
+        );
+    }
+    parse_pages(spec, count)
+        .map(ops::Selection::Pages)
+        .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))
+}
+
 /// Parse `1-3,4-6,7` into 0-based ranges, end excluded.
 fn parse_ranges(spec: &str, count: usize) -> anyhow::Result<Vec<std::ops::Range<usize>>> {
     let mut ranges = Vec::new();
@@ -445,9 +470,20 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Cmd::Merge {
             inputs,
+            pages,
             output,
             password,
         } => {
+            if !pages.is_empty() && pages.len() != inputs.len() {
+                let plural = |n: usize| if n > 1 { "s" } else { "" };
+                anyhow::bail!(
+                    "--pages : une sélection par fichier, dans le même ordre ({} fichier{}, {} sélection{}) ; « all » prend tout un fichier",
+                    inputs.len(),
+                    plural(inputs.len()),
+                    pages.len(),
+                    plural(pages.len())
+                );
+            }
             let files: Vec<Vec<u8>> = inputs
                 .iter()
                 .map(|p| read_input(p))
@@ -457,7 +493,18 @@ fn main() -> anyhow::Result<()> {
                 .zip(&files)
                 .map(|(path, bytes)| open_input(path, bytes, &password))
                 .collect::<anyhow::Result<_>>()?;
-            let out = ops::merge(&docs).map_err(|e| anyhow::anyhow!("fusion : {e}"))?;
+            let selections: Vec<ops::Selection> = if pages.is_empty() {
+                vec![ops::Selection::All; docs.len()]
+            } else {
+                inputs
+                    .iter()
+                    .zip(&docs)
+                    .zip(&pages)
+                    .map(|((path, doc), spec)| parse_selection(path, page_count(path, doc)?, spec))
+                    .collect::<anyhow::Result<_>>()?
+            };
+            let out = ops::merge_selected(&docs, &selections)
+                .map_err(|e| anyhow::anyhow!("fusion : {e}"))?;
             write_result(&output, &out)?;
         }
         Cmd::Pages { op } => match op {
@@ -736,6 +783,36 @@ fn main() -> anyhow::Result<()> {
 #[allow(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+
+    /// `--pages` of `fyp merge`, for one input: the page-range syntax of
+    /// the other commands, plus `all`, and a page a merge may repeat.
+    #[test]
+    fn merge_selections_are_parsed_and_refused_clearly() {
+        let path = Path::new("rapport.pdf");
+        let parse = |spec: &str| parse_selection(path, 12, spec);
+        assert_eq!(parse("all").unwrap(), ops::Selection::All);
+        assert_eq!(parse(" ALL ").unwrap(), ops::Selection::All);
+        assert_eq!(
+            parse("1,3,5-8").unwrap(),
+            ops::Selection::Pages(vec![0, 2, 4, 5, 6, 7])
+        );
+        assert_eq!(
+            parse("8-5").unwrap(),
+            ops::Selection::Pages(vec![7, 6, 5, 4])
+        );
+        assert_eq!(parse("3,3").unwrap(), ops::Selection::Pages(vec![2, 2]));
+        for (spec, expected) in [
+            ("13", "hors limites"),
+            ("0", "hors limites"),
+            ("2-x", "numéro de page invalide"),
+            ("", "aucune page indiquée"),
+            ("  ", "aucune page indiquée"),
+        ] {
+            let message = parse(spec).unwrap_err().to_string();
+            assert!(message.contains(expected), "{spec:?}: {message}");
+            assert!(message.contains("rapport.pdf"), "{spec:?}: {message}");
+        }
+    }
 
     /// Each refusal names the module, the numbers involved and what to
     /// change. `HostMemoryExhausted` cannot be reached from `fyp run`
