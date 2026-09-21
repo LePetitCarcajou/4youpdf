@@ -9,10 +9,11 @@ mod common;
 
 use std::path::{Path, PathBuf};
 
-use common::{dangling_references, dead_destinations, deep_equal, tests_dir};
+use common::{compare, dangling_references, dead_destinations, deep_equal, tests_dir};
 use fyp_core::document::Document;
 use fyp_core::object::{Dict, Name, ObjRef, Object};
-use fyp_core::ops::{self, Page};
+use fyp_core::ops::{self, Page, Selection};
+use fyp_core::writer::{Writer, XrefStyle};
 use fyp_core::Error;
 
 const DEPTH: usize = 64;
@@ -112,6 +113,30 @@ fn same_page(name: &str, src_doc: &Document<'_>, src: &Page, out_doc: &Document<
             key.as_str_lossy()
         );
     }
+}
+
+/// The width and the height of a page's `/MediaBox` and its `/Rotate`:
+/// what tells the twelve pages of `mixed12.pdf` apart at a glance, so
+/// that the order of an output can be read from its shapes alone.
+fn shape(page: &Page) -> (i64, i64, Option<i64>) {
+    let number = |o: Option<&Object>| match o {
+        Some(Object::Integer(i)) => *i,
+        Some(Object::Real(f)) => *f as i64,
+        _ => 0,
+    };
+    let media: Vec<Object> = match page.dict.get(&Name::new("MediaBox")) {
+        Some(Object::Array(a)) => a.clone(),
+        _ => Vec::new(),
+    };
+    let rotate = match page.dict.get(&Name::new("Rotate")) {
+        Some(Object::Integer(i)) => Some(*i),
+        _ => None,
+    };
+    (
+        number(media.get(2)) - number(media.first()),
+        number(media.get(3)) - number(media.get(1)),
+        rotate,
+    )
 }
 
 #[test]
@@ -299,6 +324,128 @@ fn merge_corpus_files_chains_outlines_and_keeps_destinations() {
 }
 
 #[test]
+fn merging_takes_the_pages_each_selection_names() {
+    // The twelve pages of `mixed12.pdf` all differ in size or rotation,
+    // so the order of the output can be read from its shapes.
+    let files = [fixture("mixed12.pdf"), fixture("minimal.pdf")];
+    let docs: Vec<Document<'_>> = files
+        .iter()
+        .map(|b| Document::open(b).expect("open"))
+        .collect();
+    let source = ops::pages(&docs[0]).expect("pages");
+    let other = ops::pages(&docs[1]).expect("pages");
+
+    // A selection of the first document, every page of the second.
+    let picked = [3usize, 0, 8];
+    let out = ops::merge_selected(&docs, &[Selection::Pages(picked.to_vec()), Selection::All])
+        .expect("merge");
+    let again = check_output("selected", &out, picked.len() + 1);
+    let out_pages = ops::pages(&again).unwrap();
+    for (position, &index) in picked.iter().enumerate() {
+        same_page(
+            "selected",
+            &docs[0],
+            &source[index],
+            &again,
+            &out_pages[position],
+        );
+    }
+    same_page("selected", &docs[1], &other[0], &again, &out_pages[3]);
+
+    // Reverse order, and nothing at all from the second document.
+    let reversed = [4usize, 3, 2, 1, 0];
+    let out = ops::merge_selected(
+        &docs,
+        &[
+            Selection::Pages(reversed.to_vec()),
+            Selection::Pages(Vec::new()),
+        ],
+    )
+    .expect("merge");
+    let again = check_output("reverse", &out, reversed.len());
+    let shapes: Vec<_> = ops::pages(&again).unwrap().iter().map(shape).collect();
+    let expected: Vec<_> = reversed.iter().map(|&i| shape(&source[i])).collect();
+    assert_eq!(shapes, expected, "pages are not in the order asked for");
+
+    // A page taken twice: two page objects of the same shape, sharing
+    // their content.
+    let out = ops::merge_selected(
+        &docs,
+        &[Selection::Pages(vec![8, 8]), Selection::Pages(Vec::new())],
+    )
+    .expect("merge");
+    let again = check_output("twice", &out, 2);
+    let pages = ops::pages(&again).unwrap();
+    assert_eq!(shape(&pages[0]), shape(&source[8]));
+    assert_eq!(shape(&pages[1]), shape(&source[8]));
+    assert_ne!(
+        pages[0].reference, pages[1].reference,
+        "the two copies are one object"
+    );
+    assert_eq!(
+        pages[0].dict.get(&Name::new("Contents")),
+        pages[1].dict.get(&Name::new("Contents")),
+        "the copies do not share their content stream"
+    );
+}
+
+#[test]
+fn merging_a_selection_of_an_encrypted_document_gives_a_clear_output() {
+    let files = [fixture("encrypted-rc4.pdf"), fixture("mixed12.pdf")];
+    let docs: Vec<Document<'_>> = files
+        .iter()
+        .map(|b| Document::open(b).expect("open"))
+        .collect();
+    assert!(docs[0].encryption().is_some(), "fixture is not encrypted");
+    let out =
+        ops::merge_selected(&docs, &[Selection::All, Selection::Pages(vec![1, 0])]).expect("merge");
+    // `check_output` asserts the result is not encrypted.
+    let again = check_output("encrypted merge", &out, 3);
+    let pages = ops::pages(&again).unwrap();
+    let contents = pages[0]
+        .dict
+        .get(&Name::new("Contents"))
+        .expect("/Contents");
+    let stream = again.resolve(contents).unwrap();
+    assert_eq!(
+        again.decoded(&stream).unwrap(),
+        b"BT /F1 24 Tf 72 720 Td (Hello) Tj ET"
+    );
+    let source = ops::pages(&docs[1]).unwrap();
+    assert_eq!(shape(&pages[1]), shape(&source[1]));
+    assert_eq!(shape(&pages[2]), shape(&source[0]));
+}
+
+#[test]
+fn a_merged_selection_round_trips_in_both_xref_styles() {
+    let files = [fixture("mixed12.pdf"), fixture("objstm.pdf")];
+    let docs: Vec<Document<'_>> = files
+        .iter()
+        .map(|b| Document::open(b).expect("open"))
+        .collect();
+    let out = ops::merge_selected(&docs, &[Selection::Pages(vec![11, 0, 11]), Selection::All])
+        .expect("merge");
+    let doc = check_output("round trip", &out, 4);
+    for style in [XrefStyle::Table, XrefStyle::Stream] {
+        let writer = Writer::new(doc.version()).xref_style(style);
+        let written = writer
+            .write(&doc)
+            .unwrap_or_else(|e| panic!("write ({style:?}): {e}"));
+        let again = Document::open(&written).unwrap_or_else(|e| panic!("reopen ({style:?}): {e}"));
+        assert_eq!(again.reconstructed(), None, "{style:?}: needed repair");
+        assert_eq!(again.page_count(), Ok(4), "{style:?}");
+        if let Err(difference) = compare(&doc, &again) {
+            panic!("{style:?}: {difference}");
+        }
+        assert_eq!(
+            writer.write(&again).unwrap(),
+            written,
+            "{style:?}: rewriting is not stable"
+        );
+    }
+}
+
+#[test]
 fn encrypted_input_gives_a_clear_output() {
     for name in ["encrypted-rc4.pdf", "encrypted-aes256.pdf"] {
         let bytes = fixture(name);
@@ -355,6 +502,27 @@ fn selection_errors_are_clear() {
         ops::merge(&[]).map(|_| ()),
         Err(Error::BadOperation { .. })
     ));
+    // A merge selection: one per document, in bounds, and at least one
+    // page in the lot. A repeated page is legal, unlike an extraction.
+    assert!(matches!(
+        ops::merge_selected(std::slice::from_ref(&doc), &[]).map(|_| ()),
+        Err(Error::BadOperation { message }) if message.contains("selection")
+    ));
+    assert_eq!(
+        ops::merge_selected(std::slice::from_ref(&doc), &[Selection::Pages(vec![1])]).map(|_| ()),
+        Err(Error::NoSuchPage { index: 1, count: 1 })
+    );
+    assert!(matches!(
+        ops::merge_selected(
+            std::slice::from_ref(&doc),
+            &[Selection::Pages(Vec::new())]
+        )
+        .map(|_| ()),
+        Err(Error::BadOperation { message }) if message.contains("no page")
+    ));
+    assert!(
+        ops::merge_selected(std::slice::from_ref(&doc), &[Selection::Pages(vec![0, 0])]).is_ok()
+    );
     // Rotation wraps: 90 three times more is back to 0, -90 is 270.
     let turned = ops::rotate(&doc, &[0], 90).unwrap();
     let doc2 = Document::open(&turned).unwrap();
@@ -588,6 +756,15 @@ fn links_to_dropped_pages_are_cleaned() {
     assert_eq!(
         old.keys().map(|k| k.as_str_lossy()).collect::<Vec<_>>(),
         ["old3"]
+    );
+
+    // The same one page taken by a merge selection: a page a selection
+    // leaves out goes exactly as an extraction drops one, byte for byte.
+    let merged = ops::merge_selected(std::slice::from_ref(&doc), &[Selection::Pages(vec![0])])
+        .expect("merge_selected");
+    assert_eq!(
+        merged, out,
+        "a selection of one document is not an extraction"
     );
 
     // Keep page 4 only: both its links pointed at page 3, both go.

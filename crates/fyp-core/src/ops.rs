@@ -15,6 +15,11 @@
 //!   destination is dropped, a `/Dest` or `/GoTo` action to a dropped page
 //!   is removed, a named destination to a dropped page is forgotten.
 //!
+//! [`merge`] takes every page of every document. [`merge_selected`] takes
+//! the pages a [`Selection`] names, in the order it names them: a page may
+//! be left out, moved, or taken more than once. A page a selection leaves
+//! out goes exactly as [`delete_pages`] drops one, by the rule above.
+//!
 //! An encrypted source is deciphered by [`Document`] and written in the
 //! clear, as [`crate::writer`] does for a plain rewrite: callers that
 //! report on the operation must say so.
@@ -24,7 +29,11 @@
 //! `/StructTreeRoot`, `/Metadata`, `/OCProperties` and viewer preferences
 //! of the other documents are not carried over (their pages, resources,
 //! annotations, outlines, named destinations and form fields are). A page
-//! listed twice in a page tree is taken once. Page indices are 0-based.
+//! listed twice in a page tree is taken once. A page a selection takes
+//! twice gives two page objects that share their content, their resources
+//! and their annotations, and a reference from elsewhere (a destination,
+//! an annotation's `/P`) names the last of the copies. Page indices are
+//! 0-based.
 
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
@@ -122,21 +131,60 @@ fn walk(doc: &Document<'_>) -> Result<(Vec<Page>, Vec<ObjRef>)> {
     Ok((pages, nodes))
 }
 
+/// Which pages of a source document a merge takes (see
+/// [`merge_selected`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Selection {
+    /// Every page, in reading order: what [`merge`] takes.
+    #[default]
+    All,
+    /// These pages, 0-based, in this order. An index may appear more than
+    /// once, and an empty list takes nothing from that document.
+    Pages(Vec<usize>),
+}
+
 /// Concatenate `documents` in order: every page of the first, then of the
 /// second, and so on. The catalog, information dictionary and `/ID` come
 /// from the first document; outlines are chained, named destinations and
 /// form fields are merged (the first document wins on a name clash).
 pub fn merge(documents: &[Document<'_>]) -> Result<Vec<u8>> {
+    merge_selected(documents, &vec![Selection::All; documents.len()])
+}
+
+/// [`merge`] taking of each document only the pages its `Selection` names,
+/// in the order it names them: `selections[i]` applies to `documents[i]`,
+/// so there must be exactly as many of one as of the other. The rest is
+/// [`merge`]: the catalog, the information dictionary and the `/ID` still
+/// come from the first document, and the header version is still the
+/// highest of the inputs, even when the selections take none of their
+/// pages; a page left out goes as [`delete_pages`] drops one. At least one
+/// page must be taken.
+pub fn merge_selected(documents: &[Document<'_>], selections: &[Selection]) -> Result<Vec<u8>> {
     if documents.is_empty() {
         return Err(operation("no document to merge"));
     }
+    if selections.len() != documents.len() {
+        return Err(operation(format!(
+            "{} document(s) to merge but {} selection(s)",
+            documents.len(),
+            selections.len()
+        )));
+    }
     let mut builder = Builder::new(documents)?;
-    let keep: Vec<(usize, usize)> = builder
-        .sources
-        .iter()
-        .enumerate()
-        .flat_map(|(i, s)| (0..s.pages.len()).map(move |p| (i, p)))
-        .collect();
+    let mut keep: Vec<(usize, usize)> = Vec::new();
+    for (i, (source, selection)) in builder.sources.iter().zip(selections).enumerate() {
+        let count = source.pages.len();
+        match selection {
+            Selection::All => keep.extend((0..count).map(|p| (i, p))),
+            Selection::Pages(indices) => {
+                check_bounds(indices, count)?;
+                keep.extend(indices.iter().map(|&p| (i, p)));
+            }
+        }
+    }
+    if keep.is_empty() {
+        return Err(operation("the selections leave no page to merge"));
+    }
     let version = documents
         .iter()
         .map(Document::version)
@@ -235,17 +283,26 @@ pub fn ranges_every(page_count: usize, every: usize) -> Vec<Range<usize>> {
         .collect()
 }
 
-/// Every index exists and appears once; a selection may be empty only
-/// when `allow_empty`.
-fn check_selection(indices: &[usize], count: usize, allow_empty: bool) -> Result<()> {
-    if indices.is_empty() && !allow_empty {
-        return Err(operation("no page selected"));
-    }
-    let mut seen = BTreeSet::new();
+/// Every index names a page the document has: the one rule every
+/// selection obeys, whatever the operation.
+fn check_bounds(indices: &[usize], count: usize) -> Result<()> {
     for &index in indices {
         if index >= count {
             return Err(Error::NoSuchPage { index, count });
         }
+    }
+    Ok(())
+}
+
+/// A selection for an operation on a single document: every index exists
+/// and appears once; it may be empty only when `allow_empty`.
+fn check_selection(indices: &[usize], count: usize, allow_empty: bool) -> Result<()> {
+    if indices.is_empty() && !allow_empty {
+        return Err(operation("no page selected"));
+    }
+    check_bounds(indices, count)?;
+    let mut seen = BTreeSet::new();
+    for &index in indices {
         if !seen.insert(index) {
             return Err(operation(format!("page {index} selected more than once")));
         }
@@ -909,6 +966,14 @@ mod tests {
 
     #[test]
     fn selections() {
+        // A merge selection keeps the bound rule alone: order is free and
+        // a page may repeat.
+        assert!(check_bounds(&[2, 2, 0], 3).is_ok());
+        assert!(check_bounds(&[], 3).is_ok());
+        assert_eq!(
+            check_bounds(&[3], 3),
+            Err(Error::NoSuchPage { index: 3, count: 3 })
+        );
         assert!(check_selection(&[0, 2, 1], 3, false).is_ok());
         assert!(check_selection(&[], 3, true).is_ok());
         assert!(matches!(
