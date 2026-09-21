@@ -261,10 +261,12 @@ la liste une fois fait.
   17 septembre 2026, en ajoutant la fusion). Toutes les pages de chaque
   fichier viennent, à la fin de la grille ou devant une page (« Fusionner
   ici… ») ; on supprime ensuite à la main celles qu'on ne voulait pas.
-  `ops::merge` prend des documents entiers, mais son `Builder` travaille
-  déjà sur des paires (document, page) : une fonction publique qui prend une
-  sélection par document suffirait au noyau, `fyp merge` pourrait l'exposer
-  aussi.
+  Réduit le 20 septembre 2026 (rampe v0.5.0, session A) : le noyau et la
+  ligne de commande le font, `ops::merge_selected` prenant une
+  `ops::Selection` par document et `fyp merge` un `--pages` par fichier
+  (`docs/architecture.md`, « Sélection à la fusion »). Reste l'interface :
+  choisir les pages de chaque fichier au moment de la fusion, et les
+  passer à `merge_documents`.
 - [ ] **Plusieurs fichiers déposés d'un coup : seul le premier s'ouvre**
   (consigné le 17 septembre 2026, en ajoutant la fusion). `main.ts` ouvre
   le premier `.pdf` déposé et ignore les autres sans un mot. Avec la fusion

@@ -270,6 +270,10 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
   (milestone 0.3, first step) ») portent des numéros que
   `docs/feuille-de-route.md` ne connaît pas ; `parser.rs` et `writer.rs`
   parlent d'un « next milestone » et d'un « a later milestone » sans numéro.
+  `crates/fyp-cli/src/main.rs` en porte deux de plus (« Milestone 0.1
+  commands », « Milestone 0.2 »), relevés le 20 septembre 2026 en ajoutant
+  la sélection de pages à la fusion ; la session a laissé cette ligne
+  intacte, sa règle de périmètre interdisant la correction de passage.
   La session de documentation ne touchait pas au code de production.
   `docs/architecture.md`, « Feuille de route », garde la clé de lecture de
   ces numéros : à reprendre quand l'un de ces fichiers sera modifié pour
@@ -289,3 +293,24 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
   `CONTRIBUTING.md` demandent l'anglais pour le code et les commits ;
   git-cliff les reprend tels quels dans les notes de la Release v0.4.0, où
   ils voisinent avec des sujets anglais. Rien ne le vérifie dans la CI.
+- [ ] **Un champ de formulaire dont la page part reste dans `/Fields`**
+  (consigné le 20 septembre 2026, en ajoutant la sélection de pages à la
+  fusion). Quand `ops` laisse tomber une page — suppression, extraction, ou
+  désormais une page qu'une sélection de fusion ne prend pas — le widget
+  qui était sur elle n'est plus dans aucun `/Annots`, mais reste listé dans
+  `/AcroForm /Fields` avec un `/P` à `null` (ISO 32000-2, 12.7.4.1). Rien
+  n'est faux et aucun lecteur ne l'affiche : c'est du poids mort, et un
+  `/P` qui ne mène nulle part. `clean_dead_destinations` décide déjà sur un
+  instantané ; il pourrait retirer ces entrées en descendant l'arbre des
+  champs par `/Kids` et en supprimant un nœud devenu sans enfant.
+- [ ] **Une page qu'une fusion prend deux fois partage ses annotations**
+  (consigné le 20 septembre 2026, en ajoutant la sélection de pages à la
+  fusion). `ops::merge_selected` écrit un objet page par occurrence mais
+  partage tout ce que la page référence : c'est ce qu'il faut pour le flux
+  de contenu et les ressources, c'est discutable pour `/Annots`, une
+  annotation appartenant à une seule page (ISO 32000-2, 12.5.2), et le
+  `/P` des annotations partagées désigne la dernière copie. qpdf fait la
+  même copie superficielle pour `--pages a.pdf 1,1`. À reprendre si un
+  lecteur s'en plaint, ou avant les annotations de balisage (bloc B) :
+  il faudrait copier en profondeur les annotations d'une occurrence
+  répétée.

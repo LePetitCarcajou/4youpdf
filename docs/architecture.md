@@ -47,7 +47,7 @@ d'un module.
 | 5. Chiffrement | `encryption` + `fyp-crypto` | 7.6 | fait, testé (révisions 2 à 6 : RC4 40 à 128 bits, AES-128, AES-256 ; mot de passe utilisateur ou propriétaire ; crypt filters `/StmF`, `/StrF`, `/Identity` et nommés ; `/EncryptMetadata`) ; chiffrement à l'écriture à venir |
 | 6. Document | `document`, `recover` | 7.7 | fait, testé (objets via la xref et les object streams, catalogue, nombre de pages, xref reconstruite par scan) |
 | 7. Écriture | `writer` | 7.5.5, 7.5.8 | fait, testé (table classique ou flux xref, round-trip sur toutes les fixtures, `fyp rewrite`) |
-| 8. Opérations de pages | `ops` | 7.7.3, 12.3 | fait, testé (fusion, extraction, découpage, rotation, suppression ; `fyp merge`, `fyp pages`, `fyp split`) |
+| 8. Opérations de pages | `ops` | 7.7.3, 12.3 | fait, testé (fusion avec une sélection de pages par document, extraction, découpage, rotation, suppression ; `fyp merge`, `fyp pages`, `fyp split`) |
 
 Principe de tolérance : la lecture accepte ce que les lecteurs majeurs
 acceptent (xref reconstruite par scan, `/Length` faux, `endobj` manquant,
@@ -284,9 +284,9 @@ n'est indexé qu'après, quand ils sont lus par `Document`).
 
 ### Opérations de pages (`ops`)
 
-`ops::merge`, `extract_pages`, `delete_pages`, `rotate` et `split`
-construisent toutes un document neuf à partir des pages conservées, puis le
-confient au writer (`Writer::write_objects`, qui sérialise un ensemble
+`ops::merge`, `merge_selected`, `extract_pages`, `delete_pages`, `rotate`
+et `split` construisent toutes un document neuf à partir des pages
+conservées, puis le confient au writer (`Writer::write_objects`, qui sérialise un ensemble
 d'objets fourni par l'appelant avec son trailer). Indices de pages 0-based
 dans l'API, 1-based dans la CLI (`1,3,5-8`, `8-5` pour l'ordre inverse),
 avec une erreur nette hors limites.
@@ -321,6 +321,30 @@ avec une erreur nette hors limites.
   seul nœud feuille trié, le premier document gagnant sur un nom en
   double ; champs de formulaire réunis dans un seul `/AcroForm` (celui du
   premier document qui en a un, `/Fields` concaténés).
+- **Sélection à la fusion** (`ops::merge_selected`) : chaque document
+  d'entrée porte une `Selection`, `All` (toutes ses pages, ce que fait
+  `ops::merge`) ou `Pages`, une liste d'indices 0-based dont l'ordre est
+  l'ordre de sortie. Une page peut y revenir plusieurs fois, la liste peut
+  être vide, et il faut autant de sélections que de documents ; un indice
+  hors limites donne `Error::NoSuchPage`, des sélections qui ne prennent
+  aucune page en tout `Error::BadOperation`. Le reste ne change pas : le
+  catalogue, l'`/Info` et l'`/ID` viennent toujours du premier document,
+  même si la sélection n'en prend aucune page, et la version d'en-tête
+  reste la plus haute des documents d'entrée, y compris celle d'un
+  document dont aucune page n'est prise. **Une page laissée de côté est
+  traitée exactement comme une page supprimée** : les références vers elle
+  deviennent `null`, puis le nettoyage ci-dessus retire ce qui les portait
+  — un signet garde son titre et perd sa destination, une destination
+  nommée est oubliée, une annotation de lien qui n'a plus de cible
+  disparaît, et un champ de formulaire dont le widget était sur cette page
+  reste dans `/Fields` avec un `/P` à `null`, comme après une suppression.
+  Fusionner un seul document avec une sélection donne d'ailleurs les mêmes
+  octets qu'`extract_pages` sur les mêmes indices (un test le vérifie).
+  Côté CLI, `fyp merge a.pdf b.pdf --pages all
+  --pages 12-10 -o c.pdf` : un `--pages` par fichier, dans le même ordre,
+  avec la syntaxe de plages des autres commandes (1-based, `1,3,5-8`,
+  `8-5` à l'envers) plus le mot `all` ; sans aucun `--pages`, chaque
+  fichier donne toutes ses pages.
 - **Rotation** : `/Rotate` existant (hérité compris) plus l'angle, multiple
   de 90, ramené dans `0..360` ; `0` s'écrit par absence de clé.
 - **Entrée chiffrée** : déchiffrée par `Document`, sortie en clair ; la CLI
@@ -333,7 +357,11 @@ conservés (pages, ressources, annotations, signets, destinations nommées et
 champs des autres le sont). L'arbre des structures d'un document extrait
 garde des entrées `/Pg null` pour les pages supprimées. Une page demandée
 deux fois dans une extraction est refusée (`Error::BadOperation`) plutôt
-que dupliquée.
+que dupliquée ; une page qu'une sélection de fusion prend deux fois donne
+bien deux pages, mais ce sont deux objets page qui partagent leur contenu,
+leurs ressources et leurs annotations, et une référence venue d'ailleurs
+(une destination, le `/P` d'une annotation) désigne la dernière des
+copies.
 
 Tests (`crates/fyp-core/tests/ops.rs`) : sur toutes les fixtures à arbre
 de pages et sur une dizaine de fichiers du corpus (signets avec actions,
@@ -346,7 +374,14 @@ les pages dans l'ordre donne un document équivalent et l'opération est
 stable (la refaire sur le résultat rend les mêmes octets). Fusion de trois
 fixtures de structures différentes (table classique, flux xref, object
 streams) et des fichiers du corpus, avec vérification de la chaîne des
-signets et du tri des destinations.
+signets et du tri des destinations. Les sélections sont éprouvées sur
+`mixed12.pdf`, dont les douze pages se distinguent à leur taille et à leur
+rotation : sélection simple, ordre inverse, page répétée, sélection vide,
+indice hors limites, sélection sur un seul document parmi deux, document
+chiffré en entrée, et un résultat réécrit dans les deux styles de xref.
+`crates/fyp-cli/tests/merge.rs` passe par le binaire : sans `--pages`, les
+octets écrits sont ceux de `ops::merge` ; chaque refus donne un message
+lisible sans créer de fichier.
 
 ### Corpus public et rapport
 
