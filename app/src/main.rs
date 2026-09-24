@@ -33,7 +33,7 @@ use tauri::{Emitter, Manager, State, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
 
 use render::RenderService;
-use session::{DocumentInfo, MergeReport, PageInfo, SaveReport, Session};
+use session::{DocumentInfo, MergeReport, PageInfo, SaveReport, Session, SplitReport};
 
 /// What a command reports when it fails. `WrongPassword` lets the
 /// interface ask for one in place; everything else is shown as text.
@@ -372,7 +372,10 @@ async fn merge_documents(
 }
 
 /// Write the pages at `order` (0-based indices into the open document,
-/// in the wanted order) to `path`.
+/// in the wanted order) to `path`: the whole document when the interface
+/// saves it, the pages selected when it extracts them. Either way the
+/// open document is left as it is; whether what was written counts as
+/// saved is the interface's business (`history.ts`).
 #[tauri::command]
 async fn save_document(
     state: State<'_, AppState>,
@@ -384,6 +387,32 @@ async fn save_document(
         .as_ref()
         .ok_or_else(|| AppError::other("aucun document ouvert"))?;
     session.save(&order, &PathBuf::from(path))
+}
+
+/// Write each part of `parts` (0-based indices into the open document, in
+/// the wanted order) to its own file of the folder `dir`, named after the
+/// document (see `Session::split`): no file of the folder is ever
+/// replaced, and the open document is left as it is.
+#[tauri::command]
+async fn split_document(
+    app: tauri::AppHandle,
+    parts: Vec<Vec<usize>>,
+    dir: String,
+) -> Result<SplitReport, AppError> {
+    // One rewrite per part, then as many files written: off the async
+    // runtime's threads, like a rotation.
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app
+            .try_state::<AppState>()
+            .ok_or_else(|| AppError::other("état de l'application indisponible"))?;
+        let guard = state.session();
+        let session = guard
+            .as_ref()
+            .ok_or_else(|| AppError::other("aucun document ouvert"))?;
+        session.split(&parts, Path::new(&dir))
+    })
+    .await
+    .map_err(|e| AppError::other(format!("découpage interrompu : {e}")))?
 }
 
 /// The file given on the command line (`fyp-app document.pdf`), opened
@@ -423,6 +452,18 @@ async fn pick_merge_files(app: tauri::AppHandle) -> Option<Vec<String>> {
                 .map(|p| p.display().to_string())
                 .collect()
         })
+}
+
+/// Native "choose a folder" dialog, for the files a cut writes; `None`
+/// when cancelled.
+#[tauri::command]
+async fn pick_folder(app: tauri::AppHandle) -> Option<String> {
+    app.dialog()
+        .file()
+        .set_title("Écrire les parties dans ce dossier")
+        .blocking_pick_folder()
+        .and_then(|f| f.into_path().ok())
+        .map(|p| p.display().to_string())
 }
 
 /// Native "save as" dialog with a suggested name; `None` when cancelled.
@@ -600,9 +641,11 @@ fn main() {
             rotate_pages,
             merge_documents,
             save_document,
+            split_document,
             pick_open_file,
             pick_merge_files,
             pick_save_file,
+            pick_folder,
         ])
         .run(tauri::generate_context!());
     if let Err(e) = result {
@@ -915,7 +958,7 @@ mod tests {
     }
 
     /// The commands `main` hands to `generate_handler!`, in its order.
-    const COMMANDS: [&str; 13] = [
+    const COMMANDS: [&str; 15] = [
         "open_document",
         "close_document",
         "document_modified",
@@ -926,9 +969,11 @@ mod tests {
         "rotate_pages",
         "merge_documents",
         "save_document",
+        "split_document",
         "pick_open_file",
         "pick_merge_files",
         "pick_save_file",
+        "pick_folder",
     ];
 
     /// The window may call the commands of the interface and listen to

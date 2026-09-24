@@ -15,8 +15,10 @@
     "allow-rotate-pages",
     "allow-merge-documents",
     "allow-save-document",
+    "allow-split-document",
     "allow-pick-open-file",
     "allow-pick-merge-files",
-    "allow-pick-save-file"
+    "allow-pick-save-file",
+    "allow-pick-folder"
   ]
 }

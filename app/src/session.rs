@@ -1,7 +1,7 @@
 //! The open document: its bytes, what `fyp-core` says about it, and the
 //! operations the window needs, all through `fyp_core::ops`: listing
 //! pages, turning some of them, appending the pages of other files, saving
-//! a new page order.
+//! a new page order, cutting it into several files.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -62,6 +62,26 @@ pub struct SaveReport {
     pub size: u64,
     /// Pages in the file written.
     pub pages: usize,
+}
+
+/// What cutting the document produced (see [`Session::split`]).
+#[derive(Debug, Clone, Serialize)]
+pub struct SplitReport {
+    /// Folder written into, as chosen.
+    pub dir: String,
+    /// One entry per file written, in the order they were written.
+    pub files: Vec<SplitFile>,
+}
+
+/// One file written by a cut.
+#[derive(Debug, Clone, Serialize)]
+pub struct SplitFile {
+    /// File name alone: the folder is the same for all of them.
+    pub name: String,
+    /// Pages in it.
+    pub pages: usize,
+    /// Size of the file written.
+    pub size: u64,
 }
 
 /// What became of one file asked to be merged.
@@ -189,6 +209,79 @@ impl Session {
         })
     }
 
+    /// Write each part of `parts` (0-based indices into this document, in
+    /// the wanted order) to its own file of `dir`, named after the
+    /// document ([`part_name`]), through [`ops::extract_pages`] like
+    /// [`Session::save`]. The document itself is left as it is.
+    ///
+    /// Nothing existing is ever replaced, and a cut that cannot be written
+    /// whole is not written at all: the names are checked against the
+    /// folder first, then every part is built and read back, and only then
+    /// are the files created, each with `create_new`, which refuses a file
+    /// that appeared meanwhile.
+    pub fn split(&self, parts: &[Vec<usize>], dir: &Path) -> Result<SplitReport, AppError> {
+        if parts.is_empty() || parts.iter().any(Vec::is_empty) {
+            return Err(AppError::other(
+                "découpage vide : chaque partie doit recevoir au moins une page",
+            ));
+        }
+        // The parts share out the pages on screen, which are pages of this
+        // document, each taken once: there can never be more of them than
+        // the document has pages.
+        if parts.len() > self.info.pages.len() {
+            return Err(AppError::other(format!(
+                "découpage en {} fichiers pour {} pages ; rien n'a été écrit",
+                parts.len(),
+                self.info.pages.len()
+            )));
+        }
+        if !dir.is_dir() {
+            return Err(AppError::other(format!(
+                "{} n'est pas un dossier ; rien n'a été écrit",
+                dir.display()
+            )));
+        }
+        let stem = part_stem(&self.info.name);
+        let names: Vec<String> = (0..parts.len())
+            .map(|i| part_name(&stem, i, parts.len()))
+            .collect();
+        let taken: Vec<&str> = names
+            .iter()
+            .map(String::as_str)
+            .filter(|name| dir.join(name).exists())
+            .collect();
+        if !taken.is_empty() {
+            return Err(conflict(&taken, dir));
+        }
+        // Every part is built and read back before the first is written: a
+        // part the core refuses leaves the folder as it was.
+        let doc = self.document()?;
+        let mut built = Vec::with_capacity(parts.len());
+        for (part, name) in parts.iter().zip(&names) {
+            let out = ops::extract_pages(&doc, part)?;
+            let check = Document::open(&out)?;
+            if let Some(reason) = check.reconstructed() {
+                return Err(AppError::other(format!(
+                    "« {name} » a dû être réparé à la relecture ({reason}) ; rien n'a été écrit"
+                )));
+            }
+            built.push(out);
+        }
+        let mut files = Vec::with_capacity(parts.len());
+        for ((part, name), bytes) in parts.iter().zip(&names).zip(&built) {
+            write_new(&dir.join(name), bytes)?;
+            files.push(SplitFile {
+                name: name.clone(),
+                pages: part.len(),
+                size: bytes.len() as u64,
+            });
+        }
+        Ok(SplitReport {
+            dir: dir.display().to_string(),
+            files,
+        })
+    }
+
     /// Make `rotated` the document from now on, known to the renderer as
     /// `id`, and return its pages. Refused when the page count changed:
     /// the page indices the interface holds must stay valid.
@@ -232,6 +325,77 @@ impl Session {
         self.info.pages.clone_from(&rewrite.pages);
         rewrite.pages
     }
+}
+
+/// The name the parts of a cut are built on: the file name of the
+/// document without its `.pdf` extension, whatever its case. A name that
+/// would leave nothing, or nothing but spaces, gives `document`, so that a
+/// part is never called `_partie-01.pdf`.
+fn part_stem(name: &str) -> String {
+    let stem = match name.rfind('.') {
+        Some(dot) if name[dot..].eq_ignore_ascii_case(".pdf") => &name[..dot],
+        _ => name,
+    };
+    let stem = stem.trim();
+    if stem.is_empty() {
+        "document".to_owned()
+    } else {
+        stem.to_owned()
+    }
+}
+
+/// The name of part `index` of `count`: `<stem>_partie-01.pdf`, numbered
+/// from 1, with as many digits as `count` needs and never fewer than two,
+/// so that the files of one cut are listed in their order by a file
+/// manager, which sorts names as text.
+fn part_name(stem: &str, index: usize, count: usize) -> String {
+    let width = count.to_string().len().max(2);
+    let number = index + 1;
+    format!("{stem}_partie-{number:0width$}.pdf")
+}
+
+/// Why a cut wrote nothing: these names are taken in `dir`. Three names
+/// at most, the rest counted, so that the banner names the conflict
+/// without becoming a list.
+fn conflict(names: &[&str], dir: &Path) -> AppError {
+    let shown: Vec<String> = names.iter().take(3).map(|n| format!("« {n} »")).collect();
+    let mut what = shown.join(", ");
+    let rest = names.len() - shown.len();
+    if rest > 0 {
+        what.push_str(&format!(" et {rest} autre{}", plural(rest)));
+    }
+    let exist = if names.len() > 1 {
+        "existent"
+    } else {
+        "existe"
+    };
+    AppError::other(format!(
+        "{what} {exist} déjà dans {} ; aucun fichier n'a été écrit",
+        dir.display()
+    ))
+}
+
+fn plural(count: usize) -> &'static str {
+    if count > 1 {
+        "s"
+    } else {
+        ""
+    }
+}
+
+/// Write `bytes` to `path`, which must not exist. `create_new` asks the
+/// system to create the file only if it is not there, in one step: a file
+/// that appeared since the names were checked is not replaced either.
+fn write_new(path: &Path, bytes: &[u8]) -> Result<(), AppError> {
+    use std::io::Write as _;
+
+    let fail = |e: std::io::Error| AppError::other(format!("{} : {e}", path.display()));
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(fail)?;
+    file.write_all(bytes).map_err(fail)
 }
 
 /// The document in `bytes`, opened with `password`, with the pages at
@@ -598,6 +762,198 @@ mod tests {
             [Some(Object::Integer(270)), Some(Object::Integer(180))]
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A temporary folder of this process, named after `what`, empty.
+    fn temp_dir(what: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("fyp-app-{what}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// The `/Rotate` of each page of the file at `path`, in reading order.
+    fn rotations_of(path: &Path) -> Vec<i32> {
+        let bytes = std::fs::read(path).unwrap();
+        let doc = Document::open(&bytes).unwrap();
+        assert_eq!(doc.reconstructed(), None, "{}", path.display());
+        page_infos(&doc).unwrap().iter().map(|p| p.rotate).collect()
+    }
+
+    /// Extracting a selection writes the pages as the grid shows them —
+    /// the order asked for, the rotations applied so far — and leaves the
+    /// document open as it was: it is the interface that does not record
+    /// the file written, so nothing here may change either.
+    #[test]
+    fn extracting_a_selection_writes_the_pages_as_shown() {
+        let dir = temp_dir("extract");
+        let path = dir.join("three.pdf");
+        std::fs::write(&path, three_pages()).unwrap();
+        let mut session = Session::open(70, &path, "").expect("open");
+        assert_eq!(turn(&mut session, &[0], 90), [180, 180, 270]);
+        let (id, bytes) = (session.id, Arc::clone(&session.bytes));
+
+        // Pages 3 and 1 of the file, in that order: a selection of the
+        // grid after a move, a deletion and a rotation.
+        let out = dir.join("selection.pdf");
+        let report = session.save(&[2, 0], &out).expect("extract");
+        assert_eq!(report.pages, 2);
+        assert_eq!(rotations_of(&out), [270, 180]);
+        assert_eq!(report.size, std::fs::read(&out).unwrap().len() as u64);
+        // The document on screen is untouched: same bytes, same id, so the
+        // renderer keeps its images.
+        assert_eq!(session.id, id);
+        assert!(Arc::ptr_eq(&session.bytes, &bytes));
+        assert_eq!(rotations(&session.info.pages), [180, 180, 270]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A cut writes one file per part, from the pages on screen: the parts
+    /// are slices of the order the grid holds, not ranges of the file, so
+    /// a page moved, dropped or turned goes where the grid shows it.
+    #[test]
+    fn splitting_writes_one_file_per_part_of_the_order_on_screen() {
+        let dir = temp_dir("split");
+        let path = dir.join("three.pdf");
+        std::fs::write(&path, three_pages()).unwrap();
+        let mut session = Session::open(80, &path, "").expect("open");
+        assert_eq!(turn(&mut session, &[2], 90), [90, 180, 0]);
+
+        // The grid shows page 3 first, then page 1: page 2 was deleted.
+        let report = session.split(&[vec![2], vec![0]], &dir).expect("split");
+        assert_eq!(report.dir, dir.display().to_string());
+        let names: Vec<&str> = report.files.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, ["three_partie-01.pdf", "three_partie-02.pdf"]);
+        assert_eq!(
+            report.files.iter().map(|f| f.pages).collect::<Vec<_>>(),
+            [1, 1]
+        );
+        assert_eq!(rotations_of(&dir.join("three_partie-01.pdf")), [0]);
+        assert_eq!(rotations_of(&dir.join("three_partie-02.pdf")), [90]);
+        for file in &report.files {
+            assert_eq!(
+                file.size,
+                std::fs::read(dir.join(&file.name)).unwrap().len() as u64
+            );
+        }
+        // The document on screen is untouched, as after an extraction.
+        assert_eq!(session.id, 81);
+        assert_eq!(rotations(&session.info.pages), [90, 180, 0]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A cut never replaces a file: one name taken is enough for the whole
+    /// cut to be refused, before anything is written, and the message
+    /// names the files in the way.
+    #[test]
+    fn splitting_replaces_no_file_and_writes_nothing_then() {
+        let dir = temp_dir("split-again");
+        let path = dir.join("three.pdf");
+        std::fs::write(&path, three_pages()).unwrap();
+        let session = Session::open(90, &path, "").expect("open");
+        let parts = [vec![0], vec![1], vec![2]];
+        assert_eq!(session.split(&parts, &dir).expect("split").files.len(), 3);
+        let before: Vec<u8> = std::fs::read(dir.join("three_partie-02.pdf")).unwrap();
+
+        // The same cut again: every name is taken, nothing is written.
+        let Err(AppError::Other { message }) = session.split(&parts, &dir) else {
+            panic!("the second cut must be refused");
+        };
+        for name in ["01", "02", "03"] {
+            assert!(
+                message.contains(&format!("« three_partie-{name}.pdf »")),
+                "{message}"
+            );
+        }
+        assert!(message.contains("aucun fichier n'a été écrit"), "{message}");
+        assert_eq!(
+            std::fs::read(dir.join("three_partie-02.pdf")).unwrap(),
+            before
+        );
+
+        // One name taken is enough, and the files that were free stay free.
+        std::fs::remove_file(dir.join("three_partie-01.pdf")).unwrap();
+        std::fs::remove_file(dir.join("three_partie-03.pdf")).unwrap();
+        assert!(session.split(&parts, &dir).is_err());
+        assert!(!dir.join("three_partie-01.pdf").exists());
+        assert!(!dir.join("three_partie-03.pdf").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// What a cut refuses before touching the folder: no part, an empty
+    /// part, more parts than pages, a page the document has not, a page
+    /// twice in one part (`ops::extract_pages`), a folder that is not one.
+    #[test]
+    fn a_refused_split_writes_nothing() {
+        let dir = temp_dir("split-refused");
+        let path = dir.join("three.pdf");
+        std::fs::write(&path, three_pages()).unwrap();
+        let session = Session::open(100, &path, "").expect("open");
+        for parts in [
+            vec![],
+            vec![vec![0], vec![]],
+            vec![vec![0], vec![1], vec![2], vec![0]],
+            vec![vec![3]],
+            vec![vec![0, 0]],
+        ] {
+            assert!(
+                matches!(session.split(&parts, &dir), Err(AppError::Other { .. })),
+                "{parts:?}"
+            );
+        }
+        assert!(session.split(&[vec![0]], &path).is_err(), "not a folder");
+        assert!(session.split(&[vec![0]], &dir.join("absent")).is_err());
+        // Only three.pdf, still: not one part was written.
+        let left: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(left, ["three.pdf"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The parts are numbered from 1, with as many digits as their number
+    /// needs and never fewer than two, under the name of the document
+    /// without its extension.
+    #[test]
+    fn the_parts_are_named_after_the_document_and_numbered() {
+        assert_eq!(part_name("rapport", 0, 3), "rapport_partie-01.pdf");
+        assert_eq!(part_name("rapport", 2, 3), "rapport_partie-03.pdf");
+        assert_eq!(part_name("rapport", 9, 100), "rapport_partie-010.pdf");
+        assert_eq!(part_name("rapport", 99, 100), "rapport_partie-100.pdf");
+        assert_eq!(part_name("rapport", 0, 1), "rapport_partie-01.pdf");
+        for (name, stem) in [
+            ("rapport.pdf", "rapport"),
+            ("RAPPORT.PDF", "RAPPORT"),
+            ("rapport.final.pdf", "rapport.final"),
+            ("sans-extension", "sans-extension"),
+            ("rapport.txt", "rapport.txt"),
+            ("été 2026.pdf", "été 2026"),
+            (".pdf", "document"),
+            ("", "document"),
+            ("   ", "document"),
+        ] {
+            assert_eq!(part_stem(name), stem, "{name}");
+        }
+    }
+
+    /// A refused cut names the files in the way, three at most, and counts
+    /// the rest: a banner must say which name is taken without becoming a
+    /// list of a hundred.
+    #[test]
+    fn a_name_taken_is_named_and_the_rest_counted() {
+        let dir = Path::new("C:\\docs");
+        let message = |names: &[&str]| match conflict(names, dir) {
+            AppError::Other { message } => message,
+            AppError::WrongPassword => unreachable!(),
+        };
+        assert_eq!(
+            message(&["a.pdf"]),
+            "« a.pdf » existe déjà dans C:\\docs ; aucun fichier n'a été écrit"
+        );
+        assert!(message(&["a.pdf", "b.pdf"]).starts_with("« a.pdf », « b.pdf » existent déjà"));
+        assert!(message(&["a", "b", "c", "d"]).contains("« c » et 1 autre existent"));
+        assert!(message(&["a", "b", "c", "d", "e"]).contains("et 2 autres existent"));
     }
 
     /// Merge `files` into `session`, as the application does.

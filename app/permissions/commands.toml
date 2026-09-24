@@ -52,8 +52,13 @@ commands.allow = ["merge_documents"]
 
 [[permission]]
 identifier = "allow-save-document"
-description = "Write the pages in their current order to the file chosen."
+description = "Write the pages chosen, in their current order, to the file chosen: the whole document when saving it, the selected pages when extracting them."
 commands.allow = ["save_document"]
+
+[[permission]]
+identifier = "allow-split-document"
+description = "Cut the document into several files, written into the folder chosen, each named after the document; no existing file is replaced."
+commands.allow = ["split_document"]
 
 [[permission]]
 identifier = "allow-pick-open-file"
@@ -69,3 +74,8 @@ commands.allow = ["pick_merge_files"]
 identifier = "allow-pick-save-file"
 description = "Show the native « save as » dialog with a suggested name, from the Rust side."
 commands.allow = ["pick_save_file"]
+
+[[permission]]
+identifier = "allow-pick-folder"
+description = "Show the native « choose a folder » dialog for the files a cut writes, from the Rust side."
+commands.allow = ["pick_folder"]
