@@ -50,6 +50,20 @@ export interface MergeReport {
   sources: SourceReport[];
 }
 
+/// One file written by a cut (`session.rs`, `SplitFile`): its name alone,
+/// the folder being the same for all of them.
+export interface SplitFile {
+  name: string;
+  pages: number;
+  size: number;
+}
+
+export interface SplitReport {
+  dir: string;
+  /// One entry per file written, in the order they were written.
+  files: SplitFile[];
+}
+
 export interface RendererStatus {
   available: boolean;
   detail: string;
@@ -140,8 +154,20 @@ export function mergeDocuments(document: number, paths: string[]): Promise<Merge
   return invoke<MergeReport>("merge_documents", { document, paths });
 }
 
+/// Write the pages at `order` (0-based indices into the open file, in the
+/// wanted order) to `path`: the whole document when saving it, the pages
+/// selected when extracting them. The open document does not change.
 export function saveDocument(path: string, order: number[]): Promise<SaveReport> {
   return invoke<SaveReport>("save_document", { path, order });
+}
+
+/// Write each part of `parts` (0-based indices into the open file, in the
+/// wanted order) to its own file of the folder `dir`, named after the
+/// document. No existing file is replaced: when a name is taken, nothing
+/// is written and the rejection names it. The open document does not
+/// change.
+export function splitDocument(parts: number[][], dir: string): Promise<SplitReport> {
+  return invoke<SplitReport>("split_document", { parts, dir });
 }
 
 export function initialFile(): Promise<string | null> {
@@ -160,6 +186,11 @@ export function pickMergeFiles(): Promise<string[] | null> {
 
 export function pickSaveFile(suggested: string): Promise<string | null> {
   return invoke<string | null>("pick_save_file", { suggested });
+}
+
+/// The folder the files of a cut go into; `null` when cancelled.
+export function pickFolder(): Promise<string | null> {
+  return invoke<string | null>("pick_folder");
 }
 
 export function onFileDrop(handler: (paths: string[]) => void): Promise<() => void> {
