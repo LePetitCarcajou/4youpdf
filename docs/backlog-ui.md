@@ -117,6 +117,15 @@ la liste une fois fait.
   contenu du point « Recherche de texte dans le document » et des filtres
   d'image encore absents, puis une vérification du fichier produit par
   ré-extraction de son texte.
+- [ ] **Les parties d'un découpage ne se nomment pas comme celles de la
+  ligne de commande** (consigné le 22 septembre 2026, en ajoutant le
+  découpage à la fenêtre). `fyp split` écrit `<nom>-001-003.pdf`, d'après la
+  première et la dernière page de la partie dans le fichier ; la fenêtre
+  écrit `<nom>_partie-01.pdf`, numéroté à partir de 1, parce que ses parties
+  sont des tranches de l'ordre affiché, où une page a pu être déplacée ou
+  supprimée : les numéros du fichier n'y décriraient plus rien. Les deux
+  schémas se défendent chacun de son côté, mais un même produit devrait
+  nommer pareil ; à trancher, avec le choix du nom par l'utilisateur.
 - [ ] **Filigrane, numérotation des pages, rognage.** Opérations à ajouter à
   `fyp_core::ops`, qui ne sait aujourd'hui que fusionner, extraire,
   découper, faire pivoter et supprimer : rogner revient à écrire `/CropBox`

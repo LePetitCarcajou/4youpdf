@@ -3,9 +3,11 @@
 Tauri 2 (Rust) + interface en TypeScript et CSS, sans framework. Une fenêtre
 qui ouvre un PDF, montre ses pages en vignettes ou une par une en grand,
 permet de les réordonner, de les faire pivoter et de les supprimer, avec
-annuler et refaire, et enregistre le résultat par `fyp_core::ops`. Pas de
-palette, pas de conformité, pas de modules pour l'instant. Pour Windows, un
-installeur et une archive portable (voir « Empaqueter pour Windows »).
+annuler et refaire, enregistre le résultat par `fyp_core::ops`, et en tire
+de nouveaux fichiers sans y toucher : la sélection extraite, le document
+découpé en parties. Pas de palette, pas de conformité, pas de modules pour
+l'instant. Pour Windows, un installeur et une archive portable (voir
+« Empaqueter pour Windows »).
 
 ## Construire et lancer
 
@@ -280,13 +282,15 @@ ici).
 
 | Fichier | Rôle |
 |---|---|
-| `src/main.rs` | commandes exposées à l'interface : ouvrir, fermer, état du rendu, fichier passé en ligne de commande, rendre une page, faire pivoter des pages, fusionner des fichiers à la suite, enregistrer, dialogues de fichiers, modifications non enregistrées déclarées, fermeture de la fenêtre ; ouverture de la fenêtre (profil WebView2 d'une copie portable) ; fermeture refusée et portée à l'interface tant que le document est déclaré modifié ; message et arrêt si WebView2 manque ; script d'initialisation qui ferme le menu contextuel natif en release, variable de débogage de WebView2 retirée en release |
-| `src/session.rs` | le document ouvert vu par `fyp-core` : pages, réparation, chiffrement ; rotation par `ops::rotate` et fusion par `ops::merge`, qui réécrivent le document gardé en mémoire, chaque fichier à fusionner ouvert et vérifié d'abord, ignoré et signalé sinon ; enregistrement par `ops::extract_pages` |
+| `src/main.rs` | commandes exposées à l'interface : ouvrir, fermer, état du rendu, fichier passé en ligne de commande, rendre une page, faire pivoter des pages, fusionner des fichiers à la suite, enregistrer, découper en plusieurs fichiers, dialogues de fichiers et de dossier, modifications non enregistrées déclarées, fermeture de la fenêtre ; ouverture de la fenêtre (profil WebView2 d'une copie portable) ; fermeture refusée et portée à l'interface tant que le document est déclaré modifié ; message et arrêt si WebView2 manque ; script d'initialisation qui ferme le menu contextuel natif en release, variable de débogage de WebView2 retirée en release |
+| `src/session.rs` | le document ouvert vu par `fyp-core` : pages, réparation, chiffrement ; rotation par `ops::rotate` et fusion par `ops::merge`, qui réécrivent le document gardé en mémoire, chaque fichier à fusionner ouvert et vérifié d'abord, ignoré et signalé sinon ; enregistrement et extraction par `ops::extract_pages` ; découpage par le même appel, une partie par fichier, nommées et écrites sans jamais en remplacer une qui existe |
 | `src/render.rs` | images des pages (vignettes, vue d'une page) : thread dédié qui charge PDFium et sert les demandes une à une ; où chercher la bibliothèque ; seul endroit qui connaît `pdfium-render`. Le banc de fidélité du rendu (`tools/render_bench`) compile ce fichier tel quel et appelle ses trois étapes une à une : ouvrir, dessiner, encoder |
-| `ui/src/main.ts` | la fenêtre : grille, glisser-déposer, sélection, menu contextuel, fusion de fichiers, panneau de vignettes à côté de la vue d'une page, clavier, raccourcis du navigateur neutralisés, avis en place, question posée avant de perdre des modifications |
+| `ui/src/main.ts` | la fenêtre : grille, glisser-déposer, sélection, menu contextuel, fusion de fichiers, extraction de la sélection et bandeau de découpage, panneau de vignettes à côté de la vue d'une page, clavier, raccourcis du navigateur neutralisés, avis en place, question posée avant de perdre des modifications |
 | `ui/src/history.ts` | ordre et rotation des pages, pages fusionnées, avec annuler et refaire ; une rotation ou une fusion est faite par le côté Rust, une à la fois ; ce qui compte comme modifié, et le point d'enregistrement |
 | `ui/src/merge.ts` | ce que la fenêtre dit après une fusion, sans DOM : un bandeau par fichier ignoré, ou fusionné après réparation ou déchiffrement ; la barre d'état |
-| `ui/src/notices.ts` | bandeaux au-dessus de la grille, sans DOM : seule une ouverture réussie les remplace ; la question avant de perdre des modifications et ses trois issues |
+| `ui/src/notices.ts` | bandeaux au-dessus de la grille, sans DOM : seule une ouverture réussie les remplace ; la question avant de perdre des modifications et ses trois issues ; le bandeau qui règle un découpage, un seul à la fois |
+| `ui/src/extract.ts` | « Extraire la sélection… », sans DOM : quand l'action est disponible, quelles pages la sélection désigne dans l'ordre affiché, le nom proposé |
+| `ui/src/split.ts` | « Découper… », sans DOM : lecture du nombre de pages par fichier, coupures devant les pages sélectionnées, partage de l'ordre affiché en parties, ce que le bandeau en dit avant et après |
 | `ui/src/pagenumber.ts` | numéros de la vue d'une page, sans DOM : légende, lecture du numéro tapé pour aller à une page (une position dans l'ordre actuel), aide et refus |
 | `ui/src/shortcuts.ts` | raccourcis du navigateur neutralisés, sans DOM : la liste, chacun reconnu par son code de touche virtuelle et ses modificateurs exacts |
 | `ui/src/thumbnails.ts` | chargement progressif : une page visible est demandée avant les autres ; pendant la vue d'une page, aucune demande tant qu'elle dessine, puis une à la fois pour le panneau |
@@ -322,6 +326,11 @@ ici).
   contextuel d'une vignette, devant la page visée, comme une modification
   que Ctrl+Z annule ; un fichier qui ne s'ouvre pas est ignoré et signalé,
   les autres sont fusionnés sans lui (voir « Fusion »).
+- `Extraire la sélection…`, dans le menu contextuel d'une vignette ou par
+  Ctrl+E, écrit les pages sélectionnées dans un nouveau fichier, et
+  `Découper…` (Ctrl+D) partage le document en plusieurs fichiers dans un
+  dossier choisi. Ni l'un ni l'autre ne touche au document affiché (voir
+  « Extraction et découpage »).
 - Double-cliquer sur une vignette, ou appuyer sur Entrée, montre la page en
   grand (voir « Vue d'une page ») ; Ctrl+molette l'agrandit sous le pointeur
   (voir « Zoom »).
@@ -650,6 +659,83 @@ l'ordre.
 - Toutes les pages de chaque fichier, à la fin ou devant une page : choisir
   les pages d'un fichier reste à faire (`docs/backlog-ui.md`).
 
+### Extraction et découpage
+
+Deux façons de tirer de nouveaux fichiers du document sans y toucher : ni
+l'une ni l'autre n'entre dans l'historique, ne modifie le document affiché,
+ni ne déplace le point d'enregistrement. Ce qu'elles écrivent est une copie
+de ce que la grille montre — les pages dans leur ordre, avec les rotations
+appliquées jusque-là, sans les pages supprimées — et, comme
+`Enregistrer sous…`, elles attendent la fin d'une rotation en cours pour que
+le fichier écrit la contienne.
+
+| Action | Où | Clavier |
+|---|---|---|
+| `Extraire la sélection…` | menu contextuel d'une vignette | Ctrl+E |
+| `Découper…` | barre d'outils | Ctrl+D |
+
+**Extraire la sélection…** écrit les pages sélectionnées, dans l'ordre de la
+grille quel que soit l'ordre dans lequel elles ont été sélectionnées, dans le
+fichier choisi par le sélecteur d'enregistrement ; le nom proposé est celui
+du document suivi de `-extrait`. Sans sélection, l'action ne fait rien et ne
+dit rien : il n'y a pas d'erreur à signaler. Depuis la grille seulement, comme
+la fusion. Côté Rust, c'est la commande `save_document`, la même qu'un
+enregistrement : la même liste d'indices de pages passée à
+`ops::extract_pages`, le même fichier relu avant d'être annoncé. Seule
+l'interface fait la différence, en ne retenant pas le fichier écrit comme
+point d'enregistrement (`history.ts`).
+
+**Découper…** ouvre un bandeau au-dessus de la grille, jamais une boîte
+modale (ADR 0004), qui règle le partage :
+
+| Réglage | Effet |
+|---|---|
+| `toutes les N pages` | des fichiers de N pages, le dernier plus court si le compte n'est pas un multiple |
+| `avant chaque page sélectionnée` | une coupure devant chaque page sélectionnée ; proposé seulement quand la sélection en donne au moins une, une coupure devant la première page ne produisant rien |
+
+Le bandeau montre en permanence ce qu'il écrirait (« 3 fichiers : 5 + 5 + 2
+pages. »), et suit la sélection et l'ordre tant qu'il est affiché (ADR 0004,
+point 6). C'est un formulaire : Entrée dans le champ lance le découpage, son
+action par défaut empêchée, une soumission rechargerait la page et perdrait
+le document (`form-action 'none'`, ADR 0007). `Annuler` et Échap le ferment,
+ce qui ne perd rien, à la différence de la question posée avant de perdre des
+modifications, qu'Échap ne répond jamais. Ouvrir la vue d'une page le ferme
+aussi : le découpage est un geste de la grille.
+
+- Les parties sont des tranches de **l'ordre affiché**, pas des plages du
+  fichier : le côté Rust reçoit une liste d'indices de pages par partie et
+  les écrit une à une par `ops::extract_pages`. `ops::split` du noyau, lui,
+  prend des plages du fichier, ce que la ligne de commande utilise ; il ne
+  peut pas servir ici, où une page a pu être déplacée ou supprimée.
+- Les fichiers vont dans le dossier choisi par le sélecteur natif, nommés
+  `<nom du document>_partie-01.pdf`, `_partie-02.pdf`, etc., numérotés à
+  partir de 1 avec autant de chiffres qu'il en faut et jamais moins de deux,
+  pour qu'un gestionnaire de fichiers, qui trie les noms comme du texte, les
+  liste dans l'ordre. (La ligne de commande nomme les siens autrement,
+  d'après les pages de chaque partie : `docs/backlog-ui.md`.)
+- **Aucun fichier existant n'est remplacé.** Les noms sont d'abord
+  confrontés au dossier ; si l'un est pris, rien n'est écrit et le bandeau
+  nomme les fichiers en travers (trois au plus, le reste compté). Chaque
+  fichier est ensuite créé par `create_new`, qui refuse en une seule
+  opération un fichier apparu entre-temps. Toutes les parties sont
+  construites et relues sans réparation avant que la première ne soit
+  écrite : une partie que le noyau refuse laisse le dossier tel quel.
+- Un refus, quel qu'il soit — « 0 », un nombre qui n'en est pas un, plus de
+  pages que le document n'en a, un nom déjà pris — s'affiche **dans le
+  bandeau**, qui reste ouvert : c'est le dossier ou le nombre qui doit
+  changer. Rien n'est écrit dans ces cas.
+- À la fin, un bandeau et la barre d'état disent combien de fichiers ont été
+  écrits et où (« 3 fichiers écrits dans D:\\… : de « doc_partie-01.pdf » à
+  « doc_partie-03.pdf ». »).
+- Un document chiffré est extrait et découpé **en clair**, comme il est
+  enregistré ; l'extraction le dit dans un bandeau.
+
+Pourquoi Ctrl+E et Ctrl+D : ces combinaisons ne servent nulle part ailleurs,
+ni dans les raccourcis du navigateur que l'interface neutralise (WebView2 n'a
+ni favoris ni barre d'adresse, voir « Raccourcis du navigateur neutralisés »),
+ni dans le clavier de l'application. Ctrl+K reste réservé à la palette de
+commandes (ADR 0004).
+
 ### Modifications non enregistrées
 
 Le document est **modifié** quand ce qu'`Enregistrer sous…` écrirait n'est
@@ -919,7 +1005,13 @@ vérifie que la release seule injecte le script et retire la variable.
 
 `cargo test -p fyp-app` : description des fixtures (pages, réparation,
 chiffrement, mot de passe faux), ouverture ratée qui laisse le document en
-cours ouvert, enregistrement d'un réordonnancement, rotation (relative à la
+cours ouvert, enregistrement d'un réordonnancement, extraction d'une
+sélection (l'ordre demandé, les rotations appliquées, le document laissé
+tel quel), découpage (un fichier par partie, tranches de l'ordre affiché ;
+parties nommées d'après le document et numérotées ; aucun fichier existant
+remplacé, et rien d'écrit dans ce cas ; découpage refusé sans rien écrire :
+partie vide, plus de parties que de pages, page inexistante ou donnée deux
+fois, dossier qui n'en est pas un), rotation (relative à la
 rotation de chaque page, héritée ou non, ramenée dans 0..360, enregistrée ;
 document chiffré tourné en clair ; rotation refusée sans effet ; rotation
 appliquée seulement au document qu'elle vise, jamais à un fichier ouvert
@@ -954,7 +1046,13 @@ enregistré, annulation et rotation inverse qui rendent le document intact,
 rotation en cours non enregistrée, point d'enregistrement), le numéro tapé
 pour aller à une page (position dans l'ordre actuel, y compris après
 déplacements et suppressions ; numéro hors de portée ou qui n'en est pas un ;
-légende, aide et refus), le nombre de vignettes demandées à la fois selon
+légende, aide et refus), l'extraction de la sélection (disponible seulement
+avec un document, la grille en charge et des pages choisies ; les pages
+désignées dans l'ordre de la grille ; le nom proposé), le découpage (lecture
+du nombre de pages par fichier et ses refus ; coupures tirées de la
+sélection, la première page exclue ; partage de l'ordre affiché toutes les N
+pages ou aux coupures ; ce que le bandeau annonce avant, et dit après), le
+nombre de vignettes demandées à la fois selon
 ce que fait la vue d'une page, le zoom de la vue d'une page (paliers
 jusqu'au plafond du moteur, qui dépend de la page et de l'écran ; point de
 la page sous le pointeur qui reste en place ; bornes du déplacement et bords
@@ -963,6 +1061,7 @@ AZERTY), et les raccourcis du navigateur neutralisés
 (chacun de la liste, aucune touche de l'application, aucun raccourci tenu
 avec d'autres modificateurs ; arrêtés au filtre, seuls ceux des outils de
 développement et ce que Tauri prend pour Ctrl+Maj+I). Le panneau lui-même (disposition, défilement,
-clics), le champ du numéro, le glisser et la molette de la vue, et
+clics), le champ du numéro, le glisser et la molette de la vue, le bandeau
+de découpage lui-même (ses boutons radio, son aperçu, ses refus affichés) et
 l'écouteur qui neutralise les raccourcis passent par le DOM : ils n'y sont
 pas testés.
