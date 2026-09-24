@@ -2,7 +2,9 @@
 // tiles, reorder them by dragging, turn them, delete them, merge other
 // files after them (Ctrl+M), undo and redo, look at one page at a time,
 // beside the grid reduced to a panel of thumbnails or over it, save
-// through `fyp_core::ops` on the Rust side.
+// through `fyp_core::ops` on the Rust side, and write pages into new
+// files without touching the document: the selection (Ctrl+E), or the
+// whole document cut into parts (Ctrl+D).
 // One window, no modal dialog but the system file pickers; every message
 // appears in place (ADR 0004). Unsaved changes are never lost without a
 // word: closing the window or opening another file first asks, in place,
@@ -19,6 +21,7 @@ import {
   onCloseRequested,
   onFileDrop,
   openDocument,
+  pickFolder,
   pickMergeFiles,
   pickOpenFile,
   pickSaveFile,
@@ -26,13 +29,16 @@ import {
   rotatePages,
   saveDocument,
   setWindowTitle,
+  splitDocument,
   type DocumentInfo,
   type SourceReport,
 } from "./api.js";
+import { canExtract, extractName, selectedPages } from "./extract.js";
 import { PageHistory, type Outcome } from "./history.js";
 import { mergeNotices, mergeStatus } from "./merge.js";
 import { attemptOpen, choices, NoticeBoard, type Leaving, type Notice, type NoticeKind } from "./notices.js";
 import { browserShortcut, stopsHere } from "./shortcuts.js";
+import { cutPoints, describeParts, parseEvery, splitAt, splitDone, splitEvery } from "./split.js";
 import { ThumbnailLoader, thumbnailSlots } from "./thumbnails.js";
 import { PageViewer, pageRatio } from "./viewer.js";
 
@@ -50,6 +56,7 @@ const ui = {
   open: element<HTMLButtonElement>("open"),
   openEmpty: element<HTMLButtonElement>("open-empty"),
   merge: element<HTMLButtonElement>("merge"),
+  split: element<HTMLButtonElement>("split"),
   docName: element<HTMLSpanElement>("doc-name"),
   undo: element<HTMLButtonElement>("undo"),
   redo: element<HTMLButtonElement>("redo"),
@@ -166,7 +173,10 @@ function renderNotices(): void {
       const box = noticeBox(n);
       noticeBoxes.set(n.id, box);
       ui.notices.append(box);
-      box.querySelector<HTMLElement>("input, [data-autofocus]")?.focus();
+      // The field to fill, or the button the keyboard should land on when
+      // a box names one: a box may hold several fields (the cut), and the
+      // first is not always the one to type in.
+      (box.querySelector<HTMLElement>("[data-autofocus]") ?? box.querySelector<HTMLElement>("input"))?.focus();
     }
   }
 }
@@ -184,6 +194,12 @@ function noticeBox(n: Notice): HTMLElement {
     // Answered by its three buttons only: no cross, and nothing else
     // dismisses it (ADR 0004, an explicit stop for the irreversible).
     box.append(questionChoices(n.leaving));
+    return box;
+  }
+  if (n.role === "split") {
+    // Its own buttons, `Découper…` and `Annuler`, rather than a cross:
+    // the banner is a tool with a setting, not a message to dismiss.
+    box.append(splitForm());
     return box;
   }
   const close = document.createElement("button");
@@ -236,6 +252,80 @@ function questionChoices(leaving: Leaving): HTMLElement {
     row.append(button);
   }
   return row;
+}
+
+/// The banner that sets up a cut: how the pages are shared out, what that
+/// would produce, and the two ways out. A form, so that Entrée in the
+/// field starts the cut; its default is prevented, a submission would
+/// reload the page and lose the document (`form-action 'none'`, ADR 0007).
+function splitForm(): HTMLFormElement {
+  const form = document.createElement("form");
+  form.className = "split";
+
+  const every = splitChoice("every", "toutes les", true);
+  const count = document.createElement("input");
+  count.type = "text";
+  count.className = "split-every";
+  count.inputMode = "numeric";
+  count.autocomplete = "off";
+  count.spellcheck = false;
+  count.size = 3;
+  count.value = "10";
+  count.setAttribute("aria-label", "Pages par fichier");
+  // The keyboard lands here, on a value ready to be replaced.
+  count.dataset["autofocus"] = "";
+  count.addEventListener("focus", () => count.select());
+  const pages = document.createElement("span");
+  pages.textContent = "pages";
+
+  const before = splitChoice("before", "avant chaque page sélectionnée", false);
+
+  const note = document.createElement("span");
+  note.className = "split-note";
+  const failed = document.createElement("span");
+  failed.className = "split-error";
+  failed.hidden = true;
+
+  const cut = document.createElement("button");
+  cut.type = "submit";
+  cut.className = "primary";
+  cut.textContent = "Découper…";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.textContent = "Annuler";
+  cancel.addEventListener("click", closeSplit);
+  const actions = document.createElement("div");
+  actions.className = "split-actions";
+  actions.append(cut, cancel);
+
+  form.append(every, count, pages, before, actions, note, failed);
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void runSplit();
+  });
+  // A setting changed: the preview follows, and a refusal shown before
+  // does not stay under a value that has changed since.
+  form.addEventListener("change", () => refreshSplitBanner());
+  form.addEventListener("input", () => refreshSplitBanner());
+  return form;
+}
+
+/// One way of cutting, as a radio button in its label: the two share a
+/// name, so the browser keeps one of them chosen and the arrow keys move
+/// between them.
+function splitChoice(value: string, label: string, chosen: boolean): HTMLLabelElement {
+  const box = document.createElement("label");
+  const radio = document.createElement("input");
+  radio.type = "radio";
+  radio.name = "fyp-split-mode";
+  radio.value = value;
+  radio.checked = chosen;
+  const text = document.createElement("span");
+  text.textContent = label;
+  const extra = document.createElement("span");
+  extra.className = "split-cuts";
+  box.append(radio, text, extra);
+  return box;
 }
 
 /// Report something that happened, in place, until closed or until a
@@ -457,6 +547,10 @@ function refreshButtons(): void {
   ui.rotateRight.disabled = !selected;
   // A merge waits its turn among the rotations (history.ts).
   ui.merge.disabled = !editable;
+  ui.split.disabled = !editable;
+  // The banner of a cut, when there is one, follows the selection and the
+  // order it would write.
+  refreshSplitBanner();
   ui.save.disabled = !hasDoc;
   const unsaved = hasDoc && history.unsaved;
   ui.docName.classList.toggle("modified", unsaved);
@@ -546,6 +640,9 @@ function openViewer(position: number): void {
     return;
   }
   hideMenu();
+  // Cutting is a gesture of the grid, like merging: its banner does not
+  // stay open over the page view, where the toolbar refuses it.
+  closeSplit();
   viewerOpenedAt = position;
   // Laid out first: the view fits the page in the room the panel leaves.
   // The thumbnails wait for the page on screen (`thumbnailSlots`).
@@ -927,6 +1024,213 @@ async function save(): Promise<boolean> {
 }
 
 // ---------------------------------------------------------------------------
+// New files out of the document: the selection extracted, the whole
+// document cut into parts. Neither touches the document on screen, its
+// history or its save point: what they write is a copy of what the grid
+// shows, pages in their order, with the rotations applied so far.
+// ---------------------------------------------------------------------------
+
+/// Write the selected pages to a new file (Ctrl+E, the context menu of a
+/// tile). Unavailable without a selection, which is not an error: there is
+/// simply nothing to extract.
+async function extractSelection(): Promise<void> {
+  const info = state.info;
+  const history = state.history;
+  if (
+    info === null ||
+    history === null ||
+    !canExtract({ hasDocument: true, viewerOpen: viewer.isOpen, selected: state.selection.size })
+  ) {
+    return;
+  }
+  hideMenu();
+  // The pages meant, before anything else can change them.
+  const positions = [...state.selection];
+  const path = await pickSaveFile(extractName(info.name));
+  if (path === null || state.history !== history) {
+    return;
+  }
+  if (history.busy) {
+    // The file written must hold the rotations asked for, like saving.
+    setStatus("Extraction à la fin de la rotation en cours…");
+    await history.idle();
+    if (state.history !== history) {
+      return;
+    }
+  }
+  const pages = selectedPages(history.order, positions);
+  if (pages.length === 0) {
+    return;
+  }
+  setStatus(`Extraction vers ${path}…`);
+  try {
+    const report = await saveDocument(path, pages);
+    setStatus(
+      `Extrait : ${report.path} (${report.pages} page${report.pages > 1 ? "s" : ""}, ${formatSize(report.size)}).`,
+    );
+    if (info.encryption !== null) {
+      notice("info", "Le fichier extrait est en clair : la protection du fichier d'origine n'a pas été reportée.");
+    }
+  } catch (e: unknown) {
+    const error = asAppError(e);
+    notice("error", `Extraction impossible : ${error.kind === "other" ? error.message : "mot de passe"}`);
+    setStatus("Extraction impossible.");
+  }
+}
+
+/// Ask how to cut the document: a banner above the grid, never a modal
+/// (ADR 0004). One at a time: asked again while it is there, the keyboard
+/// goes back to it rather than a second banner appearing, or the one
+/// being filled starting over.
+function askSplit(): void {
+  const info = state.info;
+  if (info === null || state.history === null || viewer.isOpen) {
+    return;
+  }
+  hideMenu();
+  if (notices.asksSplit) {
+    splitBanner()?.querySelector<HTMLElement>("[data-autofocus]")?.focus();
+    return;
+  }
+  notices.askSplit(info.name);
+  renderNotices();
+  refreshSplitBanner();
+}
+
+function closeSplit(): void {
+  notices.splitClosed();
+  renderNotices();
+}
+
+/// The banner of the cut, as it stands on screen.
+function splitBanner(): HTMLFormElement | null {
+  return ui.notices.querySelector<HTMLFormElement>("form.split");
+}
+
+/// What a cut would write, from the grid as it now stands: the parts, each
+/// a list of pages in the order shown, or why there are none. Read again
+/// just before writing, so that the files hold what the grid shows then.
+type SplitPlan = { kind: "parts"; parts: number[][] } | { kind: "refused"; message: string };
+
+function splitPlan(form: HTMLFormElement): SplitPlan {
+  const history = state.history;
+  if (history === null) {
+    return { kind: "refused", message: "Aucun document ouvert." };
+  }
+  const order = history.order;
+  if (form.querySelector<HTMLInputElement>('input[value="before"]')?.checked === true) {
+    const cuts = cutPoints(state.selection, order.length);
+    if (cuts.length === 0) {
+      return {
+        kind: "refused",
+        message: "Sélectionnez les pages devant lesquelles couper ; une coupure devant la première page ne produirait rien.",
+      };
+    }
+    return { kind: "parts", parts: splitAt(order, cuts) };
+  }
+  const parsed = parseEvery(form.querySelector<HTMLInputElement>(".split-every")?.value ?? "", order.length);
+  return parsed.kind === "ok"
+    ? { kind: "parts", parts: splitEvery(order, parsed.every) }
+    : { kind: "refused", message: parsed.message };
+}
+
+/// Keep the banner of the cut in step with the grid: cutting before the
+/// selected pages needs some, and the preview of what would be written
+/// follows the order, the selection and the field (ADR 0004, point 6).
+/// A refusal shown before does not outlive what it was about.
+function refreshSplitBanner(): void {
+  const form = splitBanner();
+  if (form === null) {
+    return;
+  }
+  const count = state.history?.order.length ?? 0;
+  const cuts = cutPoints(state.selection, count).length;
+  const before = form.querySelector<HTMLInputElement>('input[value="before"]');
+  if (before !== null) {
+    before.disabled = cuts === 0;
+    if (before.disabled && before.checked) {
+      before.checked = false;
+      const every = form.querySelector<HTMLInputElement>('input[value="every"]');
+      if (every !== null) {
+        every.checked = true;
+      }
+    }
+    const label = before.closest("label");
+    if (label !== null) {
+      label.title = cuts === 0 ? "Sélectionnez au moins une page, autre que la première." : "";
+      const extra = label.querySelector<HTMLElement>(".split-cuts");
+      if (extra !== null) {
+        extra.textContent = cuts === 0 ? "" : ` (${cuts} coupure${cuts > 1 ? "s" : ""})`;
+      }
+    }
+  }
+  const plan = splitPlan(form);
+  const note = form.querySelector<HTMLElement>(".split-note");
+  if (note !== null) {
+    note.textContent = plan.kind === "parts" ? describeParts(plan.parts) : "";
+  }
+  showSplitRefusal("");
+}
+
+/// Say in the banner why nothing was written: a number that is not one,
+/// no page to cut before, a name already taken in the folder chosen.
+function showSplitRefusal(message: string): void {
+  const line = splitBanner()?.querySelector<HTMLElement>(".split-error");
+  if (line === null || line === undefined) {
+    return;
+  }
+  line.textContent = message;
+  line.hidden = message === "";
+}
+
+/// Cut the document as the banner asks: the folder is chosen with the
+/// native picker, and the Rust side writes one file per part, replacing
+/// nothing. A refusal stays in the banner, which stays open: the folder
+/// chosen, or the number typed, is what has to change.
+async function runSplit(): Promise<void> {
+  const history = state.history;
+  const form = splitBanner();
+  if (history === null || form === null) {
+    return;
+  }
+  // What the field holds is read before the picker: an impossible number
+  // is said at once, rather than after choosing a folder for nothing.
+  const wanted = splitPlan(form);
+  if (wanted.kind === "refused") {
+    showSplitRefusal(wanted.message);
+    return;
+  }
+  const dir = await pickFolder();
+  if (dir === null || state.history !== history || splitBanner() === null) {
+    return;
+  }
+  if (history.busy) {
+    // The files written must hold the rotations asked for, like saving.
+    setStatus("Découpage à la fin de la rotation en cours…");
+    await history.idle();
+    if (state.history !== history || splitBanner() === null) {
+      return;
+    }
+  }
+  const plan = splitPlan(form);
+  if (plan.kind === "refused") {
+    showSplitRefusal(plan.message);
+    return;
+  }
+  setStatus(`Découpage dans ${dir}…`);
+  try {
+    const report = await splitDocument(plan.parts, dir);
+    closeSplit();
+    notice("info", splitDone(report));
+    setStatus(splitDone(report));
+  } catch (e: unknown) {
+    const error = asAppError(e);
+    showSplitRefusal(error.kind === "other" ? error.message : "Mot de passe refusé.");
+    setStatus("Découpage impossible.");
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Drag to reorder (pointer events: the native file drop stays enabled,
 // which rules out HTML5 drag and drop inside the window)
 // ---------------------------------------------------------------------------
@@ -1121,6 +1425,9 @@ ui.contextMenu.addEventListener("click", (event) => {
     case "move-last":
       movePositions(positions, count);
       break;
+    case "extract":
+      void extractSelection();
+      break;
     case "merge-here":
       // In front of the first selected page: the right click selected the
       // tile under the pointer.
@@ -1169,6 +1476,9 @@ document.addEventListener("keydown", (event) => {
     if (drag !== null) {
       endDrag(false);
     }
+    // Giving up a cut loses nothing: Échap is its `Annuler`, unlike the
+    // question asked before work would be lost, which it never answers.
+    closeSplit();
     return;
   }
   if (inField) {
@@ -1206,6 +1516,13 @@ document.addEventListener("keydown", (event) => {
   } else if (ctrl && event.key.toLowerCase() === "m") {
     event.preventDefault();
     void chooseAndMerge();
+  } else if (ctrl && event.key.toLowerCase() === "e") {
+    // Nothing selected: nothing to extract, and nothing to say.
+    event.preventDefault();
+    void extractSelection();
+  } else if (ctrl && event.key.toLowerCase() === "d") {
+    event.preventDefault();
+    askSplit();
   } else if (ctrl && event.key.toLowerCase() === "a" && state.history !== null) {
     event.preventDefault();
     state.selection = new Set(state.history.order.map((_, i) => i));
@@ -1249,6 +1566,7 @@ document.addEventListener("keydown", (event) => {
 ui.open.addEventListener("click", () => void chooseAndOpen());
 ui.openEmpty.addEventListener("click", () => void chooseAndOpen());
 ui.merge.addEventListener("click", () => void chooseAndMerge());
+ui.split.addEventListener("click", askSplit);
 ui.undo.addEventListener("click", () => void undo());
 ui.redo.addEventListener("click", () => void redo());
 ui.rotateLeft.addEventListener("click", () => turnSelection(-90));

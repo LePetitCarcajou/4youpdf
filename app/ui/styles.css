@@ -250,6 +250,57 @@ button[aria-pressed="true"] {
   flex-shrink: 0;
 }
 
+/* The banner that sets up a cut (main.ts, `splitForm`): the two ways of
+   cutting on one line with the two buttons, what it would write on the
+   next. */
+.notice form.split {
+  flex: 1;
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+.notice form.split label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.notice form.split label:has(input:disabled) {
+  opacity: 0.55;
+}
+
+/* A radio button keeps the look the engine gives it: the box drawn by
+   `.notice input` is for a field to type in. */
+.notice form.split input[type="radio"] {
+  padding: 0;
+  border: none;
+  background: none;
+  accent-color: var(--accent);
+}
+
+.notice form.split .split-every {
+  text-align: right;
+}
+
+/* `Découper…` and `Annuler`, at the end of the line of settings. */
+.notice form.split .split-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* What the cut would write, and why it would write nothing: their own
+   line, under the settings. */
+.notice form.split .split-note,
+.notice form.split .split-error {
+  flex-basis: 100%;
+}
+
+.notice form.split .split-error {
+  color: var(--danger);
+}
+
 /* The grid and, while a page is opened, the page view: over the grid, or
    beside it with the panel. */
 .workspace {

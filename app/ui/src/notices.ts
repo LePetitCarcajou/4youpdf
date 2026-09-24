@@ -9,6 +9,12 @@
 // a single error, which replaces that of an earlier failed attempt. A file
 // that needs a password is asked for in a notice too, one file at a time.
 //
+// One banner asks rather than reports: the one that sets up a cut
+// (« Découper… »), where the pages per file, or the cuts before the pages
+// selected, are typed in place. It is not a stop in the way of anything:
+// it goes away on `Annuler`, once the files are written, or when another
+// document opens, and one may keep working while it is there.
+//
 // The question asked before work is lost, when the window is closed or
 // another file opened while the document is modified, is a notice as well,
 // never a modal: an explicit stop in place, as ADR 0004 wants for the
@@ -38,8 +44,9 @@ export interface Notice {
   /// `document`: about the document on screen; `event`: something that
   /// happened; `failure`: the last opening that failed; `password`: a
   /// password asked for the file at `path`; `question`: the question asked
-  /// before `leaving` loses the modifications.
-  readonly role: "document" | "event" | "failure" | "password" | "question";
+  /// before `leaving` loses the modifications; `split`: how to cut the
+  /// document, asked in place.
+  readonly role: "document" | "event" | "failure" | "password" | "question" | "split";
   /// The file a failure or a password request is about.
   readonly path: string | null;
   /// What a question stands in the way of.
@@ -103,6 +110,22 @@ export class NoticeBoard {
   /// The question was answered, by one of its buttons.
   answered(): void {
     this.notices = this.notices.filter((n) => n.role !== "question");
+  }
+
+  /// Ask how to cut the document `name`, in place of the request made
+  /// before, if any: one at a time, like the question.
+  askSplit(name: string): void {
+    this.replace(this.make("info", `Découper « ${name} » en plusieurs fichiers :`, "split", null, null));
+  }
+
+  /// The cut was set up and done, or given up.
+  splitClosed(): void {
+    this.notices = this.notices.filter((n) => n.role !== "split");
+  }
+
+  /// Whether the cut is being set up: its banner holds what was typed.
+  get asksSplit(): boolean {
+    return this.notices.some((n) => n.role === "split");
   }
 
   close(id: number): void {

@@ -10,6 +10,7 @@
   <header class="toolbar" role="toolbar" aria-label="Actions">
     <button id="open" type="button" title="Ouvrir un PDF (Ctrl+O)">Ouvrir…</button>
     <button id="merge" type="button" title="Fusionner d'autres PDF à la suite des pages (Ctrl+M)" disabled>Fusionner…</button>
+    <button id="split" type="button" title="Découper le document en plusieurs fichiers (Ctrl+D)" disabled>Découper…</button>
     <span class="doc-name" id="doc-name" aria-live="polite">Aucun document</span>
     <span class="spacer"></span>
     <button id="undo" type="button" title="Annuler (Ctrl+Z)" disabled>Annuler</button>
@@ -79,6 +80,7 @@
     <button type="button" role="menuitem" data-action="delete">Supprimer</button>
     <button type="button" role="menuitem" data-action="move-first">Déplacer au début</button>
     <button type="button" role="menuitem" data-action="move-last">Déplacer à la fin</button>
+    <button type="button" role="menuitem" data-action="extract" title="Écrire les pages sélectionnées dans un nouveau fichier, sans toucher au document (Ctrl+E)">Extraire la sélection…</button>
     <button type="button" role="menuitem" data-action="merge-here" class="apart" title="Fusionner d'autres PDF devant la page sélectionnée">Fusionner ici…</button>
   </div>
 
