@@ -301,6 +301,69 @@ button[aria-pressed="true"] {
   color: var(--danger);
 }
 
+/* The banner that chooses the pages of each file to merge (main.ts,
+   `mergeForm`): one row per file, its name, its page count, its field and
+   what the field takes; then what the merge would add, with the two
+   buttons, and why nothing was merged. Its title stays at the top of a
+   banner several rows high. */
+.notice:has(form.merge) {
+  align-items: flex-start;
+}
+
+.notice form.merge {
+  flex: 1;
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+.notice form.merge .merge-rows {
+  flex-basis: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, max-content) max-content minmax(8em, 14em) minmax(0, 1fr);
+  gap: 4px 12px;
+  align-items: center;
+}
+
+.notice form.merge .merge-name {
+  overflow-wrap: anywhere;
+}
+
+.notice form.merge .merge-count {
+  text-align: right;
+}
+
+/* The field fills its column, whatever width the window leaves it. */
+.notice form.merge .merge-pages {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* A file the merge will skip has no field: why takes its place. */
+.notice form.merge .merge-skipped {
+  grid-column: 3 / 5;
+}
+
+.notice form.merge .merge-note.refused,
+.notice form.merge .merge-error {
+  color: var(--danger);
+}
+
+.notice form.merge .merge-preview {
+  flex: 1;
+}
+
+/* `Fusionner` and `Annuler`, at the end of the line of the preview. */
+.notice form.merge .merge-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.notice form.merge .merge-error {
+  flex-basis: 100%;
+}
+
 /* The grid and, while a page is opened, the page view: over the grid, or
    beside it with the panel. */
 .workspace {

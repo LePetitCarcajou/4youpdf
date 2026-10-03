@@ -1,6 +1,7 @@
 // The window: open a PDF (dialog, drop, Ctrl+O), show its pages as
-// tiles, reorder them by dragging, turn them, delete them, merge other
-// files after them (Ctrl+M), undo and redo, look at one page at a time,
+// tiles, reorder them by dragging, turn them, delete them, merge the pages
+// chosen of other files after them (Ctrl+M), undo and redo, look at one
+// page at a time,
 // beside the grid reduced to a panel of thumbnails or over it, save
 // through `fyp_core::ops` on the Rust side, and write pages into new
 // files without touching the document: the selection (Ctrl+E), or the
@@ -31,12 +32,13 @@ import {
   saveDocument,
   setWindowTitle,
   splitDocument,
+  type Candidate,
   type DocumentInfo,
   type SourceReport,
 } from "./api.js";
 import { canExtract, extractName, selectedPages } from "./extract.js";
 import { PageHistory, type Outcome } from "./history.js";
-import { mergeNotices, mergeStatus } from "./merge.js";
+import { describeMerge, mergeNotices, mergePages, mergeStatus, readRow, rowNote, type Row } from "./merge.js";
 import { attemptOpen, choices, NoticeBoard, type Leaving, type Notice, type NoticeKind } from "./notices.js";
 import { browserShortcut, stopsHere } from "./shortcuts.js";
 import { cutPoints, describeParts, parseEvery, splitAt, splitDone, splitEvery } from "./split.js";
@@ -201,6 +203,11 @@ function noticeBox(n: Notice): HTMLElement {
     // Its own buttons, `Découper…` and `Annuler`, rather than a cross:
     // the banner is a tool with a setting, not a message to dismiss.
     box.append(splitForm());
+    return box;
+  }
+  if (n.role === "merge" && mergeRequest !== null) {
+    // Likewise, `Fusionner` and `Annuler`.
+    box.append(mergeForm(mergeRequest));
     return box;
   }
   const close = document.createElement("button");
@@ -374,6 +381,8 @@ function loaded(info: DocumentInfo): void {
   state.info = info;
   state.history = new PageHistory(info.pages, (pages, degrees) => rotatePages(info.document, pages, degrees));
   state.selection.clear();
+  // The banner of a merge went with the notices of the document before.
+  mergeRequest = null;
   thumbnails.reset(state.rendererAvailable);
   resetViewer();
   ui.docName.textContent = info.name;
@@ -550,8 +559,10 @@ function refreshButtons(): void {
   ui.merge.disabled = !editable;
   ui.split.disabled = !editable;
   // The banner of a cut, when there is one, follows the selection and the
-  // order it would write.
+  // order it would write; that of a merge, the page count and the place
+  // its pages would take.
   refreshSplitBanner();
+  refreshMergeBanner();
   ui.save.disabled = !hasDoc;
   const unsaved = hasDoc && history.unsaved;
   ui.docName.classList.toggle("modified", unsaved);
@@ -641,9 +652,10 @@ function openViewer(position: number): void {
     return;
   }
   hideMenu();
-  // Cutting is a gesture of the grid, like merging: its banner does not
-  // stay open over the page view, where the toolbar refuses it.
+  // Cutting and merging are gestures of the grid: their banners do not
+  // stay open over the page view, where the toolbar refuses them.
   closeSplit();
+  closeMerge();
   viewerOpenedAt = position;
   // Laid out first: the view fits the page in the room the panel leaves.
   // The thumbnails wait for the page on screen (`thumbnailSlots`).
@@ -852,59 +864,288 @@ function turnSelection(degrees: number): void {
   void turnPages(pages, degrees, false);
 }
 
-/// Pick the files to merge, several at once, then merge them: at the end
-/// of the grid, or from position `at` (« Fusionner ici… » on a tile).
+/// Pick the files to merge, several at once, then ask which pages of each
+/// to take, in a banner above the grid: at the end of the grid, or in
+/// front of the page at position `at` (« Fusionner ici… » on a tile).
 async function chooseAndMerge(at?: number): Promise<void> {
-  if (state.history === null || viewer.isOpen) {
-    return;
-  }
-  const candidates = await pickMergeFiles();
-  if (candidates !== null && candidates.length > 0) {
-    await mergeFiles(
-      candidates.map((c) => c.path),
-      candidates.map(() => null),
-      at,
-    );
-  }
-}
-
-/// Append the pages chosen of the files at `paths`, in that order, to the
-/// document, all of them where `pages` gives no list: the Rust side
-/// rewrites it through `ops::merge_selected`, and the new pages go into the
-/// grid at the end, or from position `at`, selected, as one edit that
-/// Ctrl+Z undoes. A file that does not open is skipped and said so, and the
-/// others merge without it (merge.ts). Not while the page view is open,
-/// whose order must not change.
-async function mergeFiles(paths: readonly string[], pages: readonly (number[] | null)[], at?: number): Promise<void> {
-  const info = state.info;
   const history = state.history;
-  if (info === null || history === null || viewer.isOpen || paths.length === 0) {
+  if (history === null || viewer.isOpen) {
     return;
   }
   hideMenu();
+  // The page meant, not its position: the grid may change while the
+  // picker, then the banner, are open.
+  const before = at === undefined ? null : (history.order[at] ?? null);
+  let candidates: Candidate[] | null;
+  try {
+    candidates = await pickMergeFiles();
+  } catch (e: unknown) {
+    const error = asAppError(e);
+    notice("error", `Fusion impossible : ${error.kind === "other" ? error.message : "mot de passe"}`);
+    return;
+  }
+  if (candidates === null || candidates.length === 0 || state.history !== history || viewer.isOpen) {
+    return;
+  }
+  askMerge({ candidates, before });
+}
+
+// ---------------------------------------------------------------------------
+// The banner of a merge: which pages of each file chosen, never a modal
+// (ADR 0004). The pages merged go into the grid as one edit, as they did
+// before the banner: Ctrl+Z takes them out, `Enregistrer sous…` writes them.
+// ---------------------------------------------------------------------------
+
+/// A merge being set up: the files chosen, as the Rust side described them
+/// once chosen, and the page, an index into the file, in front of which
+/// their pages go, `null` for the end of the grid.
+interface MergeRequest {
+  readonly candidates: readonly Candidate[];
+  readonly before: number | null;
+}
+
+/// The merge its banner sets up, while there is one.
+let mergeRequest: MergeRequest | null = null;
+
+/// Whether a merge asked from the banner is running: asking again waits.
+let merging = false;
+
+/// Ask which pages of the files of `request` to merge: a banner above the
+/// grid, in place of the one set up before and of the banner of a cut.
+function askMerge(request: MergeRequest): void {
+  const info = state.info;
+  if (info === null) {
+    return;
+  }
+  mergeRequest = request;
+  notices.askMerge(info.name);
+  renderNotices();
+  refreshMergeBanner();
+}
+
+function closeMerge(): void {
+  notices.mergeClosed();
+  mergeRequest = null;
+  renderNotices();
+}
+
+/// The banner of the merge, as it stands on screen.
+function mergeBanner(): HTMLFormElement | null {
+  return ui.notices.querySelector<HTMLFormElement>("form.merge");
+}
+
+/// The banner of `request`: one row per file, its name, its page count,
+/// the field where its pages are typed (nothing for every page) and what
+/// the field takes, or why the file will be skipped; then what the merge
+/// would add and where, and the two ways out. A form, so that Entrée in a
+/// field asks for the merge; its default is prevented, a submission would
+/// reload the page and lose the document (`form-action 'none'`, ADR 0007).
+function mergeForm(request: MergeRequest): HTMLFormElement {
+  const form = document.createElement("form");
+  form.className = "merge";
+  const rows = document.createElement("div");
+  rows.className = "merge-rows";
+  let focused = false;
+  request.candidates.forEach((candidate, i) => {
+    const name = document.createElement("span");
+    name.className = "merge-name";
+    name.textContent = `« ${candidate.name} »`;
+    name.title = candidate.path;
+    const count = document.createElement("span");
+    count.className = "merge-count";
+    const note = document.createElement("span");
+    note.className = "merge-note";
+    note.id = `merge-note-${i}`;
+    note.dataset["row"] = String(i);
+    const status = candidate.status;
+    if (status.kind !== "ready") {
+      note.classList.add("merge-skipped");
+      rows.append(name, count, note);
+      return;
+    }
+    count.textContent = `${status.pages} page${status.pages > 1 ? "s" : ""}`;
+    const field = document.createElement("input");
+    field.type = "text";
+    field.className = "merge-pages";
+    field.dataset["row"] = String(i);
+    field.autocomplete = "off";
+    field.spellcheck = false;
+    field.placeholder = "toutes";
+    field.title = "Les pages à fusionner, comme 1,3,5-8, ou 8-5 pour l'ordre inverse ; vide, toutes les pages";
+    field.setAttribute("aria-label", `Pages de « ${candidate.name} » à fusionner`);
+    field.setAttribute("aria-describedby", note.id);
+    if (!focused) {
+      // The keyboard lands in the first field.
+      field.dataset["autofocus"] = "";
+      focused = true;
+    }
+    rows.append(name, count, field, note);
+  });
+
+  const preview = document.createElement("span");
+  preview.className = "merge-preview";
+  const failed = document.createElement("span");
+  failed.className = "merge-error";
+  failed.hidden = true;
+
+  const merge = document.createElement("button");
+  merge.type = "submit";
+  merge.className = "primary";
+  merge.textContent = "Fusionner";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.textContent = "Annuler";
+  cancel.addEventListener("click", closeMerge);
+  if (!focused) {
+    // No file to take pages from: the keyboard goes to the way out.
+    cancel.dataset["autofocus"] = "";
+  }
+  const actions = document.createElement("div");
+  actions.className = "merge-actions";
+  actions.append(merge, cancel);
+
+  form.append(rows, preview, actions, failed);
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void runMerge();
+  });
+  // A field changed: its row and the preview follow, and a refusal shown
+  // before does not stay under lists that have changed since.
+  form.addEventListener("input", () => refreshMergeBanner());
+  return form;
+}
+
+/// Each file of `request` as its field in `form` reads.
+function mergeRows(form: HTMLFormElement, request: MergeRequest): Row[] {
+  return request.candidates.map((candidate, i) =>
+    readRow(candidate, form.querySelector<HTMLInputElement>(`input[data-row="${i}"]`)?.value ?? ""),
+  );
+}
+
+/// Where the pages of `request` would go in the grid as it now stands: the
+/// position of the page they go in front of, `null` for the end, or
+/// `undefined` when that page has left the grid since.
+function mergePosition(request: MergeRequest): number | null | undefined {
+  if (request.before === null) {
+    return null;
+  }
+  const position = state.history?.order.indexOf(request.before) ?? -1;
+  return position < 0 ? undefined : position;
+}
+
+/// Keep the banner of the merge in step with its fields and the grid: what
+/// each field takes, or why not, beside it; what the merge would add, where,
+/// and what the document would then hold (ADR 0004, point 6). A refusal
+/// shown before does not outlive what it was about.
+function refreshMergeBanner(): void {
+  const form = mergeBanner();
+  const request = mergeRequest;
+  const history = state.history;
+  if (form === null || request === null || history === null) {
+    return;
+  }
+  const rows = mergeRows(form, request);
+  rows.forEach((row, i) => {
+    const note = form.querySelector<HTMLElement>(`.merge-note[data-row="${i}"]`);
+    if (note !== null) {
+      note.textContent = rowNote(row);
+      note.classList.toggle("refused", row.kind === "refused");
+    }
+  });
+  const at = mergePosition(request);
+  const preview = form.querySelector<HTMLElement>(".merge-preview");
+  if (preview !== null) {
+    preview.textContent =
+      at === undefined
+        ? "La page devant laquelle fusionner n'est plus dans le document."
+        : describeMerge(rows, history.order.length, at);
+  }
+  const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+  if (submit !== null) {
+    submit.disabled = merging;
+  }
+  showMergeRefusal("");
+}
+
+/// Say in the banner why nothing was merged; `false` when the banner is no
+/// longer there to say it.
+function showMergeRefusal(message: string): boolean {
+  const line = mergeBanner()?.querySelector<HTMLElement>(".merge-error");
+  if (line === null || line === undefined) {
+    return false;
+  }
+  line.textContent = message;
+  line.hidden = message === "";
+  return true;
+}
+
+/// Merge as the banner asks: the pages chosen of each file go into the
+/// grid at the end, or in front of the page meant, selected, as one edit
+/// that Ctrl+Z undoes; the Rust side rewrites the document through
+/// `ops::merge_selected`. A list refused stays refused beside its field, and
+/// nothing is asked; a refusal of the Rust side stays in the banner, which
+/// stays open: a list, or a file changed since, must change. A file that
+/// does not open is skipped and said so, and the others merge without it
+/// (merge.ts). Not while the page view is open, whose order must not change.
+async function runMerge(): Promise<void> {
+  const info = state.info;
+  const history = state.history;
+  const form = mergeBanner();
+  const request = mergeRequest;
+  if (info === null || history === null || form === null || request === null || merging || viewer.isOpen) {
+    return;
+  }
+  const rows = mergeRows(form, request);
+  const pages = mergePages(rows);
+  if (pages === null) {
+    // Each list refused says why beside its field: the keyboard goes to
+    // the first.
+    const first = rows.findIndex((row) => row.kind === "refused");
+    form.querySelector<HTMLInputElement>(`input[data-row="${first}"]`)?.focus();
+    return;
+  }
+  if (!rows.some((row) => row.kind === "all" || row.kind === "pages")) {
+    showMergeRefusal("Aucun des fichiers choisis ne peut être fusionné : il n'y a rien à ajouter.");
+    return;
+  }
+  const at = mergePosition(request);
+  if (at === undefined) {
+    showMergeRefusal("La page devant laquelle fusionner a été supprimée : relancez « Fusionner ici… » sur une autre page.");
+    return;
+  }
+  const paths = request.candidates.map((candidate) => candidate.path);
   // Filled by the merger, which runs once the rotations before are done.
   const report: { sources: readonly SourceReport[] } = { sources: [] };
+  merging = true;
   const running = history.merge(async () => {
-    const answer = await mergeDocuments(info.document, [...paths], [...pages]);
+    const answer = await mergeDocuments(info.document, paths, pages);
     report.sources = answer.sources;
     return answer.pages;
-  }, at);
+  }, at ?? undefined);
   setStatus(`Fusion ${paths.length > 1 ? `de ${paths.length} fichiers` : "d'un fichier"}…`);
   refreshButtons();
   const outcome = await running;
+  merging = false;
   if (state.history !== history) {
     return;
+  }
+  if (outcome.kind === "failed") {
+    edited(outcome);
+    const message = `Fusion impossible : ${outcome.message}`;
+    if (!showMergeRefusal(message)) {
+      notice("error", message);
+    }
+    setStatus("Fusion impossible.");
+    return;
+  }
+  if (mergeRequest === request) {
+    closeMerge();
   }
   for (const [kind, text] of mergeNotices(report.sources)) {
     notices.event(kind, text);
   }
   renderNotices();
-  if (outcome.kind === "failed") {
-    notice("error", `Fusion impossible : ${outcome.message}`);
-    setStatus("Fusion impossible.");
-  } else {
-    setStatus(mergeStatus(report.sources));
-  }
+  setStatus(mergeStatus(report.sources));
   edited(outcome);
 }
 
@@ -1483,9 +1724,11 @@ document.addEventListener("keydown", (event) => {
     if (drag !== null) {
       endDrag(false);
     }
-    // Giving up a cut loses nothing: Échap is its `Annuler`, unlike the
-    // question asked before work would be lost, which it never answers.
+    // Giving up a cut or a merge loses nothing: Échap is their `Annuler`,
+    // unlike the question asked before work would be lost, which it never
+    // answers.
     closeSplit();
+    closeMerge();
     return;
   }
   if (inField) {
