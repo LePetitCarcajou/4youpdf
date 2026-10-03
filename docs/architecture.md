@@ -446,10 +446,13 @@ un installeur et une archive portable. Répartition :
   réparation (et en clair s'il était chiffré), puis rendu et enregistré
   tel quel. Elle nomme l'ouverture qu'elle vise et n'est jamais appliquée
   à un autre fichier ouvert entre-temps. Une fusion passe de même par
-  `ops::merge`, avec le document en mémoire et les fichiers choisis lus
-  depuis le disque, chacun ouvert sans mot de passe et vérifié avant,
-  ignoré et signalé s'il ne s'ouvre pas : même réécriture, même relecture,
-  même règle sur l'ouverture visée. `main.rs` expose onze commandes :
+  `ops::merge_selected`, avec le document en mémoire, pris en entier, et
+  les pages choisies de chaque fichier lu depuis le disque, toutes quand
+  aucune n'est choisie ; chaque fichier est ouvert sans mot de passe et
+  vérifié avant, ignoré et signalé s'il ne s'ouvre pas, et une liste de
+  pages qui ne tient pas dans son fichier, ou qui y prend une page deux
+  fois, refuse la fusion entière : même réécriture, même relecture, même
+  règle sur l'ouverture visée. `main.rs` expose onze commandes :
   ouvrir, fermer, état du rendu, fichier passé en ligne de commande, rendre
   une page, faire pivoter des pages, fusionner des fichiers à la suite,
   enregistrer, et les trois sélecteurs de fichiers du système (appelés

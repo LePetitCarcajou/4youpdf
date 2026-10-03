@@ -314,3 +314,29 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
   lecteur s'en plaint, ou avant les annotations de balisage (bloc B) :
   il faudrait copier en profondeur les annotations d'une occurrence
   répétée.
+- [ ] **Deux liens physiques vers le fichier ouvert** (consigné le
+  23 septembre 2026, en empêchant l'extraction de le remplacer).
+  L'extraction refuse le fichier du document ouvert en comparant les chemins
+  rendus canoniques (`fs::canonicalize`), ce qui reconnaît d'autres
+  majuscules, un détour par `dossier\..` ou un lien symbolique ; deux liens
+  physiques (`mklink /H`) vers un même fichier restent deux chemins : le
+  document ouvert par l'un, une extraction vers l'autre remplacerait son
+  contenu. Il
+  faudrait l'identité du fichier (volume et index de fichier), que la
+  bibliothèque standard ne donne qu'en instable
+  (`MetadataExt::volume_serial_number`, `file_index`, fonctionnalité
+  `windows_by_handle`), ou une crate comme `same-file`, dépendance nouvelle.
+  Cas rare : à reprendre quand ces fonctions seront stables.
+- [ ] **`docs/architecture.md` décrit l'application telle qu'en 0.4.1**
+  (consigné le 23 septembre 2026, en y mettant à jour la seule phrase sur la
+  fusion). « Application desktop » dit encore « `main.rs` expose onze
+  commandes » (quinze aujourd'hui, dont deux de la rampe v0.5.0, session B)
+  et ne mentionne ni
+  l'extraction de la sélection ni le découpage ; son « État à la
+  version 0.4.1 » n'a pas suivi la rampe. À réécrire en clôture de rampe.
+- [ ] **Deux modules de l'interface sont commentés en français** (consigné
+  le 23 septembre 2026, en choisissant les pages de chaque fichier
+  fusionné). Les en-têtes de `app/ui/src/extract.ts` et
+  `app/ui/src/split.ts` (rampe v0.5.0, session B) sont en français, alors
+  que `CLAUDE.md` veut les commentaires en anglais ; le reste de ces deux
+  fichiers l'est.

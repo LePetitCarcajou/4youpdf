@@ -266,16 +266,60 @@ la liste une fois fait.
   bandeau du même genre qui relance la fusion du seul fichier protégé avec
   le mot de passe tapé, `merge_documents` prenant alors un mot de passe par
   fichier.
-- [ ] **Choisir les pages de chaque fichier fusionné** (consigné le
-  17 septembre 2026, en ajoutant la fusion). Toutes les pages de chaque
-  fichier viennent, à la fin de la grille ou devant une page (« Fusionner
-  ici… ») ; on supprime ensuite à la main celles qu'on ne voulait pas.
-  Réduit le 20 septembre 2026 (rampe v0.5.0, session A) : le noyau et la
-  ligne de commande le font, `ops::merge_selected` prenant une
-  `ops::Selection` par document et `fyp merge` un `--pages` par fichier
-  (`docs/architecture.md`, « Sélection à la fusion »). Reste l'interface :
-  choisir les pages de chaque fichier au moment de la fusion, et les
-  passer à `merge_documents`.
+- [ ] **Fusionner dans un nouveau fichier** (consigné le 23 septembre 2026,
+  en choisissant les pages de chaque fichier fusionné). `Fusionner…` ajoute
+  les pages choisies à la grille, comme une modification que Ctrl+Z annule,
+  et c'est `Enregistrer sous…` qui écrit le résultat. Le brief de la rampe
+  v0.5.0, session C, décrivait l'autre geste : un fichier neuf écrit sans
+  toucher au document ouvert, à son historique ni à son point
+  d'enregistrement, les pages du document ouvert désignées par leur numéro
+  dans l'ordre affiché ; l'ajout à la grille a été retenu
+  (`docs/sessions/v0.5.0-C-rapport.md`). S'il est voulu, ce geste écrirait
+  par `ops::merge_selected` un fichier neuf, jamais sur le fichier du
+  document ouvert (comme l'extraction), et demanderait une commande de plus.
+  À cadrer avec les documents multiples de l'ADR 0004 (point 8), où la
+  fusion porte sur des documents ouverts.
+- [ ] **Dupliquer une page ; une page tapée deux fois à la fusion**
+  (consigné le 23 septembre 2026, en choisissant les pages de chaque fichier
+  fusionné). `fyp merge --pages 3,3` prend deux fois la page 3 ; le bandeau
+  de fusion de la fenêtre refuse une page tapée deux fois (« la page 3 est
+  demandée deux fois »), et le côté Rust aussi. Vérifié le 23 septembre
+  2026 : `ops::merge_selected` écrit alors deux objets page qui partagent
+  leur contenu, leurs ressources et leurs annotations
+  (`docs/backlog-technique.md`, « Une page qu'une fusion prend deux fois
+  partage ses annotations ») ; tourner l'un laisse l'autre, et extraire les
+  deux fonctionne. La grille les montrerait comme deux pages ajoutées,
+  indépendantes. Ce qu'elle ne sait pas faire, c'est tenir une même page
+  du document deux fois dans l'ordre : `history.ts` et le cache des
+  vignettes sont indexés par page du fichier, une rotation tournerait les
+  deux, et l'enregistrement la refuse (`ops::extract_pages`, « selected
+  more than once »). Dupliquer une page passerait donc par le côté Rust,
+  une copie de la page ajoutée au document en mémoire comme une fusion ;
+  lever alors le refus du bandeau alignerait la fenêtre sur la ligne de
+  commande.
+- [ ] **Deux refus de la lecture des pages sont maladroits** (consigné le
+  23 septembre 2026, en alignant la fenêtre sur la ligne de commande). Un
+  numéro vide dans une plage (`-3`, `3-`, ou `1-` en cours de frappe dans le
+  bandeau de fusion) est cité vide, deux espaces entre les guillemets :
+  « numéro de page invalide : «  » » ; un document d'une page est « le
+  document a 1 page, numérotées de 1 à 1 ». Les deux messages viennent de
+  `parse_pages` (`crates/fyp-cli/src/main.rs`), que la fenêtre reprend mot
+  pour mot, et `tests/fixtures/page-ranges.tsv` les fixe pour les deux
+  lecteurs : les reprendre ensemble, la table de cas d'abord.
+- [ ] **Dire ce qu'une fusion ne reprend pas d'un fichier** (consigné le
+  23 septembre 2026, en choisissant les pages de chaque fichier fusionné).
+  `ops::merge_selected` ne garde que le catalogue du document ouvert
+  (`docs/architecture.md`, « Pertes connues ») : d'un fichier fusionné, la
+  structure balisée (`/StructTreeRoot`, l'accessibilité de ses pages) et
+  les calques (`/OCProperties`, dont la configuration se perd, un calque
+  masqué risquant de s'afficher, à vérifier dans ISO 32000-2, 8.11, avant
+  d'écrire le message) ne sont pas repris, sans que la fenêtre le dise.
+  Recommandation de la session C : un bandeau ciblé, seulement quand un
+  fichier fusionné porte l'une de ces deux structures, jamais un
+  avertissement à chaque fusion ; `/PageLabels`, `/Metadata` et les
+  préférences d'affichage n'en valent pas un. Le côté Rust peut le savoir
+  sans toucher au noyau (`Document::catalog`) au moment où le sélecteur
+  compte les pages.
 - [ ] **Plusieurs fichiers déposés d'un coup : seul le premier s'ouvre**
   (consigné le 17 septembre 2026, en ajoutant la fusion). `main.ts` ouvre
   le premier `.pdf` déposé et ignore les autres sans un mot. Avec la fusion

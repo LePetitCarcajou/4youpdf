@@ -282,13 +282,14 @@ ici).
 
 | Fichier | Rôle |
 |---|---|
-| `src/main.rs` | commandes exposées à l'interface : ouvrir, fermer, état du rendu, fichier passé en ligne de commande, rendre une page, faire pivoter des pages, fusionner des fichiers à la suite, enregistrer, découper en plusieurs fichiers, dialogues de fichiers et de dossier, modifications non enregistrées déclarées, fermeture de la fenêtre ; ouverture de la fenêtre (profil WebView2 d'une copie portable) ; fermeture refusée et portée à l'interface tant que le document est déclaré modifié ; message et arrêt si WebView2 manque ; script d'initialisation qui ferme le menu contextuel natif en release, variable de débogage de WebView2 retirée en release |
-| `src/session.rs` | le document ouvert vu par `fyp-core` : pages, réparation, chiffrement ; rotation par `ops::rotate` et fusion par `ops::merge`, qui réécrivent le document gardé en mémoire, chaque fichier à fusionner ouvert et vérifié d'abord, ignoré et signalé sinon ; enregistrement et extraction par `ops::extract_pages` ; découpage par le même appel, une partie par fichier, nommées et écrites sans jamais en remplacer une qui existe |
+| `src/main.rs` | commandes exposées à l'interface : ouvrir, fermer, état du rendu, fichier passé en ligne de commande, rendre une page, faire pivoter des pages, fusionner à la suite les pages choisies d'autres fichiers, enregistrer, découper en plusieurs fichiers, dialogues de fichiers et de dossier, modifications non enregistrées déclarées, fermeture de la fenêtre ; ouverture de la fenêtre (profil WebView2 d'une copie portable) ; fermeture refusée et portée à l'interface tant que le document est déclaré modifié ; message et arrêt si WebView2 manque ; script d'initialisation qui ferme le menu contextuel natif en release, variable de débogage de WebView2 retirée en release |
+| `src/session.rs` | le document ouvert vu par `fyp-core` : pages, réparation, chiffrement ; rotation par `ops::rotate` et fusion par `ops::merge_selected`, qui réécrivent le document gardé en mémoire, chaque fichier à fusionner compté dès qu'il est choisi, puis ouvert et vérifié de nouveau, ignoré et signalé s'il ne s'ouvre pas, ses pages prises telles que choisies ; enregistrement et extraction par `ops::extract_pages`, l'extraction jamais sur le fichier du document ouvert ; découpage par le même appel, une partie par fichier, nommées et écrites sans jamais en remplacer une qui existe |
 | `src/render.rs` | images des pages (vignettes, vue d'une page) : thread dédié qui charge PDFium et sert les demandes une à une ; où chercher la bibliothèque ; seul endroit qui connaît `pdfium-render`. Le banc de fidélité du rendu (`tools/render_bench`) compile ce fichier tel quel et appelle ses trois étapes une à une : ouvrir, dessiner, encoder |
-| `ui/src/main.ts` | la fenêtre : grille, glisser-déposer, sélection, menu contextuel, fusion de fichiers, extraction de la sélection et bandeau de découpage, panneau de vignettes à côté de la vue d'une page, clavier, raccourcis du navigateur neutralisés, avis en place, question posée avant de perdre des modifications |
+| `ui/src/main.ts` | la fenêtre : grille, glisser-déposer, sélection, menu contextuel, bandeau de fusion, extraction de la sélection et bandeau de découpage, panneau de vignettes à côté de la vue d'une page, clavier, raccourcis du navigateur neutralisés, avis en place, question posée avant de perdre des modifications |
 | `ui/src/history.ts` | ordre et rotation des pages, pages fusionnées, avec annuler et refaire ; une rotation ou une fusion est faite par le côté Rust, une à la fois ; ce qui compte comme modifié, et le point d'enregistrement |
-| `ui/src/merge.ts` | ce que la fenêtre dit après une fusion, sans DOM : un bandeau par fichier ignoré, ou fusionné après réparation ou déchiffrement ; la barre d'état |
-| `ui/src/notices.ts` | bandeaux au-dessus de la grille, sans DOM : seule une ouverture réussie les remplace ; la question avant de perdre des modifications et ses trois issues ; le bandeau qui règle un découpage, un seul à la fois |
+| `ui/src/merge.ts` | ce que la fenêtre dit d'une fusion, sans DOM : avant, le champ de chaque fichier lu, les pages demandées au côté Rust, l'aperçu de ce qui serait ajouté et où ; après, un bandeau par fichier ignoré, ou fusionné après réparation ou déchiffrement, et la barre d'état |
+| `ui/src/pagerange.ts` | les listes de pages tapées (`1,3,5-8`, `8-5`), sans DOM : lues comme la ligne de commande les lit, règle pour règle et message pour message, d'après la table de cas `tests/fixtures/page-ranges.tsv` que les deux parcourent ; champ vide pour toutes les pages, page tapée deux fois refusée |
+| `ui/src/notices.ts` | bandeaux au-dessus de la grille, sans DOM : seule une ouverture réussie les remplace ; la question avant de perdre des modifications et ses trois issues ; les bandeaux qui règlent un découpage ou une fusion, un seul à la fois |
 | `ui/src/extract.ts` | « Extraire la sélection… », sans DOM : quand l'action est disponible, quelles pages la sélection désigne dans l'ordre affiché, le nom proposé |
 | `ui/src/split.ts` | « Découper… », sans DOM : lecture du nombre de pages par fichier, coupures devant les pages sélectionnées, partage de l'ordre affiché en parties, ce que le bandeau en dit avant et après |
 | `ui/src/pagenumber.ts` | numéros de la vue d'une page, sans DOM : légende, lecture du numéro tapé pour aller à une page (une position dans l'ordre actuel), aide et refus |
@@ -321,11 +322,12 @@ ici).
   Ctrl+Z et Ctrl+Y annulent et refont. Un document garde au moins une page.
 - R et Maj+R, ou les boutons ↷ et ↶ de la barre d'outils, font pivoter les
   pages sélectionnées d'un quart de tour (voir « Rotation »).
-- `Fusionner…` (Ctrl+M) ajoute toutes les pages d'un ou plusieurs fichiers
-  à la suite de celles du document, et `Fusionner ici…`, dans le menu
-  contextuel d'une vignette, devant la page visée, comme une modification
-  que Ctrl+Z annule ; un fichier qui ne s'ouvre pas est ignoré et signalé,
-  les autres sont fusionnés sans lui (voir « Fusion »).
+- `Fusionner…` (Ctrl+M) ajoute les pages d'un ou plusieurs fichiers à la
+  suite de celles du document, et `Fusionner ici…`, dans le menu contextuel
+  d'une vignette, devant la page visée, comme une modification que Ctrl+Z
+  annule. Un bandeau demande d'abord quelles pages prendre de chaque
+  fichier, toutes si l'on ne tape rien ; un fichier qui ne s'ouvre pas est
+  ignoré et signalé, les autres sont fusionnés sans lui (voir « Fusion »).
 - `Extraire la sélection…`, dans le menu contextuel d'une vignette ou par
   Ctrl+E, écrit les pages sélectionnées dans un nouveau fichier, et
   `Découper…` (Ctrl+D) partage le document en plusieurs fichiers dans un
@@ -621,43 +623,86 @@ changer la sélection, comme dans une liste.
 ### Fusion
 
 `Fusionner…` (Ctrl+M) ouvre le sélecteur de fichiers, plusieurs à la fois,
-et ajoute toutes les pages de chaque fichier choisi, dans l'ordre choisi, à
-la suite des pages du document. `Fusionner ici…`, dernière entrée du menu
-contextuel d'une vignette, les insère devant la première page sélectionnée
-(le clic droit sélectionne la vignette visée), ce qui couvre aussi le début
-du document. Depuis la grille seulement : la vue d'une page ne change pas
-l'ordre.
+puis un bandeau au-dessus de la grille, jamais une boîte modale (ADR 0004),
+qui demande quelles pages prendre de chaque fichier choisi ; les pages
+choisies viennent, dans l'ordre des fichiers, à la suite des pages du
+document. `Fusionner ici…`, dernière entrée du menu contextuel d'une
+vignette, les insère devant la première page sélectionnée (le clic droit
+sélectionne la vignette visée), ce qui couvre aussi le début du document.
+Depuis la grille seulement : la vue d'une page ne change pas l'ordre.
 
-- C'est `ops::merge`, appelé côté Rust avec le document gardé en mémoire et
-  chaque fichier lu depuis le disque : le noyau reçoit des documents
-  ouverts, pas des chemins (ADR 0004). Le document est réécrit en mémoire
-  comme pour une rotation, relu sans réparation, en clair s'il était
-  chiffré ; le catalogue, les métadonnées et l'`/ID` restent ceux du
-  document (`docs/architecture.md`, « Fusion »).
+Le bandeau a une ligne par fichier : son nom, son nombre de pages, un champ
+et ce que le champ prend.
+
+| Tapé | Pages prises |
+|---|---|
+| rien | toutes, dans l'ordre du fichier (le comportement d'avant le bandeau) |
+| `1,3,5-8` | celles-là, dans cet ordre |
+| `8-5` | 8, 7, 6, 5 : une plage à l'envers se lit à l'envers |
+
+- **Les numéros sont ceux des pages du fichier**, à partir de 1, avec la
+  syntaxe de la ligne de commande (`fyp pages`, `fyp merge --pages`) : la
+  lecture (`ui/src/pagerange.ts`) suit `parse_pages` de
+  `crates/fyp-cli/src/main.rs` règle pour règle et message pour message,
+  et les deux parcourent la même table de cas,
+  `tests/fixtures/page-ranges.tsv`. Les pages du document ouvert, elles, se
+  choisissent dans la grille : elles y restent toutes, telles qu'affichées.
+- **Le bandeau montre en permanence ce que la fusion ajouterait** (ADR 0004,
+  point 6) : « 7 pages ajoutées à la fin : 3 de « B.pdf », 4 de
+  « C.pdf » ; le document en aura 10. », ou « devant la page 2 » pour
+  `Fusionner ici…`. Il suit ses champs et la grille : si la page visée
+  change de place, le numéro suit ; si elle est supprimée, le bandeau le
+  dit et la fusion est refusée en place.
+- **Un refus s'affiche à côté de son champ, et rien n'est fusionné** : un
+  numéro qui n'en est pas un (« numéro de page invalide : « abc » »), une
+  page que le fichier n'a pas (« page 13 hors limites : le document a
+  12 pages, numérotées de 1 à 12 », `0` compris), une page tapée deux fois
+  (« la page 3 est demandée deux fois »). Entrée ramène alors le clavier
+  au premier champ refusé. La ligne de commande, elle, prend deux fois une
+  page tapée deux fois ; la fenêtre ne le propose pas pour l'instant
+  (`docs/backlog-ui.md`).
+- C'est un formulaire : Entrée dans un champ lance la fusion, son action par
+  défaut empêchée, une soumission rechargerait la page et perdrait le
+  document (`form-action 'none'`, ADR 0007). `Annuler` et Échap le ferment,
+  ce qui ne perd rien ; ouvrir la vue d'une page le ferme aussi. Un seul
+  bandeau de réglage à la fois : demander un découpage ferme celui de la
+  fusion, et inversement.
+- Côté Rust, le sélecteur répond chaque fichier choisi avec son nombre de
+  pages, ou pourquoi il sera ignoré (`pick_merge_files`) : protégé par un
+  mot de passe, illisible, refusé par le noyau ; le bandeau l'écrit à la
+  place du champ. La fusion elle-même est `ops::merge_selected`
+  (`merge_documents`, qui reçoit une liste de pages par fichier, `null`
+  pour toutes), appelé avec le document gardé en mémoire, pris en entier,
+  et chaque fichier lu de nouveau depuis le disque : le noyau reçoit des
+  documents ouverts, pas des chemins (ADR 0004). Le côté Rust vérifie les
+  listes à son tour, le fichier ayant pu changer depuis qu'il a été choisi,
+  et refuse la fusion entière, sans rien réécrire, en nommant le fichier et
+  la page ; le bandeau reste alors ouvert avec ce refus. Le document est
+  réécrit en mémoire comme pour une rotation, relu sans réparation, en
+  clair s'il était chiffré ; le catalogue, les métadonnées et l'`/ID`
+  restent ceux du document (`docs/architecture.md`, « Fusion »).
 - Les pages ajoutées prennent des indices nouveaux, à la suite de celles du
   fichier, et entrent dans l'historique comme un déplacement : Ctrl+Z les
   retire de l'ordre sans rien demander au côté Rust, elles restent dans le
   document en mémoire, où l'enregistrement les laisse, et Ctrl+Y les rend.
   Elles sont sélectionnées, la première amenée en vue, et leur étiquette
   dit « (ajoutée) » plutôt que « (était N) » : elles n'ont pas de numéro
-  dans le fichier ouvert.
+  dans le fichier ouvert. C'est `Enregistrer sous…` qui écrit le résultat.
 - Une fusion attend son tour parmi les rotations, et les rotations demandées
   après l'attendent.
-- Chaque fichier est ouvert sans mot de passe et vérifié avant la fusion.
-  Un fichier protégé par un mot de passe, un fichier illisible ou que le
-  noyau refuse même après réparation est ignoré, avec un bandeau qui le
-  nomme et dit pourquoi ; les autres sont fusionnés sans lui, et la barre
-  d'état compte les pages ajoutées et les fichiers ignorés. Un fichier
-  réparé à la lecture, ou chiffré avec un mot de passe utilisateur vide,
-  est fusionné et annoncé de même, ses pages en clair. Quand aucun fichier
-  ne peut l'être, rien ne change et il n'y a rien à annuler. Le mot de passe
-  d'un fichier à fusionner n'est pas demandé (`docs/backlog-ui.md`).
+- Chaque fichier est ouvert sans mot de passe. Un fichier protégé par un mot
+  de passe, un fichier illisible ou que le noyau refuse même après
+  réparation est ignoré, avec un bandeau qui le nomme et dit pourquoi ; les
+  autres sont fusionnés sans lui, et la barre d'état compte les pages
+  ajoutées et les fichiers ignorés. Un fichier réparé à la lecture, ou
+  chiffré avec un mot de passe utilisateur vide, est fusionné et annoncé de
+  même, ses pages en clair. Quand aucun fichier ne peut l'être, le bandeau
+  le dit et rien ne change. Le mot de passe d'un fichier à fusionner n'est
+  pas demandé (`docs/backlog-ui.md`).
 - Une fusion ne perd rien : elle ne pose pas la question des modifications
   non enregistrées, à la différence de l'ouverture d'un autre fichier. Le
   temps qu'elle dure, le document compte comme non enregistré, comme
   pendant une rotation.
-- Toutes les pages de chaque fichier, à la fin ou devant une page : choisir
-  les pages d'un fichier reste à faire (`docs/backlog-ui.md`).
 
 ### Extraction et découpage
 
@@ -1040,7 +1085,13 @@ appliquée seulement au document qu'elle vise, jamais à un fichier ouvert
 entre-temps), fermeture refusée seulement tant que l'interface déclare le
 document modifié (un document ouvert ou fermé ne l'est plus ; une ouverture
 ratée garde les modifications ; l'interface injoignable, la fenêtre se
-ferme), emplacements de PDFium (un paquet ne cherche jamais dans le
+ferme), fusion des pages choisies de trois documents (celles de
+chaque fichier dans l'ordre tapé, à l'envers pour l'un, relues sans
+réparation, puis enregistrées dans l'ordre de la grille avec la rotation ;
+liste refusée en entier, sans rien réécrire, pour une page demandée deux
+fois, hors limites, une liste vide ou autant de listes que de fichiers ;
+fichier ignoré qui garde sa liste pour lui ; fichiers choisis comptés, ou
+dits ignorés et pourquoi), emplacements de PDFium (un paquet ne cherche jamais dans le
 dépôt dont il vient), dossier `data` qui rend une copie portable,
 configuration (fenêtre ouverte par l'application, pas de version propre,
 zoom de WebView2 laissé coupé ; CSP stricte, présente et sans
@@ -1073,7 +1124,15 @@ avec un document, la grille en charge et des pages choisies ; les pages
 désignées dans l'ordre de la grille ; le nom proposé), le découpage (lecture
 du nombre de pages par fichier et ses refus ; coupures tirées de la
 sélection, la première page exclue ; partage de l'ordre affiché toutes les N
-pages ou aux coupures ; ce que le bandeau annonce avant, et dit après), le
+pages ou aux coupures ; ce que le bandeau annonce avant, et dit après), les
+listes de pages tapées (chaque cas de `tests/fixtures/page-ranges.tsv`, lu
+comme par la ligne de commande, qui parcourt la même table ; champ vide pour
+toutes les pages ; page tapée deux fois refusée, de quelque façon qu'elle
+revienne), la fusion (champ de chaque fichier lu, refus dans les mots de la
+ligne de commande, fichier ignoré sans champ et pourquoi ; une liste par
+fichier demandée au côté Rust, `null` pour toutes, rien tant qu'une liste
+est refusée ; aperçu : combien de pages, de quels fichiers, où, et ce que le
+document aura ; un seul bandeau de réglage à la fois, fusion ou découpage), le
 nombre de vignettes demandées à la fois selon
 ce que fait la vue d'une page, le zoom de la vue d'une page (paliers
 jusqu'au plafond du moteur, qui dépend de la page et de l'écran ; point de
@@ -1084,6 +1143,16 @@ AZERTY), et les raccourcis du navigateur neutralisés
 avec d'autres modificateurs ; arrêtés au filtre, seuls ceux des outils de
 développement et ce que Tauri prend pour Ctrl+Maj+I). Le panneau lui-même (disposition, défilement,
 clics), le champ du numéro, le glisser et la molette de la vue, le bandeau
-de découpage lui-même (ses boutons radio, son aperçu, ses refus affichés) et
-l'écouteur qui neutralise les raccourcis passent par le DOM : ils n'y sont
-pas testés.
+de découpage lui-même (ses boutons radio, son aperçu, ses refus affichés),
+celui de la fusion et l'écouteur qui neutralise les raccourcis passent par
+le DOM : ils n'y sont pas testés.
+
+`python tools/ui_smoke/merge_pages.py` pilote un build de développement par
+le port de débogage de WebView2 (CDP), sur des fichiers dont chaque page dit
+ce qu'elle est : la fusion des pages choisies de trois documents, jusqu'au
+fichier enregistré relu page par page ; les refus en place ; `Fusionner
+ici…` qui suit la page visée ; un seul bandeau de réglage à la fois ; le
+sélecteur natif, dont le côté Rust compte les pages ; l'extraction refusée
+sur le fichier du document ouvert. Il se relance après
+`python tools/build_ui.py` et `cargo build -p fyp-app`, aucune autre
+instance de 4YouPDF ouverte.
