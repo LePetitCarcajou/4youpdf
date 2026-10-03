@@ -76,12 +76,28 @@ export function mergePages(rows: readonly Row[]): (number[] | null)[] | null {
   return rows.map((row) => (row.kind === "pages" ? row.pages : null));
 }
 
+/// Where the pages merged would go in `order`, the pages of the grid as it
+/// now stands: the position of `before`, the page of the file they go in
+/// front of; `null` for the end of the grid; `undefined` when that page has
+/// left the grid since it was meant.
+export function mergePosition(order: readonly number[], before: number | null): number | null | undefined {
+  if (before === null) {
+    return null;
+  }
+  const position = order.indexOf(before);
+  return position < 0 ? undefined : position;
+}
+
 /// What the banner says the merge would do, before it runs (ADR 0004, point
 /// 6): how many pages, from which files, where (`at`, the position the
-/// first of them would take, or `null` for the end of a document of
-/// `documentPages` pages), and how many pages the document would then have.
+/// first of them would take, `null` for the end of a document of
+/// `documentPages` pages, `undefined` when the page they would go in front
+/// of has left the grid), and how many pages the document would then have.
 /// Three files at most are named, the others counted.
-export function describeMerge(rows: readonly Row[], documentPages: number, at: number | null): string {
+export function describeMerge(rows: readonly Row[], documentPages: number, at: number | null | undefined): string {
+  if (at === undefined) {
+    return "La page devant laquelle fusionner n'est plus dans le document.";
+  }
   if (rows.some((row) => row.kind === "refused")) {
     return "Rien n'est fusionné tant qu'une liste de pages est refusée.";
   }
@@ -109,6 +125,36 @@ export function describeMerge(rows: readonly Row[], documentPages: number, at: n
   }
   const parts = taken.map((file) => `${file.count} de « ${file.name} »`);
   return `${total} pages ajoutées ${where} : ${parts.join(", ")} ; ${after}`;
+}
+
+/// What asking for the merge comes to: the keyboard to the first row
+/// refused, which says why beside its field; a refusal said in the banner,
+/// when no file can give a page or the page meant has left the grid; or the
+/// lists to ask the Rust side for, and the position the first page merged
+/// would take, `null` for the end.
+export type MergePlan =
+  | { kind: "refused-row"; row: number }
+  | { kind: "refused"; message: string }
+  | { kind: "merge"; pages: (number[] | null)[]; at: number | null };
+
+/// What asking for the merge comes to, from the rows and from `at`, where
+/// the pages would go (`mergePosition`). The rows are looked at first: a
+/// list refused is corrected before anything else is said.
+export function planMerge(rows: readonly Row[], at: number | null | undefined): MergePlan {
+  const pages = mergePages(rows);
+  if (pages === null) {
+    return { kind: "refused-row", row: rows.findIndex((row) => row.kind === "refused") };
+  }
+  if (!rows.some((row) => row.kind === "all" || row.kind === "pages")) {
+    return { kind: "refused", message: "Aucun des fichiers choisis ne peut être fusionné : il n'y a rien à ajouter." };
+  }
+  if (at === undefined) {
+    return {
+      kind: "refused",
+      message: "La page devant laquelle fusionner a été supprimée : relancez « Fusionner ici… » sur une autre page.",
+    };
+  }
+  return { kind: "merge", pages, at };
 }
 
 /// One notice per file that deserves one, in the order of the files: a

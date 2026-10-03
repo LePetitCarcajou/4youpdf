@@ -1,10 +1,21 @@
 // What the window says about a merge. Before: the field of each file read,
-// what the Rust side is asked for, and the preview of what would be added.
+// where the pages would go, the preview of what would be added, and what
+// asking for the merge comes to: what the Rust side is asked for, or why not.
 // After: a notice for each file skipped, and for each file merged with a
 // caveat; a status line that sums up.
 
 import type { Candidate, CandidateStatus, SourceOutcome, SourceReport } from "../src/api.js";
-import { describeMerge, mergeNotices, mergePages, mergeStatus, readRow, rowNote, type Row } from "../src/merge.js";
+import {
+  describeMerge,
+  mergeNotices,
+  mergePages,
+  mergePosition,
+  mergeStatus,
+  planMerge,
+  readRow,
+  rowNote,
+  type Row,
+} from "../src/merge.js";
 import { equal, run, test } from "./check.js";
 
 /// A file chosen, as the Rust side describes it once chosen.
@@ -105,6 +116,60 @@ test("while a list is refused, or when no file can be merged, the banner says so
     "every file skipped",
   );
   equal(describeMerge([], 5, null), "Aucun des fichiers choisis ne peut être fusionné.", "no file");
+});
+
+test("the pages go in front of the page meant, wherever it now stands, or at the end", () => {
+  // The grid once page 2 of the file was moved first and page 1 deleted.
+  const order = [1, 2];
+  equal(mergePosition(order, null), null, "at the end");
+  equal(mergePosition(order, 2), 1, "the page meant, moved");
+  equal(mergePosition(order, 1), 0, "the page meant, now the first");
+  equal(mergePosition(order, 0), undefined, "the page meant, deleted");
+  equal(mergePosition([], null), null, "an empty grid, at the end");
+});
+
+test("when the page meant has left the grid, the banner says so first", () => {
+  equal(
+    describeMerge([readRow(ready("a.pdf", 12), "1")], 5, undefined),
+    "La page devant laquelle fusionner n'est plus dans le document.",
+    "the page meant gone",
+  );
+  equal(
+    describeMerge([readRow(ready("a.pdf", 12), "13")], 5, undefined),
+    "La page devant laquelle fusionner n'est plus dans le document.",
+    "before a list refused",
+  );
+});
+
+test("asking for the merge goes to the first list refused, then refuses in the banner, else merges", () => {
+  const a = readRow(ready("a.pdf", 12), "8-5");
+  const refused = readRow(ready("b.pdf", 3), "4");
+  const skipped = readRow(chosen("verrouillé.pdf", { kind: "protected" }), "");
+  equal(
+    planMerge([skipped, a, refused, refused], undefined),
+    { kind: "refused-row", row: 2 },
+    "the first list refused, before anything else",
+  );
+  equal(
+    planMerge([skipped], undefined),
+    { kind: "refused", message: "Aucun des fichiers choisis ne peut être fusionné : il n'y a rien à ajouter." },
+    "nothing to add, said before the page meant",
+  );
+  equal(planMerge([], null).kind, "refused", "no file");
+  equal(
+    planMerge([a, skipped], undefined),
+    {
+      kind: "refused",
+      message: "La page devant laquelle fusionner a été supprimée : relancez « Fusionner ici… » sur une autre page.",
+    },
+    "the page meant gone",
+  );
+  equal(planMerge([a, skipped], null), { kind: "merge", pages: [[7, 6, 5, 4], null], at: null }, "at the end");
+  equal(
+    planMerge([skipped, readRow(ready("b.pdf", 3), "")], 4),
+    { kind: "merge", pages: [null, null], at: 4 },
+    "in front of a page",
+  );
 });
 
 /// A file as the Rust side reports it.

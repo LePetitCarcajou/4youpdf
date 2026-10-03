@@ -38,7 +38,16 @@ import {
 } from "./api.js";
 import { canExtract, extractName, selectedPages } from "./extract.js";
 import { PageHistory, type Outcome } from "./history.js";
-import { describeMerge, mergeNotices, mergePages, mergeStatus, readRow, rowNote, type Row } from "./merge.js";
+import {
+  describeMerge,
+  mergeNotices,
+  mergePosition,
+  mergeStatus,
+  planMerge,
+  readRow,
+  rowNote,
+  type Row,
+} from "./merge.js";
 import { attemptOpen, choices, NoticeBoard, type Leaving, type Notice, type NoticeKind } from "./notices.js";
 import { browserShortcut, stopsHere } from "./shortcuts.js";
 import { cutPoints, describeParts, parseEvery, splitAt, splitDone, splitEvery } from "./split.js";
@@ -1022,17 +1031,6 @@ function mergeRows(form: HTMLFormElement, request: MergeRequest): Row[] {
   );
 }
 
-/// Where the pages of `request` would go in the grid as it now stands: the
-/// position of the page they go in front of, `null` for the end, or
-/// `undefined` when that page has left the grid since.
-function mergePosition(request: MergeRequest): number | null | undefined {
-  if (request.before === null) {
-    return null;
-  }
-  const position = state.history?.order.indexOf(request.before) ?? -1;
-  return position < 0 ? undefined : position;
-}
-
 /// Keep the banner of the merge in step with its fields and the grid: what
 /// each field takes, or why not, beside it; what the merge would add, where,
 /// and what the document would then hold (ADR 0004, point 6). A refusal
@@ -1052,13 +1050,10 @@ function refreshMergeBanner(): void {
       note.classList.toggle("refused", row.kind === "refused");
     }
   });
-  const at = mergePosition(request);
+  const at = mergePosition(history.order, request.before);
   const preview = form.querySelector<HTMLElement>(".merge-preview");
   if (preview !== null) {
-    preview.textContent =
-      at === undefined
-        ? "La page devant laquelle fusionner n'est plus dans le document."
-        : describeMerge(rows, history.order.length, at);
+    preview.textContent = describeMerge(rows, history.order.length, at);
   }
   const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]');
   if (submit !== null) {
@@ -1095,24 +1090,18 @@ async function runMerge(): Promise<void> {
   if (info === null || history === null || form === null || request === null || merging || viewer.isOpen) {
     return;
   }
-  const rows = mergeRows(form, request);
-  const pages = mergePages(rows);
-  if (pages === null) {
+  const plan = planMerge(mergeRows(form, request), mergePosition(history.order, request.before));
+  if (plan.kind === "refused-row") {
     // Each list refused says why beside its field: the keyboard goes to
     // the first.
-    const first = rows.findIndex((row) => row.kind === "refused");
-    form.querySelector<HTMLInputElement>(`input[data-row="${first}"]`)?.focus();
+    form.querySelector<HTMLInputElement>(`input[data-row="${plan.row}"]`)?.focus();
     return;
   }
-  if (!rows.some((row) => row.kind === "all" || row.kind === "pages")) {
-    showMergeRefusal("Aucun des fichiers choisis ne peut être fusionné : il n'y a rien à ajouter.");
+  if (plan.kind === "refused") {
+    showMergeRefusal(plan.message);
     return;
   }
-  const at = mergePosition(request);
-  if (at === undefined) {
-    showMergeRefusal("La page devant laquelle fusionner a été supprimée : relancez « Fusionner ici… » sur une autre page.");
-    return;
-  }
+  const { pages, at } = plan;
   const paths = request.candidates.map((candidate) => candidate.path);
   // Filled by the merger, which runs once the rotations before are done.
   const report: { sources: readonly SourceReport[] } = { sources: [] };
