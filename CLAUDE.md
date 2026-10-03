@@ -8,14 +8,52 @@ pourquoi, tu écris le code. Ce fichier vaut pour chaque session, même après
 
 ## Rôles et déroulé d'une session
 
-1. Une session = un brief, dans `docs/sessions/<id>.md`. Le brief fixe le
-   périmètre ; rien d'autre n'est fait.
-2. **Phase 1, état des lieux** : relis les fichiers nommés par le brief et
-   ceux qu'ils touchent, puis présente l'existant et ta proposition
-   (interface, commandes, découpage du code). **Arrête-toi et attends le
-   « go » de Martin.** Toute décision d'architecture lui revient.
-3. **Phase 2, réalisation** : code, tests, docs, puis le rapport de fin
-   écrit dans `docs/sessions/<id>-rapport.md` (format plus bas).
+Une session = un brief, dans `docs/sessions/<id>.md`. Le brief fixe le
+périmètre et contient déjà les décisions d'architecture de Martin (section
+« Décisions déjà prises ») ; rien d'autre n'est fait. Deux façons de la
+mener :
+
+- **`/session <id>`** (par défaut) : tu mènes la session de bout en bout,
+  sans attendre Martin entre les étapes : état des lieux, code, sous-agent
+  `testeur`, sous-agent `relecteur`, au plus deux tours de correction,
+  rapport, script de commits. Tu ne t'arrêtes que sur l'un des **arrêts**
+  ci-dessous.
+- **`/brief <id>`** : tu présentes l'état des lieux et ta proposition, puis
+  tu attends le « go » de Martin avant d'écrire du code.
+
+**Arrêts** (en mode `/session`, tu t'arrêtes, tu exposes la situation avec
+ta recommandation et tu attends Martin) :
+
+1. l'état des lieux contredit le brief : il suppose un code, un comportement
+   ou un fichier qui n'existe pas, ou une de ses décisions n'est pas
+   réalisable telle qu'écrite ;
+2. une question d'architecture que le brief ne tranche pas (le brief liste
+   lui-même les questions qu'il te laisse : celles-là, tu les tranches et tu
+   le dis dans le rapport) ;
+3. une dépendance nouvelle (crate, paquet npm) que le brief n'autorise pas ;
+4. une modification de `crates/fyp-core` que le brief n'autorise pas ;
+5. une trouvaille qui empêche d'atteindre l'objectif (`docs/paliers.md`,
+   « Règle de périmètre ») ;
+6. un test, `clippy` ou `build_ui.py` encore rouge après les deux tours de
+   correction ;
+7. le brief demande un arrêt en phase 1 (« Arrêt en phase 1 : oui »).
+
+## Sous-agents
+
+Définis dans `.claude/agents/`. Ils ne voient ni cette conversation ni tes
+intentions : c'est voulu, ils jugent le travail, pas ce que tu voulais
+faire. Ni l'un ni l'autre ne corrige quoi que ce soit : c'est toi qui
+corriges, avec un test qui aurait échoué avant.
+
+- **`testeur`** cherche à mettre la session en défaut. Il n'écrit que sous
+  `target/agents/<id>/` (sondes, copies, PDF fabriqués) et dans
+  `docs/sessions/<id>-tests.md` ; un hook le lui impose. Quand il trouve un
+  défaut, il donne la reproduction minimale et le test à ajouter : c'est
+  toi qui l'écris dans le dépôt.
+- **`relecteur`** relit en lecture seule. Il n'a aucun outil d'écriture et
+  te rend sa relecture en texte ; tu l'enregistres telle quelle dans
+  `docs/sessions/<id>-relecture.md`. Avant et après son passage, tu
+  vérifies que l'arbre de travail n'a pas bougé.
 
 ## Règles strictes
 
@@ -23,30 +61,33 @@ pourquoi, tu écris le code. Ce fichier vaut pour chaque session, même après
   une ligne datée dans `docs/backlog-ui.md` ou `docs/backlog-technique.md`,
   jamais un correctif, même s'il tient en deux lignes. Vérifie d'abord
   qu'elle n'y est pas déjà. Seule exception, une trouvaille qui empêche
-  d'atteindre l'objectif du brief : arrête-toi et propose ; si Martin
-  l'accepte, elle devient une tâche de la session (`docs/paliers.md`,
-  « Règle de périmètre »).
+  d'atteindre l'objectif du brief : c'est l'arrêt 5.
 - **Git** : jamais de `git commit`, `git push`, `git add`, `git stash`,
-  `git checkout`, `git reset` ni `git rebase`. Martin committe à la main.
-  Lecture seule (`status`, `diff`, `log`, `show`) autorisée.
+  `git checkout`, `git switch`, `git reset`, `git restore`, `git clean`,
+  `git rebase`, `git merge`, `git cherry-pick`, `git revert`, `git rm`,
+  `git mv` ni `git tag`. Martin committe, pousse et tague. Lecture seule
+  (`status`, `diff`, `log`, `show`, `archive`) autorisée, et `git apply` ou
+  `git clone --shared` seulement dans une copie hors du dépôt, pour vérifier
+  un découpage en commits.
 - **Formatage** : `cargo fmt -p <crate>` sur les seuls crates modifiés,
   jamais `cargo fmt` sur tout l'espace de travail. Si un fichier hors
   périmètre change quand même, remets-le exactement dans son état d'avant
   et signale-le dans le rapport.
 - **Lint** : `cargo clippy -p <crate> --all-targets -- -D warnings` passe
   sur chaque crate modifié, comme en CI.
-- **Langues** : code, identifiants, noms de tests et commentaires en
-  anglais ; documentation, textes d'interface et rapport en français.
-- **Pas de dépendance nouvelle** (crate, paquet npm) sans l'avoir proposée
-  en phase 1. Entre crates du dépôt, vérifie d'abord le sens des flèches
+- **Langues** : code, identifiants, noms de tests, commentaires et messages
+  de commit en anglais ; documentation, textes d'interface et rapport en
+  français.
+- **Pas de dépendance nouvelle** (crate, paquet npm) que le brief n'autorise
+  pas (arrêt 3). Entre crates du dépôt, vérifie d'abord le sens des flèches
   (`docs/diagrams.md`, diagramme 1). Si `Cargo.lock` change,
   `cargo deny check` passe.
 - **PDF malformé** : tout cas nouvellement géré a sa fixture dans
   `tests/fixtures/` et son test.
 - **Norme** : les commentaires la citent sous la forme
   `ISO 32000-2, 7.3.8`.
-- **Le noyau ne bouge pas** (`crates/fyp-core`) sauf si le brief le dit.
-  S'il le faut quand même, arrête-toi et propose.
+- **Le noyau ne bouge pas** (`crates/fyp-core`) sauf si le brief le dit
+  (arrêt 4).
 
 ## Invariants du projet (ne jamais les casser)
 
@@ -110,32 +151,35 @@ pourquoi, tu écris le code. Ce fichier vaut pour chaque session, même après
 | Types et tests de l'interface | `python tools/build_ui.py` |
 | Build de dev (CLI Tauri non installé) | `python tools/build_ui.py` puis `cargo run -p fyp-app` |
 | Build release | `cargo build --release -p fyp-app` |
+| Version prête pour un tag | `python tools/check_version.py --tag vX.Y.Z` |
 | Inspecter un PDF produit | `cargo run -p fyp-cli -- info <fichier>` |
 
 Fixtures dans `tests/fixtures/` (`mixed12.pdf`, `encrypted-aes256.pdf` avec
 le mot de passe `owner`, etc.). Un script de vérification piloté par le port
-CDP que tu écris est rangé dans `tools/ui_smoke/` et y reste, pour être
-relancé aux sessions suivantes.
+CDP est rangé dans `tools/ui_smoke/` et y reste, pour être relancé aux
+sessions suivantes.
 
 ## Documents de référence
 
 - `docs/feuille-de-route.md` : jalons et sessions, état du projet.
 - `README.md` : présentation du projet.
-- `docs/architecture.md` : noyau, opérations, hôte, état du corpus.
+- `docs/architecture.md` : noyau, opérations, hôte, application, état du
+  corpus.
 - `docs/diagrams.md` : diagramme 1, sens des dépendances entre crates.
 - `docs/paliers.md` : rampes et paliers, nommage des versions, règle de
   périmètre, grille de sortie de palier.
 - `docs/adr/` : décisions (0003 sécurité des modules, 0004 principes UI,
-  0006 réseau, 0007 WebView).
+  0005 rendu PDFium, 0006 réseau, 0007 WebView).
 - `docs/backlog-ui.md`, `docs/backlog-technique.md`.
 - `app/README.md` : comportement de l'application, section par fonction.
+- `docs/sessions/_gabarit.md` : format d'un brief.
 - Moteur de rendu : PDFium. Ne pas rouvrir la question sans nouvelle mesure
   de `tools/render_bench/` (voir `docs/mesure-hayro.md`).
 
 ## Format du rapport de fin (`docs/sessions/<id>-rapport.md`)
 
 1. **État des lieux et choix retenus**, avec l'argument en trois points au
-   plus et l'écart éventuel avec ce qui a été validé en phase 1.
+   plus, les questions que le brief te laissait et ce que tu as tranché.
 2. **Commandes et permissions** nouvelles ou modifiées : tableau commande,
    permission, pourquoi.
 3. **Fichiers modifiés** : tableau fichier, une phrase. Puis « Hors de mon
@@ -143,9 +187,13 @@ relancé aux sessions suivantes.
 4. **Découpage en commits proposé** : Conventional Commits en anglais,
    fichiers de chacun, un paragraphe « Pourquoi » en français. Chaque commit
    compile et passe ses tests seul.
-5. **Lignes ajoutées aux backlogs**, citées, et entrées fermées.
-6. **Ce qu'un script a déjà prouvé** : liste des vérifications passées,
+5. **Lignes ajoutées aux backlogs**, citées, et entrées fermées ou réduites.
+6. **Testeur et relecteur** : nombre de tours ; pour chaque défaut trouvé,
+   une ligne (défaut, correction, test ajouté) ; ce qui reste ouvert, et
+   pourquoi.
+7. **Ce qu'un script a déjà prouvé** : liste des vérifications passées,
    pour que Martin ne les refasse pas.
-7. **Checklist manuelle** : cases à cocher, sur le build de dev puis le
-   build release, limitées à ce qu'aucun script ne prouve. Laisse une ligne
-   « Résultat : » vide sous chaque case, que Martin remplira.
+8. **Checklist manuelle** : cases à cocher, sur le build de dev puis le
+   build release, limitées à ce qu'aucun script ni aucun agent ne prouve.
+   Laisse une ligne « Résultat : » vide sous chaque case, que Martin
+   remplira.
