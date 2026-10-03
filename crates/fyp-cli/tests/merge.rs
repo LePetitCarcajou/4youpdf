@@ -90,7 +90,16 @@ fn pages_takes_the_selection_of_each_input_in_order() {
     let expected =
         ops::merge_selected(&docs, &[Selection::All, Selection::Pages(vec![11, 10, 9])]).unwrap();
     assert!(written == expected, "differs from ops::merge_selected");
-    assert_eq!(Document::open(&written).unwrap().page_count(), Ok(4));
+    // The file written reads back as it is: no table to rebuild by scan,
+    // and no startxref to look around for (ISO 32000-2, 7.5.5).
+    let reread = Document::open(&written).unwrap();
+    assert_eq!(
+        reread.reconstructed(),
+        None,
+        "the file written needed repair"
+    );
+    assert_eq!(reread.relocated_startxref(), None, "startxref is off");
+    assert_eq!(reread.page_count(), Ok(4));
     let _ = std::fs::remove_dir_all(&dir);
 }
 

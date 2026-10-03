@@ -833,6 +833,7 @@ mod tests {
         assert_eq!(report.size, bytes.len() as u64);
         let doc = Document::open(&bytes).unwrap();
         assert_eq!(doc.reconstructed(), None);
+        assert_eq!(doc.relocated_startxref(), None);
         assert_eq!(doc.page_count(), Ok(1));
         // A bad order is refused before anything is written.
         assert!(session.save(&[3], &dir.join("never.pdf")).is_err());
@@ -941,10 +942,13 @@ mod tests {
     }
 
     /// The `/Rotate` of each page of the file at `path`, in reading order.
+    /// The file must read back as it is: no table rebuilt, no startxref
+    /// looked around for (ISO 32000-2, 7.5.5).
     fn rotations_of(path: &Path) -> Vec<i32> {
         let bytes = std::fs::read(path).unwrap();
         let doc = Document::open(&bytes).unwrap();
         assert_eq!(doc.reconstructed(), None, "{}", path.display());
+        assert_eq!(doc.relocated_startxref(), None, "{}", path.display());
         page_infos(&doc).unwrap().iter().map(|p| p.rotate).collect()
     }
 
@@ -1250,6 +1254,7 @@ mod tests {
         assert_eq!(session.info.pages[0], before[0]);
         let doc = Document::open(&session.bytes).expect("open the rewrite");
         assert_eq!(doc.reconstructed(), None);
+        assert_eq!(doc.relocated_startxref(), None);
         assert_eq!(doc.page_count(), Ok(3));
         // A rotation applies to a merged page as to the others, and saving
         // takes the order the interface holds, merged pages in it or not.
@@ -1352,10 +1357,12 @@ mod tests {
     }
 
     /// What each page of the PDF in `bytes` shows ([`labelled`]), in
-    /// reading order. The file must read back without repair.
+    /// reading order. The file must read back without repair: no table
+    /// rebuilt, no startxref looked around for.
     fn labels(bytes: &[u8]) -> Vec<String> {
         let doc = Document::open(bytes).unwrap();
         assert_eq!(doc.reconstructed(), None);
+        assert_eq!(doc.relocated_startxref(), None);
         ops::pages(&doc)
             .unwrap()
             .iter()

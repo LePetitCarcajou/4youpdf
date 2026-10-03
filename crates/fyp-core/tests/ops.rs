@@ -70,6 +70,9 @@ fn sources() -> Vec<(String, Vec<u8>)> {
 fn check_output<'o>(name: &str, out: &'o [u8], expected_pages: usize) -> Document<'o> {
     let doc = Document::open(out).unwrap_or_else(|e| panic!("{name}: reopen: {e}"));
     assert_eq!(doc.reconstructed(), None, "{name}: output needed repair");
+    // Nor a startxref the reader had to look around for (ISO 32000-2,
+    // 7.5.5): it finds a table close by without rebuilding anything.
+    assert_eq!(doc.relocated_startxref(), None, "{name}: startxref is off");
     assert_eq!(doc.encryption(), None, "{name}: output is encrypted");
     assert_eq!(doc.page_count(), Ok(expected_pages), "{name}: /Count");
     let pages = ops::pages(&doc).unwrap_or_else(|e| panic!("{name}: pages: {e}"));
@@ -433,6 +436,11 @@ fn a_merged_selection_round_trips_in_both_xref_styles() {
             .unwrap_or_else(|e| panic!("write ({style:?}): {e}"));
         let again = Document::open(&written).unwrap_or_else(|e| panic!("reopen ({style:?}): {e}"));
         assert_eq!(again.reconstructed(), None, "{style:?}: needed repair");
+        assert_eq!(
+            again.relocated_startxref(),
+            None,
+            "{style:?}: startxref is off"
+        );
         assert_eq!(again.page_count(), Ok(4), "{style:?}");
         if let Err(difference) = compare(&doc, &again) {
             panic!("{style:?}: {difference}");
