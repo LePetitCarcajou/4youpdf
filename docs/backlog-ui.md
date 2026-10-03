@@ -252,6 +252,19 @@ la liste une fois fait.
   fichier écrit. Les éditeurs font du fichier écrit le document courant ;
   ici, cela demande de le rouvrir, avec ses bandeaux, sans perdre
   l'historique (`app/README.md`, « Modifications non enregistrées »).
+- [ ] **Une extraction peut remplacer le fichier tout juste enregistré**
+  (consigné le 23 septembre 2026, en relisant la rampe v0.5.0, session C).
+  Après `Enregistrer sous…` vers `B.pdf`, le document compte comme
+  enregistré (`history.saved`, `app/ui/src/main.ts:1267`) ; une extraction
+  vers `B.pdf`, acceptée dans la question de Windows, le remplace par les
+  seules pages extraites, et la fenêtre tient toujours le travail pour
+  enregistré : la fermer ne demande rien, et les modifications ne sont
+  plus nulle part sur le disque. Même défaut que celui corrigé en
+  session C pour le fichier ouvert, que seul `Session::path` couvre
+  (`app/src/session.rs:257-266`). Lu dans le code, pas reproduit. Piste :
+  que le côté Rust retienne aussi le dernier fichier enregistré et le
+  refuse de même, ou que l'interface marque le document modifié quand une
+  extraction écrit sur ce fichier.
 - [ ] **La question avant de perdre des modifications ne liste qu'un
   document** (consigné le 15 septembre 2026, en la posant). L'ADR 0004 veut
   qu'avec plusieurs documents modifiés la fermeture les liste ; l'application
@@ -320,6 +333,27 @@ la liste une fois fait.
   préférences d'affichage n'en valent pas un. Le côté Rust peut le savoir
   sans toucher au noyau (`Document::catalog`) au moment où le sélecteur
   compte les pages.
+- [ ] **L'aperçu d'une fusion ne voit pas un fichier changé depuis son
+  choix** (consigné le 23 septembre 2026, en relisant la rampe v0.5.0,
+  session C). Le bandeau compte les pages de chaque fichier quand il est
+  choisi (`session::candidates`) ; la fusion relit le fichier et vérifie
+  les listes tapées (`session::selection`), mais pas un champ vide ni un
+  fichier dit ignoré, envoyés tous deux `null` (`app/ui/src/merge.ts:76`).
+  Un fichier remplacé entre-temps par un autre de plus de pages est pris
+  en entier, au-delà du nombre annoncé ; un fichier protégé ou illisible
+  au choix, lisible à la fusion, est fusionné en entier alors que le
+  bandeau le disait ignoré. Piste : envoyer pour chaque fichier le nombre
+  de pages vu au choix, ou « ignoré », et refuser la fusion quand le côté
+  Rust trouve autre chose, comme pour une liste hors limites.
+- [ ] **Échap ferme les bandeaux de fusion et de découpage quand il visait
+  autre chose** (consigné le 23 septembre 2026, en relisant la rampe
+  v0.5.0, session C). `app/ui/src/main.ts:1722-1733` : Échap ferme le menu
+  contextuel, arrête un glisser, et ferme toujours les deux bandeaux de
+  réglage. Qui presse Échap pour fermer le menu d'une vignette, ou dans le
+  champ d'un mot de passe demandé par un autre bandeau, perd les fichiers
+  choisis et les listes tapées de la fusion, ou le réglage du découpage.
+  Piste : qu'Échap ne ferme qu'une chose à la fois, la plus récente (menu,
+  glisser, puis bandeau), ou seulement le bandeau qui a le clavier.
 - [ ] **Plusieurs fichiers déposés d'un coup : seul le premier s'ouvre**
   (consigné le 17 septembre 2026, en ajoutant la fusion). `main.ts` ouvre
   le premier `.pdf` déposé et ignore les autres sans un mot. Avec la fusion
@@ -339,3 +373,34 @@ la liste une fois fait.
   du noyau traduisibles par un code (`Error` porte déjà des variantes,
   `reconstructed()` une chaîne libre), ou bien une table côté interface
   pour les cas fréquents, avec le texte anglais en détail.
+- [ ] **Les messages du noyau numérotent les pages à partir de 0**
+  (consigné le 23 septembre 2026, en relisant la rampe v0.5.0, session C).
+  `fyp pages extract mixed12.pdf 3,3` répond « invalid page operation:
+  page 2 selected more than once » (`crates/fyp-core/src/ops.rs:307`) :
+  l'utilisateur a tapé 3, le noyau cite l'indice 2 ; `fyp pages delete` et
+  `fyp pages rotate` avec `3,3` disent de même (vérifié le 23 septembre
+  2026). La fenêtre passe le texte tel quel (`AppError::from`,
+  `app/src/main.rs:60-66`) : un enregistrement, une extraction, une
+  rotation ou une partie d'un découpage qui recevrait une page deux fois
+  afficherait « Enregistrement impossible : invalid page operation: page 2
+  selected more than once » (lu dans le code ; l'interface n'envoie pas de
+  doublon aujourd'hui). Les autres erreurs de `ops` qui citent une page :
+  `Error::NoSuchPage`, « no page at index {index}: the document has
+  {count} page(s) » (`crates/fyp-core/src/lib.rs:172`), levée par
+  `check_bounds` (`ops.rs:291`, donc `extract_pages`, `delete_pages`,
+  `rotate`, `merge_selected` et `split`) et à la construction
+  (`ops.rs:462`), que la ligne de commande n'atteint pas (`parse_pages`
+  refuse d'abord, en français et à partir de 1) et la fenêtre seulement
+  sur une erreur de l'interface ; « empty page range {start}..{end} » de
+  `ops::split` (`ops.rs:263`), à partir de 0 et fin exclue, qu'aucune des
+  deux n'atteint. Hors de `ops`, même défaut dans
+  `app/src/render.rs:240-252` (« page {page} hors de portée », « rendu de
+  la page {page} : … »), affiché par la vue d'une page (« Rendu
+  impossible : … »). Les autres refus de `ops` (« no page selected »,
+  « the selections leave no page to merge », « deleting every page would
+  leave no page ») ne citent pas de page. Piste : que l'erreur porte
+  l'indice en donnée (`NoSuchPage` le fait déjà, un doublon n'a que du
+  texte) et que chaque interface écrive le message à partir de 1, avec
+  l'entrée « Les raisons du noyau sont en anglais dans les bandeaux » ;
+  sans toucher au noyau, la ligne de commande peut refuser le doublon
+  avant l'appel, comme `session::selection` le fait pour la fusion.

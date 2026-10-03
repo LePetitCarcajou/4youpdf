@@ -340,3 +340,34 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
   `app/ui/src/split.ts` (rampe v0.5.0, session B) sont en français, alors
   que `CLAUDE.md` veut les commentaires en anglais ; le reste de ces deux
   fichiers l'est.
+- [ ] **Le refus d'extraire sur le fichier ouvert cède quand un chemin ne
+  se rend pas canonique** (consigné le 23 septembre 2026, en relisant la
+  rampe v0.5.0, session C). `same_file` (`app/src/session.rs:462-467`)
+  répond « autre fichier » dès que `fs::canonicalize` échoue sur le chemin
+  du document ouvert, et l'extraction écrit. Deux cas possibles, non
+  vérifiés : un volume où Windows ne rend pas le chemin final d'un fichier
+  (disques virtuels ou en mémoire) ; un document ouvert par un chemin
+  relatif passé en ligne de commande (`initial_file`,
+  `app/src/main.rs:437`), gardé tel quel (`session.rs:214`) et résolu
+  contre le répertoire courant du moment de l'extraction, qui a pu
+  changer : `rfd` remplace les options du sélecteur par
+  `FOS_ALLOWMULTISELECT` ou `FOS_PICKFOLDERS` au lieu de les ajouter
+  (rfd 0.16.0, `backend/win_cid/file_dialog/dialog_ffi.rs:319-348`), ce
+  qui ôte `FOS_NOCHANGEDIR` s'il est parmi celles par défaut, pour
+  `Fusionner…` et `Découper…`. Windows demande toujours avant de
+  remplacer, rien n'est donc silencieux, mais le refus que décrit
+  `app/README.md` ne tient plus. Piste : garder à l'ouverture
+  `std::path::absolute(path)` (stable, MSRV 1.95) et, quand la cible
+  existe mais qu'un des deux chemins ne se rend pas canonique, comparer
+  les chemins absolus sans tenir compte de la casse, ou refuser.
+- [ ] **Enregistrer et extraire écrivent en place** (consigné le
+  23 septembre 2026, en relisant la rampe v0.5.0, session C).
+  `Session::save`, qu'une extraction appelle aussi, écrit par
+  `std::fs::write` directement sur le fichier choisi
+  (`app/src/session.rs:240`) : une erreur au milieu (disque plein, support
+  retiré) le laisse tronqué, y compris un fichier existant que
+  l'utilisateur a accepté de remplacer, ou le fichier du document ouvert
+  sous `Enregistrer sous…`. Le document en mémoire reste intact et peut
+  être enregistré ailleurs, mais l'ancien contenu du fichier est perdu.
+  Piste : écrire dans un fichier temporaire du même dossier, puis le
+  renommer par-dessus.
