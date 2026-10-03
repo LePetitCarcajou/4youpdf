@@ -372,3 +372,81 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
   être enregistré ailleurs, mais l'ancien contenu du fichier est perdu.
   Piste : écrire dans un fichier temporaire du même dossier, puis le
   renommer par-dessus.
+- [ ] **Aucun script de `tools/ui_smoke/` ne couvre l'extraction de la
+  sélection ni le découpage** (consigné le 3 octobre 2026, à la clôture de
+  la rampe v0.5.0). Le seul script, `merge_pages.py` (session C), pilote la
+  fusion par pages ; de l'extraction, il ne vérifie que le refus d'écrire
+  sur le fichier ouvert et le remplacement d'un autre fichier, et du
+  découpage, que son bandeau cède la place à celui de la fusion. Les
+  dix-sept vérifications CDP de l'extraction et du découpage (session B,
+  `docs/sessions/v0.5.0-B-rapport.md`, § 6) ont été faites par un script
+  que le dépôt ne garde pas : ces deux gestes ne se revérifient qu'à la
+  main, par la checklist de la clôture.
+- [ ] **`tools/bench_host` retient Wasmtime en 48.0.2** (consigné le
+  3 octobre 2026, en montant Wasmtime à 48.0.5 pour cinq avis RustSec).
+  Son `Cargo.toml` épingle `wasmparser = "=0.254.0"`, « Wasmtime's
+  version », pour que `inspect` lise un module comme le valideur de
+  l'hôte ; Wasmtime 48.0.4 et 48.0.5 demandent `wasmparser` 0.254.1 au
+  moins, si bien que le banc ne peut pas les prendre. Son `Cargo.lock`
+  local, non suivi, reste en 48.0.2 ; une résolution neuve prendrait
+  48.0.3, qui corrige RUSTSEC-2026-0315 et -0316 mais reste touchée par
+  -0325, -0326 et -0327. Le banc est hors de l'espace de travail et ignoré
+  par la CI : rien n'échoue, mais il ne mesure plus la version que l'hôte
+  embarque. Épingler la version de `wasmparser` que tire Wasmtime, ou la
+  lire de `Cargo.lock`.
+- [ ] **Le bac à sable accepte une partie de la proposition GC**
+  (consigné le 3 octobre 2026, à la clôture de la rampe v0.5.0, en
+  vérifiant Wasmtime 48.0.5). Sans la fonction `gc` de Wasmtime, les types
+  `struct`, `array`, `anyref`, `eqref` et `i31ref` déclarés sont refusés au
+  chargement, mais un module qui déclare un groupe `rec`, un sous-type
+  `sub final`, ou qui exécute `ref.i31`, `i31.get_s` et `ref.eq` se charge
+  et tourne : le valideur garde la proposition GC activée. L'ADR 0003 dit
+  le GC écarté. Piste : `config.wasm_gc(false)` dans `Host::with_limits`
+  (refuse `rec`, `ref.i31`, `i31.get_s`, `ref.eq`, pas `sub final` ; le
+  module merge fonctionne toujours) et un test
+  `modules_using_gc_exceptions_or_components_are_refused_at_load` dans
+  `crates/fyp-host/tests/sandbox.rs` (sondes du testeur,
+  `docs/sessions/v0.5.0-cloture-tests.md`, D2).
+- [ ] **Les gardes d'écriture ignorent un `startxref` relocalisé**
+  (consigné le 3 octobre 2026, à la clôture de la rampe v0.5.0).
+  `write_result` et `fyp rewrite` dans la CLI, `Session::save`,
+  `Session::split`, `rotate` et la fusion de l'application, `revalidate` de
+  l'hôte ne refusent qu'un résultat reconstruit (`reconstructed()`) ; un
+  writer qui décalerait `startxref` de moins de 512 octets écrirait un
+  fichier « not sound » (`Document::relocated_startxref`) sans un mot. Les
+  tests de round-trip de la rampe le voient depuis sa clôture ; le code,
+  non. À joindre au palier v0.5.1, session C, qui touche déjà ces
+  écritures.
+- [ ] **`fyp-host` demande toujours `wasmtime = "48.0.2"`** (consigné le
+  3 octobre 2026, en montant Wasmtime à 48.0.5 pour cinq avis RustSec).
+  Seul `Cargo.lock` écarte les versions touchées : `cargo update -p
+  wasmtime --precise 48.0.2` reviendrait en arrière sans erreur de Cargo
+  (`cargo deny` le verrait). Monter l'exigence de
+  `crates/fyp-host/Cargo.toml` à `48.0.5` ferait porter la décision par le
+  manifeste.
+- [ ] **L'en-tête du CHANGELOG dit ses groupes ceux de git-cliff**
+  (consigné le 3 octobre 2026, à la clôture de la rampe v0.5.0). « les
+  groupes ci-dessous sont les siens » (`CHANGELOG.md`, en-tête), mais
+  « Tests » (depuis 0.4.1) et « Sécurité » (0.5.0) ne sont pas des groupes
+  de `cliff.toml` : les notes de la Release v0.5.0 rangeront
+  `fix(deps): update wasmtime…` sous « Corrections ». Ajouter un groupe
+  `Sécurité` à `cliff.toml` (par exemple sur `^fix\(deps\)`) ou
+  reformuler l'en-tête.
+- [ ] **Le brief v0.5.1-cloture, décision 5, oublie la grille de sortie**
+  (consigné le 3 octobre 2026, à la clôture de la rampe v0.5.0). Quand
+  `check_tag` exigera un tag égal au workspace, la case « Versions
+  cohérentes » de la grille de sortie de `docs/paliers.md`, qui prévoit un
+  workspace resté sous le patch du tag (« le dire dans la PR »), deviendra
+  sans objet : à réécrire avec « Nommage ». Par ailleurs l'en-tête du brief
+  admet `tools/check_version.py` et `.github/workflows/`, tandis que son
+  « Hors périmètre » garde « Tout changement de code de production » sans
+  exception.
+- [ ] **`fyp` remplace sans rien dire un fichier de sortie existant**
+  (consigné le 3 octobre 2026, à la clôture de la rampe v0.5.0, par le
+  testeur). `fyp run merge … -o x.pdf` lancé deux fois de suite réussit
+  les deux fois, la seconde remplaçant la première sans un mot ; `fyp
+  merge` et les autres commandes qui passent par `write_result` font de
+  même, alors que `CLAUDE.md` veut qu'aucune opération qui écrit sur le
+  disque ne remplace un fichier existant en silence. L'écriture atomique
+  du palier v0.5.1, session C, rend le remplacement sûr, pas annoncé :
+  refuser sans une option explicite (`--force`), ou le dire.
