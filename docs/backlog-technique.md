@@ -450,16 +450,64 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
   disque ne remplace un fichier existant en silence. L'écriture atomique
   du palier v0.5.1, session C, rend le remplacement sûr, pas annoncé :
   refuser sans une option explicite (`--force`), ou le dire.
-- [ ] **La reconstruction de la table devient quadratique sur un objet
-  vide répété** (consigné le 3 octobre 2026, en rendant
-  `recover::tests::hostile_megabytes_fail_fast` indépendant de la machine).
-  Sur `1 0 obj << endobj` répété, chaque candidat échoue à l'analyse
-  serrée, puis `object_end` appelle `stream_keyword_between`, qui cherche
-  `stream` jusqu'à la fin du fichier sans s'arrêter à la borne `to` ; ce
-  balayage n'est pas compté dans le budget du scan. Mesuré en build de
-  debug avec le compteur d'octets examinés du test : 64 Ko lus 1 883 fois
-  en 1,5 s, 128 Ko 3 704 fois en 6,4 s, 256 Ko 7 345 fois en 25,9 s ; un
-  fichier de quelques mégaoctets bloque l'ouverture de longues minutes.
-  Borner la recherche à `to`, ou mettre en cache la position du prochain
-  `stream` comme celle de `obj`, puis ajouter ce motif aux fichiers du
-  test, sous la même borne `LINEAR`.
+- [ ] **La recherche d'une ligne de commentaire coûte jusqu'à 1 024 octets
+  par candidat de la reconstruction, hors budget** (consigné le 3 octobre
+  2026, session v0.5.1-recover). `recover::on_comment_line` relit
+  `COMMENT_LOOKBACK` octets avant chaque en-tête `n g obj`, sans débit du
+  budget du scan. Le coût reste linéaire, mais sa constante dépend de la
+  période des en-têtes : 63,2 fois la taille sur `1 0 obj << endobj `
+  répété (18 octets), 65,2 fois sur le fichier valide `1 0 obj 1 endobj `
+  répété, 116,8 fois sur `%1 0 obj ` répété, mesurés à 3 Mo avec le
+  compteur `EXAMINED`. La borne `LINEAR` de 64 du test
+  `hostile_megabytes_fail_fast` ne tient donc que pour des motifs dont la
+  période dépasse 17 octets environ : le motif du test n'y passe qu'avec
+  1,3 % de marge, et le même objet vide écrit plus serré la dépasse
+  (`1 0 obj <<endobj ` 66,4, `1 0 obj<<endobj ` 70,1, `1 0 obj endobj `
+  74,2, mesures du testeur). Arrêter la marche arrière au premier saut de
+  ligne ou au premier `%`, mémoriser le début de la ligne courante d'un
+  candidat au suivant, ou débiter ce parcours du budget ; puis ajouter ces
+  écritures au test.
+- [ ] **Les object streams d'un fichier reconstruit sont tous décodés à
+  l'ouverture, sans débit du budget du scan** (consigné le 3 octobre 2026,
+  session v0.5.1-recover, testeur D2). `recover::Scan::load_object_stream`
+  décode chaque `/Type /ObjStm` sous la seule limite
+  `DecodeLimits::max_output` (256 Mio par étage) : un flux de 983 octets
+  compressé deux fois coûte 0,33 s, un fichier de 43 Ko à 64 flux 22,6 s à
+  `fyp info`. Le coût reste linéaire en la taille du fichier, avec une
+  constante de 270 000 par octet. Débiter les octets décodés du budget du
+  scan ferait perdre ses objets à un fichier sain dont les object streams
+  se compressent beaucoup (de l'ordre de sept fois, estimation non
+  mesurée) : le remède est à choisir avec un
+  plafond global de décodage par document, car le chemin normal (table
+  déclarée) décode ses object streams à la demande et reste exposé à une
+  arborescence de pages répartie sur des milliers de flux. La recherche du
+  catalogue lit en plus jusqu'à trois fois les données décodées d'un flux
+  (recherche de `/Catalog`, analyses sur les coupes, relecture entière) :
+  0,77 s au lieu de 0,49 s sur un flux décodé à 200 Mio.
+- [ ] **La reconstruction ne reconnaît pas un catalogue rangé dans un
+  object stream quand un autre objet y est déclaré dans ses octets et
+  qu'un objet listé avant lui dans l'en-tête ne se parse pas non plus sur
+  sa coupe** (consigné le 3 octobre 2026, session v0.5.1-recover, testeur
+  D7). Ce dernier prend la seule relecture entière du flux
+  (`recover::is_catalog_at`, `whole_data_left`), et un fichier sans
+  trailer utilisable perd son `/Root` ; avant cette session, le catalogue
+  était reconnu. Reproduction : en-tête `2 0 1 2 3 7` sur
+  `] << /Type /Catalog /Pages 2 0 R >>`. Ce sont des offsets qui se
+  chevauchent, contraires à ISO 32000-2, 7.5.7, et aucun fichier du corpus
+  n'est concerné. Correction et test décrits par le testeur
+  (`docs/sessions/v0.5.1-recover-tests.md`, tour 2, D7 et U16) : relire
+  chaque objet qui échoue sur sa coupe, sur des plages disjointes bornées
+  par `Parser::pos()` ; elle suppose que `pos()` après une erreur ne
+  recule jamais sous ce que le lexeur a lu, ce qui reste à établir par
+  une lecture du lexeur. Test :
+  `catalog_cut_after_another_object_that_does_not_parse`.
+- [ ] **`fyp info … | head` panique quand le tube se ferme avant la fin de
+  la sortie** (consigné le 3 octobre 2026, session v0.5.1-recover,
+  testeur). `println!` sur un tube fermé : « failed printing to stdout »
+  (os error 232). Écrire par `writeln!` sur `stdout().lock()` et traiter
+  `BrokenPipe` comme une fin normale.
+- [ ] **`docs/architecture.md` dit le budget du scan « huit fois la taille
+  du fichier » sans son plancher de 1 Mio** (consigné le 3 octobre 2026,
+  session v0.5.1-recover, relecture). `BUDGET_FLOOR` dans `recover.rs` ;
+  `docs/diagrams.md`, ligne 110, parle aussi d'un budget « linéaire en la
+  taille du fichier ».

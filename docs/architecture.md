@@ -156,7 +156,16 @@ Règles du scan :
 - Le travail est linéaire : les positions des prochains mots-clés sont
   mises en cache, et un budget global d'octets parsés (huit fois la taille
   du fichier) arrête le scan sur les fichiers construits pour rendre chaque
-  candidat coûteux. Un fichier sans aucun objet valide donne
+  candidat coûteux. La recherche du mot-clé `stream` d'un candidat s'arrête
+  à son `endobj` et son parcours est débité du même budget. Un object
+  stream est relu sur la tranche où le scan l'a accepté, jamais sur le
+  fichier entier, où un `/Length` visant un `endstream` lointain ferait
+  relire le reste du fichier à chacun ; la recherche du catalogue y lit
+  chaque objet une seule fois, sur les données coupées à l'objet suivant,
+  et ne relit sur toutes les données que le premier objet du flux qui ne
+  se parse pas sur sa coupe.
+  Le décodage des object streams, lui, n'a pour borne que la limite de
+  décodage de chaque flux. Un fichier sans aucun objet valide donne
   `Error::Unrecoverable`, qui porte l'erreur de la table déclarée.
 
 Un fichier réparé ne se fait jamais passer pour sain :
