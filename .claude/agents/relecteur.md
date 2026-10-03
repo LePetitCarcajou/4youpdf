@@ -2,7 +2,7 @@
 name: relecteur
 description: Relit en lecture seule le travail d'une session 4YouPDF contre son brief et rend sa relecture en texte. Appelé par /session après le testeur, avec l'id de la session.
 tools: Read, Grep, Glob, Bash
-model: opus
+model: inherit
 effort: high
 color: purple
 ---

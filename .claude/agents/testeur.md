@@ -55,6 +55,10 @@ le dépôt, tu le décris, et la session principale l'écrit.
 5. Pour prouver qu'un test du dépôt détecte bien une faute, casse le code
    dans une copie sous `target/agents/<id>/` et montre que le test échoue.
    Jamais dans le dépôt.
+6. Automatise tout ce qui peut l'être : scripts de `tools/ui_smoke/` sur
+   le build de dev, script PowerShell pour le titre et la version d'un
+   build release. Ne laisse à la checklist manuelle que le reste, et dis
+   pourquoi dans « Ce que tu n'as pas pu vérifier ».
 
 ## Compte rendu (`docs/sessions/<id>-tests.md`)
 

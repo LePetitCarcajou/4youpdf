@@ -49,7 +49,10 @@ corriges, avec un test qui aurait échoué avant.
   `target/agents/<id>/` (sondes, copies, PDF fabriqués) et dans
   `docs/sessions/<id>-tests.md` ; un hook le lui impose. Quand il trouve un
   défaut, il donne la reproduction minimale et le test à ajouter : c'est
-  toi qui l'écris dans le dépôt.
+  toi qui l'écris dans le dépôt. Il automatise tout ce qui peut l'être
+  (scripts de `tools/ui_smoke/` sur le build de dev, script PowerShell
+  pour le titre et la version d'un build release) et ne laisse à la
+  checklist que le reste.
 - **`relecteur`** relit en lecture seule. Il n'a aucun outil d'écriture et
   te rend sa relecture en texte ; tu l'enregistres telle quelle dans
   `docs/sessions/<id>-relecture.md`. Avant et après son passage, tu
@@ -193,7 +196,9 @@ sessions suivantes.
    pourquoi.
 7. **Ce qu'un script a déjà prouvé** : liste des vérifications passées,
    pour que Martin ne les refasse pas.
-8. **Checklist manuelle** : cases à cocher, sur le build de dev puis le
-   build release, limitées à ce qu'aucun script ni aucun agent ne prouve.
-   Laisse une ligne « Résultat : » vide sous chaque case, que Martin
-   remplira.
+8. **Checklist manuelle** : seulement ce que la session a changé et que ni
+   un script ni le testeur n'ont pu vérifier, chaque case disant pourquoi.
+   Une session qui ne change pas le code de l'application n'a pas de case
+   sur la fenêtre. Une checklist vide est l'objectif : écris « Aucune »
+   quand c'est le cas. Laisse une ligne « Résultat : » vide sous chaque
+   case, que Martin remplira ; `/correctif` la lit.
