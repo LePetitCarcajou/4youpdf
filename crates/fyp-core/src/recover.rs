@@ -180,6 +180,7 @@ impl Scan<'_> {
             return Some(self.input.len());
         }
         self.budget -= cost;
+        examined(cost);
         let slice = self.input.get(..end).unwrap_or(self.input);
         let mut parser = Parser::at(slice, start);
         match parser.parse_indirect() {
@@ -241,6 +242,7 @@ impl Scan<'_> {
             return input.len();
         }
         self.budget -= cost;
+        examined(cost);
         let slice = input.get(..end).unwrap_or(input);
         let mut parser = Parser::at(slice, after);
         match parser.parse_object() {
@@ -374,14 +376,32 @@ fn xref_stream_trailer(dict: &Dict) -> Dict {
 // Byte-level helpers
 // ---------------------------------------------------------------------------
 
+/// Count `bytes` looked at by the scan. Tests read the total to check that
+/// the work stays linear in the file size, which a stopwatch cannot do the
+/// same way on every machine.
+#[cfg(test)]
+fn examined(bytes: usize) {
+    tests::EXAMINED.with(|total| total.set(total.get().saturating_add(bytes)));
+}
+
+#[cfg(not(test))]
+fn examined(_bytes: usize) {}
+
+/// Search `haystack`, counting the bytes the search went through.
+fn find_counted(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    let found = find(haystack, needle);
+    examined(found.map_or(haystack.len(), |i| i + needle.len()));
+    found
+}
+
 /// First occurrence of `needle` at or after `from`.
 fn find_from(input: &[u8], from: usize, needle: &[u8]) -> Option<usize> {
-    find(input.get(from..)?, needle).map(|i| from + i)
+    find_counted(input.get(from..)?, needle).map(|i| from + i)
 }
 
 /// First occurrence of `needle` in `from..to`.
 fn find_between(input: &[u8], from: usize, to: usize, needle: &[u8]) -> Option<usize> {
-    find(input.get(from..to)?, needle).map(|i| from + i)
+    find_counted(input.get(from..to)?, needle).map(|i| from + i)
 }
 
 /// Is the byte at `at` (or the end of input) a token boundary?
@@ -441,6 +461,7 @@ fn parse_digits(digits: &[u8]) -> Option<u64> {
 fn on_comment_line(input: &[u8], at: usize) -> bool {
     let from = at.saturating_sub(COMMENT_LOOKBACK);
     let line = input.get(from..at).unwrap_or_default();
+    examined(line.len());
     let line_start = line
         .iter()
         .rposition(|&b| b == b'\n' || b == b'\r')
@@ -508,8 +529,21 @@ fn stream_keyword_between(input: &[u8], from: usize, to: usize) -> Option<usize>
 mod tests {
     use super::*;
     use crate::xref::SectionKind;
+    use std::cell::Cell;
     use std::io::Write;
     use std::time::{Duration, Instant};
+
+    thread_local! {
+        /// Bytes looked at by the scan on this thread, see [`examined`].
+        pub(super) static EXAMINED: Cell<usize> = const { Cell::new(0) };
+    }
+
+    /// Run [`reconstruct`] on `input`; also return the bytes it looked at.
+    fn reconstruct_counted(input: &[u8]) -> (Option<Xref>, usize) {
+        EXAMINED.with(|total| total.set(0));
+        let xref = reconstruct(input, DecodeLimits::default());
+        (xref, EXAMINED.with(Cell::get))
+    }
 
     const CATALOG: &str = "<< /Type /Catalog /Pages 2 0 R >>";
     const PAGES: &str = "<< /Type /Pages /Kids [3 0 R] /Count 1 >>";
@@ -724,9 +758,13 @@ mod tests {
     }
 
     /// Multi-megabyte files without one valid object must fail fast, even
-    /// when every candidate is designed to make the parser run far.
+    /// when every candidate is designed to make the parser run far. Fast is
+    /// measured in bytes looked at, the same on every machine, not in
+    /// seconds: these files cost 3 to 28 times their size, a scan gone
+    /// quadratic costs thousands of times.
     #[test]
     fn hostile_megabytes_fail_fast() {
+        const LINEAR: usize = 64;
         let mut garbage = Vec::with_capacity(3 << 20);
         let mut x: u32 = 12345;
         while garbage.len() < 3 << 20 {
@@ -756,10 +794,19 @@ mod tests {
             ("trailers", trailers),
         ] {
             let started = Instant::now();
-            let result = reconstruct(&file, DecodeLimits::default());
+            let (result, examined) = reconstruct_counted(&file);
             let elapsed = started.elapsed();
             assert!(result.is_none(), "{what}: found objects");
-            assert!(elapsed < Duration::from_secs(5), "{what}: took {elapsed:?}");
+            assert!(
+                examined <= LINEAR * file.len(),
+                "{what}: looked at {examined} bytes of {}",
+                file.len()
+            );
+            // Only catches a hang: the bound above is what fails fast means.
+            assert!(
+                elapsed < Duration::from_secs(60),
+                "{what}: took {elapsed:?}"
+            );
         }
     }
 }
