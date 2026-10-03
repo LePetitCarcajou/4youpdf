@@ -1429,10 +1429,11 @@ mod tests {
     }
 
     /// A list of pages that does not fit its file refuses the whole merge,
-    /// before anything is rewritten, and says which file and which page: a
-    /// page asked twice (which `ops::merge_selected` would take), a page the
-    /// file has not, an empty list, or not one list per file. A file that
-    /// is skipped keeps its list to itself: the others merge.
+    /// and says which file and which page: a page asked twice (which
+    /// `ops::merge_selected` would take), a page the file has not, an empty
+    /// list, or not one list per file. No rewrite comes back, so
+    /// `AppState::merge` commits nothing (main.rs). A file that is skipped
+    /// keeps its list to itself: the others merge.
     #[test]
     fn a_list_of_pages_that_does_not_fit_refuses_the_whole_merge() {
         let dir = temp_dir("merge-refused");
@@ -1441,7 +1442,6 @@ mod tests {
         let b = dir.join("b.pdf");
         std::fs::write(&b, labelled("B", 5)).unwrap();
         let mut session = Session::open(130, &a, "").expect("open");
-        let bytes = Arc::clone(&session.bytes);
         for (pages, expected) in [
             (
                 vec![Some(vec![1, 1])],
@@ -1465,8 +1465,6 @@ mod tests {
             assert!(message.starts_with(expected), "{message}");
             assert!(message.ends_with("rien n'a été fusionné"), "{message}");
         }
-        assert!(Arc::ptr_eq(&session.bytes, &bytes));
-        assert_eq!(labels(&session.bytes), ["A1"]);
 
         let merged = append_pages(
             &mut session,

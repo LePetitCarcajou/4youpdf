@@ -774,7 +774,8 @@ mod tests {
     }
 
     /// A merge extends the document it was meant for, and only that one,
-    /// like a rotation; one that merges nothing leaves it as it is.
+    /// like a rotation; one that merges nothing, or whose lists are refused,
+    /// leaves it as it is.
     #[test]
     fn a_merge_applies_only_to_the_document_it_was_meant_for() {
         let state = AppState::new(Arc::new(RenderService::start(&[])));
@@ -799,6 +800,18 @@ mod tests {
             )
             .expect("merge");
         assert!(report.pages.is_none());
+        assert_eq!(bytes_of(&state).unwrap().0, extended);
+
+        // A list refused: nothing is committed, the id and the bytes of the
+        // document stay.
+        let (_, before) = bytes_of(&state).unwrap();
+        for pages in [Some(vec![0, 0]), Some(vec![5]), Some(vec![])] {
+            assert!(state.merge(first.document, &files, &[pages]).is_err());
+            let (id, bytes) = bytes_of(&state).unwrap();
+            assert_eq!(id, extended);
+            assert!(Arc::ptr_eq(&bytes, &before));
+        }
+        assert!(state.merge(first.document, &files, &[None, None]).is_err());
         assert_eq!(bytes_of(&state).unwrap().0, extended);
 
         // Asked for the first opening, once a second is current.
