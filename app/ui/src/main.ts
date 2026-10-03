@@ -1,10 +1,9 @@
 // The window: open a PDF (dialog, drop, Ctrl+O), show its pages as
 // tiles, reorder them by dragging, turn them, delete them, merge the pages
 // chosen of other files after them (Ctrl+M), undo and redo, look at one
-// page at a time,
-// beside the grid reduced to a panel of thumbnails or over it, save
-// through `fyp_core::ops` on the Rust side, and write pages into new
-// files without touching the document: the selection (Ctrl+E), or the
+// page at a time, beside the grid reduced to a panel of thumbnails or over
+// it, save through `fyp_core::ops` on the Rust side, and write pages into
+// new files without touching the document: the selection (Ctrl+E), or the
 // whole document cut into parts (Ctrl+D).
 // One window, no modal dialog but the system file pickers; every message
 // appears in place (ADR 0004). Unsaved changes are never lost without a

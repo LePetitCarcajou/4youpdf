@@ -15,10 +15,11 @@
 //
 // Merging other files takes the same round trip: the Rust side appends
 // their pages, or those chosen of each, to the document through
-// `ops::merge_selected` and answers with every page as it now stands. The pages beyond those known are new indices,
-// added at the end of the order as an edit like a move: undoing it takes
-// them out of the order, where saving leaves them out, and the file keeps
-// them for a redo. A merge runs in its turn among the rotations.
+// `ops::merge_selected` and answers with every page as it now stands. The
+// pages beyond those known are new indices, added at the end of the order
+// as an edit like a move: undoing it takes them out of the order, where
+// saving leaves them out, and the file keeps them for a redo. A merge runs
+// in its turn among the rotations.
 //
 // Whether the document carries unsaved changes is decided here too, by
 // what saving would write, not by what was done: the order and the

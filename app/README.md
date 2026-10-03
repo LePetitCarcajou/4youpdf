@@ -1076,11 +1076,12 @@ cours ouvert, enregistrement d'un réordonnancement, extraction d'une
 sélection (l'ordre demandé, les rotations appliquées, le document laissé
 tel quel ; jamais sur le fichier du document ouvert, qu'on l'atteigne par
 le même chemin, d'autres majuscules sous Windows ou un détour par un
-dossier, alors qu'un autre fichier existant est remplacé), découpage (un fichier par partie, tranches de l'ordre affiché ;
-parties nommées d'après le document et numérotées ; aucun fichier existant
-remplacé, et rien d'écrit dans ce cas ; découpage refusé sans rien écrire :
-partie vide, plus de parties que de pages, page inexistante ou donnée deux
-fois, dossier qui n'en est pas un), rotation (relative à la
+dossier, alors qu'un autre fichier existant est remplacé), découpage (un
+fichier par partie, tranches de l'ordre affiché ; parties nommées d'après
+le document et numérotées ; aucun fichier existant remplacé, et rien
+d'écrit dans ce cas ; découpage refusé sans rien écrire : partie vide,
+plus de parties que de pages, page inexistante ou donnée deux fois,
+dossier qui n'en est pas un), rotation (relative à la
 rotation de chaque page, héritée ou non, ramenée dans 0..360, enregistrée ;
 document chiffré tourné en clair ; rotation refusée sans effet ; rotation
 appliquée seulement au document qu'elle vise, jamais à un fichier ouvert
@@ -1091,13 +1092,13 @@ ferme), fusion des pages choisies de trois documents (celles de
 chaque fichier dans l'ordre tapé, à l'envers pour l'un, relues sans
 réparation, puis enregistrées dans l'ordre de la grille avec la rotation ;
 liste refusée en entier, sans rien réécrire, pour une page demandée deux
-fois, hors limites, une liste vide ou autant de listes que de fichiers ;
-fichier ignoré qui garde sa liste pour lui ; fichiers choisis comptés, ou
-dits ignorés et pourquoi), emplacements de PDFium (un paquet ne cherche jamais dans le
-dépôt dont il vient), dossier `data` qui rend une copie portable,
-configuration (fenêtre ouverte par l'application, pas de version propre,
-zoom de WebView2 laissé coupé ; CSP stricte, présente et sans
-`'unsafe-eval'`, `'unsafe-inline'` ni source distante ; permissions
+fois, hors limites, une liste vide ou pas autant de listes que de
+fichiers ; fichier ignoré qui garde sa liste pour lui ; fichiers choisis
+comptés, ou dits ignorés et pourquoi), emplacements de PDFium (un paquet
+ne cherche jamais dans le dépôt dont il vient), dossier `data` qui rend une
+copie portable, configuration (fenêtre ouverte par l'application, pas de
+version propre, zoom de WebView2 laissé coupé ; CSP stricte, présente et
+sans `'unsafe-eval'`, `'unsafe-inline'` ni source distante ; permissions
 exactement celles de l'interface, chaque commande de `generate_handler!`
 définie dans `permissions/commands.toml` avec sa raison ; feature
 `devtools` absente et aucun `open_devtools` ; script du menu contextuel et
