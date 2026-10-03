@@ -6,6 +6,72 @@ précédent. Les versions antérieures, jusqu'à v0.3.4, n'ont que les notes de
 leur Release GitHub, que `release.yml` produit par git-cliff (`cliff.toml`)
 à partir des sujets des commits ; les groupes ci-dessous sont les siens.
 
+## [0.5.0] — 3 octobre 2026
+
+Une rampe : les outils de pages complets depuis la fenêtre, à savoir choisir
+les pages de chaque fichier fusionné, extraire la sélection et découper le
+document (`docs/paliers.md`).
+
+### Ajouts
+
+- **core :** `ops::merge_selected` fusionne une sélection de pages de chaque
+  document : toutes, ou une liste d'indices dans l'ordre voulu, où une page
+  peut revenir plusieurs fois. Une page laissée de côté est traitée comme
+  une page supprimée : un signet qui la visait garde son titre et perd sa
+  destination, un lien qui n'a plus de cible disparaît. `ops::merge` garde
+  sa signature et confie son travail à `ops::merge_selected`.
+- **cli :** `fyp merge` accepte un `--pages` par fichier, dans le même
+  ordre, avec la syntaxe de plages des autres commandes (`1,3,5-8`, `8-5`
+  à l'envers) et le mot `all` pour un fichier entier. Sans `--pages`, chaque
+  fichier donne toutes ses pages, comme avant.
+- **app :** `Fusionner…` (Ctrl+M) et `Fusionner ici…` ouvrent un bandeau
+  qui demande quelles pages prendre de chaque fichier choisi, toutes si
+  l'on ne tape rien, avec la syntaxe de la ligne de commande. Le bandeau
+  montre ce que la fusion ajouterait (« 7 pages ajoutées à la fin : 3 de
+  « B.pdf », 4 de « C.pdf » ; le document en aura 10. ») et refuse en place,
+  sans rien fusionner, un numéro qui n'en est pas un, une page que le
+  fichier n'a pas ou une page tapée deux fois. Les pages choisies s'ajoutent
+  à la grille, comme avant, et Ctrl+Z les retire.
+- **app :** `Extraire la sélection…`, dans le menu contextuel d'une vignette
+  ou par Ctrl+E, écrit les pages sélectionnées dans un nouveau fichier, dans
+  l'ordre de la grille et avec leurs rotations, sans toucher au document
+  affiché ni à son historique. L'extraction refuse d'écrire sur le fichier
+  du document ouvert, reconnu même sous d'autres majuscules ou par un détour
+  de chemin, et le dit dans un bandeau.
+- **app :** `Découper…` (Ctrl+D) partage le document en plusieurs fichiers,
+  dans un dossier choisi, toutes les N pages ou avant chaque page
+  sélectionnée, d'après l'ordre de la grille. Un bandeau montre ce qui
+  serait écrit (« 3 fichiers : 5 + 5 + 2 pages. ») ; aucun fichier existant
+  n'est remplacé, et si un seul nom est pris, rien n'est écrit.
+
+### Sécurité
+
+- **deps :** Wasmtime passe de 48.0.2 à 48.0.5, qui corrige cinq avis
+  (RUSTSEC-2026-0315, -0316, -0325, -0326 et -0327) ; aucun n'atteignait le
+  bac à sable des modules, qui borne leur temps par epoch et non par fuel,
+  et compile Wasmtime sans ramasse-miettes, sans exceptions ni modèle de
+  composants.
+
+### Documentation
+
+- `docs/architecture.md` : ce qu'une sélection de fusion prend et laisse
+  (« Sélection à la fusion »), et l'application telle qu'elle est à 0.5.0.
+- `app/README.md` : la fusion par pages, l'extraction et le découpage.
+- `docs/feuille-de-route.md` : la rampe v0.5.0 faite, le palier v0.5.1
+  détaillé en trois sessions, et un palier pour la lecture par blocs et le
+  budget mémoire.
+
+### Tests
+
+- `tests/fixtures/page-ranges.tsv` : 43 listes de pages telles qu'on les
+  tape, avec ce que leur lecture doit donner, refus compris mot pour mot.
+  La ligne de commande et la fenêtre parcourent toutes deux la table, et la
+  lisent de la même façon.
+- Chaque opération de la rampe a un test qui écrit son résultat puis le
+  relit sans réparation, ni table reconstruite ni `startxref` à
+  rechercher : la sélection à la fusion du noyau, `fyp merge --pages`,
+  l'extraction, le découpage et la fusion par pages de la fenêtre.
+
 ## [0.4.1] — 20 septembre 2026
 
 Un palier : rien de nouveau pour l'utilisateur, la dette soldée
