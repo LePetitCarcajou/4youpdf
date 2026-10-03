@@ -65,6 +65,12 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
   ses empreintes et son attestation, ou retirer le job, que le job `test` de
   `ci.yml` double déjà comme compilation de `fyp-cli` sur les trois
   systèmes.
+- [ ] **Deux vérifications à la main laissées par le palier v0.4.1**
+  (consigné le 3 octobre 2026, en condensant le palier v0.4.1 dans
+  `docs/feuille-de-route.md`, qui les portait seule depuis le 20 septembre
+  2026). Hors du dépôt : installer l'installeur publié de v0.4.0 et
+  vérifier son titre et sa version ; annoter la Release v0.3.4 (« les
+  fichiers portent 0.3.3 par erreur »). À retirer une fois faites.
 - [ ] **Aucun test automatique ne couvre `tools/check_version.py`** (consigné
   le 17 septembre 2026, en ouvrant `version-check` aux tags de palier). La
   règle des rampes et des paliers, les deux lignées de versions et celle des
@@ -278,14 +284,17 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
   `docs/architecture.md`, « Feuille de route », garde la clé de lecture de
   ces numéros : à reprendre quand l'un de ces fichiers sera modifié pour
   autre chose.
-- [ ] **La lecture par blocs et le budget mémoire de l'ADR 0004 n'ont ni
-  jalon ni bloc** (consigné le 20 septembre 2026, en datant les numéros de
-  jalons des ADR). L'ADR 0004 les voulait avant le jalon 0.3 ; l'application
-  est sortie sans, chaque document ouvert gardant son fichier entier en
-  mémoire, deux fois avec PDFium (`docs/architecture.md`, « Application
-  desktop »). `docs/feuille-de-route.md` ne les place nulle part, et l'ADR
-  0005 y adosse la reprise du rendu. À cadrer avec l'isolation du rendu
-  (palier v0.5.1), qui déplace l'une des deux copies.
+- [ ] **La lecture par blocs et le budget mémoire de l'ADR 0004**
+  (consigné le 20 septembre 2026 comme « … n'ont ni jalon ni bloc », en
+  datant les numéros de jalons des ADR ; réduit le 3 octobre 2026). L'ADR
+  0004 les voulait avant le jalon 0.3 ; l'application est sortie sans,
+  chaque document ouvert gardant son fichier entier en mémoire, deux fois
+  avec PDFium (`docs/architecture.md`, « Application desktop »), et l'ADR
+  0005 y adosse la reprise du rendu. Depuis la clôture de la rampe v0.5.0,
+  ils ont un palier à eux, « Palier mémoire » au § 6 de
+  `docs/feuille-de-route.md`, après le bloc A et avant tout travail sur
+  plusieurs documents ouverts. Reste à le découper en sessions quand il
+  entrera dans l'horizon détaillé.
 - [ ] **Deux commits de la rampe v0.4.0 ont un sujet en français**
   (consigné le 20 septembre 2026, en rendant la documentation vraie).
   `acaca26` (« feat(app): suffixer le titre de la fenêtre… ») et `ec7a290`

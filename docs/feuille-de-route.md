@@ -4,7 +4,7 @@
 > session Claude Code. Ce document dit où en est le projet, ce qu'on vise, et
 > quel est le prochain petit pas. Il est mis à jour à la fin de chaque jalon.
 >
-> Dernière mise à jour : 20 septembre 2026, à la clôture du palier v0.4.1.
+> Dernière mise à jour : 3 octobre 2026, à la clôture de la rampe v0.5.0.
 
 ---
 
@@ -37,22 +37,21 @@ chantier de dette, **1 à 3 sessions** Claude Code, un **critère de fin
 vérifiable**. Un jalon estimé à plus de 3 sessions est découpé avant de
 commencer.
 
-**Une session Claude Code = un objectif.** Chaque brief :
-1. fait relire les fichiers pertinents en tête (Martin fait des `/clear`) ;
-2. borne strictement l'objectif ;
-3. dit explicitement : « toute trouvaille hors sujet va au backlog
-   (`docs/backlog-ui.md` ou `docs/backlog-technique.md`), sans la corriger » ;
-4. exige `cargo fmt`, `cargo clippy --workspace --all-targets -- -D warnings`,
-   `cargo test --workspace`, `cargo deny check` au vert ;
-5. demande un rapport de fin : fichiers modifiés, découpage en commits
-   proposé avec le « pourquoi », lignes ajoutées au backlog, **checklist de
-   vérification manuelle** pour ce qu'aucun script ne prouve ;
-6. interdit à Claude Code de committer ou de taguer.
+**Une session Claude Code = un brief** (`docs/sessions/<id>.md`), écrit à
+l'ouverture du jalon avec les décisions d'architecture déjà prises par
+Martin. `/session <id>` la mène de bout en bout : état des lieux, code, un
+sous-agent testeur qui cherche à la mettre en défaut, un sous-agent
+relecteur en lecture seule, au plus deux tours de correction, le rapport
+et un script de commits vérifié. Elle ne s'arrête pour Martin que sur les
+arrêts que listent `CLAUDE.md` et le brief ; `/brief <id>` reste là pour
+une session qui doit attendre son go après l'état des lieux. Les règles
+communes à toutes les sessions (périmètre, backlog, vérifications au
+vert, rapport, checklist manuelle, ni commit ni tag) sont dans
+`CLAUDE.md`.
 
-**Commits.** Faits à la main par Martin. Conventional Commits, signés
-(`git commit -s`), en anglais (règle de `CLAUDE.md`), message qui explique
-le pourquoi. Code en anglais ; documentation et interface en français
-(README et CONTRIBUTING aussi en anglais).
+**Commits.** Martin les fait en lançant le script relu que produit la
+session (`git commit -s`, Conventional Commits en anglais, corps qui
+explique le pourquoi), puis pousse et tague lui-même.
 
 **Clôture d'un jalon.** Checklist manuelle faite → commits → CI verte sur
 `main` → tag → `release.yml` publie (binaires nommés à la bonne version,
@@ -67,7 +66,8 @@ le pourquoi. Code en anglais ; documentation et interface en français
 | v0.3.0 – v0.3.3 | rampe | Chargeur de modules WASM audité, première fenêtre Tauri : vignettes PDFium, réordonner, supprimer, vue d'une page, rotation avec annuler/refaire |
 | v0.3.4 | palier | Release publiant de vrais binaires, CI épinglée, actionlint, fuzz étendu (0 crash / ~1,3 M exécutions), signalement privé de vulnérabilités — plus palette ambre, icône du carcajou, panneau F4, zoom, raccourcis navigateur neutralisés, avertissement avant perte |
 | v0.4.0 | rampe | Fusion multi-documents depuis l'interface, vignettes alignées quelle que soit l'orientation, marqueur « — DEV » dans le titre, README/CONTRIBUTING en anglais |
-| **v0.4.1** | palier | WebView durcie (CSP stricte, capabilities réduites, port de débogage et menu contextuel natif fermés en release, ADR 0007) ; documentation rendue vraie ; fixture `mixed12.pdf` et son générateur ; fins de ligne du dépôt |
+| v0.4.1 | palier | WebView durcie (CSP stricte, capabilities réduites, port de débogage et menu contextuel natif fermés en release, ADR 0007) ; documentation rendue vraie ; fixture `mixed12.pdf` et son générateur ; fins de ligne du dépôt |
+| **v0.5.0** | rampe | Outils de pages complets depuis la fenêtre : choisir les pages de chaque fichier fusionné (et `fyp merge --pages`), extraire la sélection vers un nouveau fichier, découper le document ; une extraction refuse d'écrire sur le fichier ouvert |
 
 Note : les binaires de la Release v0.3.4 portent le nom 0.3.3 (version du
 workspace non montée avant le tag) ; ceux de v0.4.0, publiée le
@@ -100,8 +100,9 @@ La 1.0 est une promesse de stabilité. Chaque critère doit être vérifiable.
 - [ ] Imprimer.
 - [ ] Naviguer : signets, liens internes, ajustement à la largeur, plein écran.
 - [ ] Remplir un formulaire et l'enregistrer.
-- [ ] Opérations de pages complètes depuis l'interface : fusion par plages,
-      extraction, découpage, rotation, réordonnancement, suppression.
+- [x] Opérations de pages complètes depuis l'interface : fusion par plages,
+      extraction, découpage, rotation, réordonnancement, suppression
+      (fusion vers un nouveau fichier et duplication d'une page : backlog).
 - [ ] Surligner, souligner, barrer, ajouter une note.
 - [ ] Protéger un document par mot de passe (chiffrement à l'écriture).
 - [ ] Un enregistrement ne peut jamais laisser un fichier à moitié écrit.
@@ -147,42 +148,43 @@ Seuls les jalons proches sont numérotés et détaillés. Les autres (§ 6) sont
 dans un ordre indicatif, revu à chaque palier.
 
 ### v0.4.1 — Palier « WebView et documentation vraie » : fait
-**Session A — durcissement de la WebView** (19 septembre 2026). CSP stricte,
-écrite comme une table de directives à partir de `default-src 'none'` : il y
-en avait une, `default-src 'self'`, trop permissive. Capabilities réduites à
-`core:event:allow-listen` et une permission par commande, chacune avec sa
-raison. En release seulement : port de débogage de WebView2 fermé, menu
-contextuel natif fermé aussi, gardé en développement pour son
-« Inspecter ». ADR 0007, tests dans `app/src/main.rs`.
+Session A (19 septembre 2026) : WebView durcie, ADR 0007. Session B
+(20 septembre 2026) : documentation vraie, `mixed12.pdf`, workspace à 0.4.1.
 
-**Session B — documentation vraie** (20 septembre 2026). Versions, état des
-releases et instructions de build corrigés partout (la CLI de Tauri n'est
-requise que pour empaqueter) ; la section « Feuille de route » de
-`docs/architecture.md` et `CLAUDE.md` renvoient ici ; les numéros de jalons
-cités dans les ADR sont datés et renvoient aux blocs du § 6 ; fixture
-`mixed12.pdf`, son générateur et son test ; `.gitattributes` complété ;
-version du workspace montée à 0.4.1.
+### v0.5.0 — Rampe « outils de pages complets » (3 sessions) : faite
+- Session A, noyau (20 septembre 2026) : `ops::merge_selected` prend une
+  sélection de pages par document, et `fyp merge` un `--pages` par fichier.
+- Session B, extraction et découpage (23 septembre 2026) : « Extraire la
+  sélection… » vers un nouveau fichier et « Découper… » (toutes les N pages
+  ou avant les pages sélectionnées) depuis la fenêtre, d'après l'ordre
+  affiché.
+- Session C, fusion par pages (3 octobre 2026) : un bandeau choisit les
+  pages de chaque fichier fusionné, lues comme la ligne de commande les
+  lit ; une extraction refuse d'écrire sur le fichier ouvert. La fusion
+  ajoute les pages à la grille, comme une modification que Ctrl+Z annule,
+  plutôt que d'écrire un nouveau fichier : la grille montre déjà le fichier
+  final, que `Enregistrer sous…` écrit. La fusion vers un nouveau fichier
+  est au backlog.
+- Fin : chaque opération de la rampe a un test qui écrit son résultat puis
+  le relit sans réparation ; checklist manuelle des trois gestes
+  (`docs/sessions/v0.5.0-cloture-rapport.md`).
 
-Reste à faire à la main, hors du dépôt : installer l'installeur publié de
-v0.4.0 et vérifier son titre et sa version, et annoter la Release v0.3.4
-(« les fichiers portent 0.3.3 par erreur »).
-
-### v0.5.0 — Rampe « outils de pages complets » (2 sessions)
-- Session A (noyau) : `ops::merge` accepte une plage de pages par fichier ;
-  la CLI l'expose ; tests et fixtures.
-- Session B (interface) : choisir les pages de chaque fichier lors d'une
-  fusion ; « Extraire la sélection » vers un nouveau fichier ; « Découper »
-  (toutes les N pages ou par plages) depuis l'interface.
-- Fin : tests de round-trip sur les nouvelles opérations ; checklist manuelle
-  des trois gestes.
-
-### v0.5.1 — Palier « rendu isolé » (2 à 3 sessions)
-- PDFium tourne dans un processus enfant ; un plantage du rendu laisse
-  l'application vivante (vignettes vides + bandeau) et le processus est
-  relancé.
+### v0.5.1 — Palier « rendu isolé et écritures sûres » (3 sessions)
+- Session A : PDFium dans un processus enfant (le même exécutable, en mode
+  travailleur), protocole à trames bornées, bitmap brut encodé en PNG par
+  le processus de la fenêtre, relance après un plantage ou un délai
+  dépassé ; ADR 0008.
+- Session B : bornes du processus de rendu (mémoire, arrêt avec la
+  fenêtre), chargement de la bibliothèque PDFium durci, temps de rendu
+  mesurés avant et après.
+- Session C : les dettes de la rampe v0.5.0 qui perdent des données ou
+  trompent l'utilisateur : écriture atomique (fenêtre et CLI), refus
+  d'écrire sur le dernier fichier enregistré, refus robuste du fichier
+  ouvert, pages citées à partir de 1 dans les messages.
 - Fin : tuer le processus de rendu depuis le Gestionnaire des tâches ne
-  ferme pas la fenêtre et le rendu reprend ; le banc de rendu ne montre pas
-  de ralentissement notable ; ADR écrit pour le protocole entre processus.
+  ferme pas la fenêtre et le rendu reprend ; temps de rendu médians au
+  plus 15 % au-dessus de ceux de v0.5.0 ; grille de sortie de palier
+  cochée.
 
 ### v0.6.0 — Rampe « navigation » (2 sessions)
 - Noyau : lire les signets (`/Outlines`) et les annotations de lien
@@ -213,6 +215,13 @@ PDF/UA et, plus tard, OCR et rédaction en dépendent)*
 3. Polices composites (Type0/CID) et position de chaque caractère.
 4. Recherche dans l'interface (Ctrl+F rendu à l'application).
 5. Sélection et copie du texte.
+
+**Palier mémoire** (après le bloc A, avant tout travail sur plusieurs
+documents ouverts) : lecture du fichier par blocs à la demande et budget
+mémoire de l'hôte, que l'ADR 0004 demandait. `Document` emprunte
+aujourd'hui les octets du fichier entier, ce qui touche presque tout le
+dépôt : un palier à lui seul. Depuis v0.5.1, la copie de PDFium vit dans
+le processus de rendu.
 
 **Bloc B — Interagir avec le document**
 1. Impression (approche à décider par un ADR).
@@ -261,14 +270,17 @@ daté et suivi du bloc de ce document qui le remplace.
 
 ## 8. Reprendre dans une nouvelle discussion
 
-Donner à l'IA, dans cet ordre :
-1. **ce document** ;
-2. la dernière **note de reprise** (état du jour, ce qui reste ouvert) ;
-3. le dernier **rapport de fin de session** Claude Code, s'il y en a un.
+Lancer, depuis la racine du dépôt :
 
-Puis demander : « rédige le brief Claude Code de la prochaine session du
-jalon en cours, au format du § 2 ».
+```
+powershell -ExecutionPolicy Bypass -File tools\etat_depot.ps1
+```
 
-À la fin de chaque jalon, mettre à jour : le tableau du § 3, les dettes, les
-cases du § 4, et faire glisser l'horizon du § 5 (le prochain bloc du § 6
-devient des jalons numérotés).
+et donner à l'IA le fichier qu'il écrit dans `..\4YouPDF-patches\` : état
+Git, ce document, les backlogs, les règles de Claude Code et la fin des
+derniers rapports. Puis lui demander : « découpe le prochain jalon en
+briefs au format de `docs/sessions/_gabarit.md` ».
+
+À la fin de chaque jalon, mettre à jour : le tableau du § 3, les dettes,
+les cases du § 4, et faire glisser l'horizon du § 5 (le prochain bloc du
+§ 6 devient des jalons numérotés).
