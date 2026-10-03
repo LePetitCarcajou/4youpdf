@@ -75,7 +75,7 @@ signed.
 
 ## State
 
-Version 0.4.1. What exists:
+Version 0.5.0. What exists:
 
 - **Core** (`fyp-core`, `fyp-crypto`): reading of cross-reference tables
   (classic, in streams, hybrid, `/Prev` chain), of object streams and of the
@@ -86,8 +86,9 @@ Version 0.4.1. What exists:
   4,472 complete round-trips (opening, rewriting, reading back, comparison),
   44 refusals at opening and 13 failures, each one classified in
   `docs/architecture.md` (in French), no panic.
-- **Page operations**: merge, extract, split, rotate and delete, through the
-  `fyp` command line.
+- **Page operations**: merge (every page of each file, or the pages chosen
+  from each), extract, split, rotate and delete, through the `fyp` command
+  line.
 - **Modules**: WebAssembly modules run in a Wasmtime sandbox, with limits on
   time, memory and output, and re-validation by the core of what they return;
   one module, merge, which `fyp run` launches. Only the document read and
@@ -95,8 +96,10 @@ Version 0.4.1. What exists:
   connues", in French).
 - **Desktop application** (`app/`, Tauri 2): open a PDF, see its pages as
   thumbnails or one at a time in full size, reorder them, rotate them, delete
-  them, append the pages of other files, undo and redo, save the result. The
-  pages are drawn by PDFium (ADR 0005, in French).
+  them, add pages chosen from other files, at the end or before a page,
+  undo and redo, save the result; extract the selected pages to a new
+  file, and split the document into several files. The pages are drawn
+  by PDFium (ADR 0005, in French).
 - **Windows packaging**: an NSIS installer and a portable archive, unsigned,
   built by `tools/package_app.py`.
 

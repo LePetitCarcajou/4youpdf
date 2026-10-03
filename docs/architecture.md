@@ -431,17 +431,28 @@ et testée par trois binaires autonomes (esbuild, tsgo, QuickJS-ng)
 récupérés par `tools/fetch_ui_tools.py` : aucun Node.js requis. Voir
 `app/README.md` pour construire et lancer.
 
-État à la version 0.4.1 : une fenêtre qui ouvre un PDF, montre ses pages en
+État à la version 0.5.0 : une fenêtre qui ouvre un PDF, montre ses pages en
 vignettes ou une par une en grand, permet de les réordonner, de les faire
-pivoter, de les supprimer et d'y ajouter à la suite les pages d'autres
-fichiers, avec annuler et refaire, et enregistre le résultat ; pour Windows,
-un installeur et une archive portable. Répartition :
+pivoter, de les supprimer et d'y ajouter les pages choisies d'autres
+fichiers, avec annuler et refaire, et enregistre le résultat ; elle extrait
+aussi la sélection vers un nouveau fichier et découpe le document en
+plusieurs fichiers, sans toucher au document affiché ; pour Windows, un
+installeur et une archive portable. Répartition :
 
 - **Côté Rust (`app/src/`)**, la seule partie qui touche au disque et au
   noyau. `session.rs` ouvre le fichier par `Document::open_with_password`,
   liste les pages par `ops::pages` (taille et rotation pour une vignette
   vide au bon format, avant l'image) et enregistre par
-  `ops::extract_pages`, après relecture du résultat. Une rotation passe
+  `ops::extract_pages`, après relecture du résultat. Une extraction passe
+  par le même appel et la même relecture, mais refuse, avant de rien
+  construire, d'écrire sur le fichier du document ouvert : quand le fichier
+  choisi existe, les deux chemins sont comparés une fois rendus canoniques
+  par le système (`fs::canonicalize`). Un découpage reçoit une liste
+  d'indices de pages par partie, des tranches de l'ordre affiché, et les
+  écrit chacune par `ops::extract_pages` dans le dossier choisi ; il ne
+  remplace jamais un fichier : les noms sont confrontés au dossier, toutes
+  les parties construites et relues sans réparation avant la première
+  écriture, et chaque fichier créé par `create_new`. Une rotation passe
   par `ops::rotate` : le document gardé en mémoire est réécrit, relu sans
   réparation (et en clair s'il était chiffré), puis rendu et enregistré
   tel quel. Elle nomme l'ouverture qu'elle vise et n'est jamais appliquée
@@ -452,14 +463,18 @@ un installeur et une archive portable. Répartition :
   vérifié avant, ignoré et signalé s'il ne s'ouvre pas, et une liste de
   pages qui ne tient pas dans son fichier, ou qui y prend une page deux
   fois, refuse la fusion entière : même réécriture, même relecture, même
-  règle sur l'ouverture visée. `main.rs` expose onze commandes :
-  ouvrir, fermer, état du rendu, fichier passé en ligne de commande, rendre
-  une page, faire pivoter des pages, fusionner des fichiers à la suite,
-  enregistrer, et les trois sélecteurs de fichiers du système (appelés
-  depuis Rust par le plugin `dialog`, pas depuis l'interface). Une ouverture qui échoue ne remplace pas le document
-  en cours. `main.rs` ouvre aussi la fenêtre, avec le profil de WebView2
-  dans le dossier `data` d'une copie portable, et s'arrête sur un message
-  quand WebView2 manque.
+  règle sur l'ouverture visée. `main.rs` expose quinze commandes : ouvrir,
+  fermer, déclarer les modifications non enregistrées, fermer la fenêtre,
+  état du rendu, fichier passé en ligne de commande, rendre une page, faire
+  pivoter des pages, fusionner les pages choisies d'autres fichiers,
+  enregistrer ou extraire (`save_document`, dont un argument fait refuser
+  le fichier ouvert), découper, et les quatre sélecteurs du système :
+  fichier à ouvrir, fichiers à fusionner, chacun compté ou dit ignoré,
+  fichier à écrire et dossier (appelés depuis Rust par le plugin `dialog`,
+  pas depuis l'interface). Une ouverture qui échoue ne remplace pas le
+  document en cours. `main.rs` ouvre aussi la fenêtre, avec le profil de
+  WebView2 dans le dossier `data` d'une copie portable, et s'arrête sur un
+  message quand WebView2 manque.
 - **Rendu (`app/src/render.rs`)** : PDFium par `pdfium-render`, chargé à
   l'exécution, sur un thread dédié qui sert les demandes une par une.
   Dépendance temporaire et confinée à ce module (ADR 0005) : l'interface
@@ -480,7 +495,14 @@ un installeur et une archive portable. Répartition :
   rotation inverse et une fusion en retirant de l'ordre les pages ajoutées,
   que le document garde pour le rétablissement, et fait passer rotations et
   fusions une par une, les autres modifications étant refusées jusqu'à la
-  fin. Les vignettes se chargent
+  fin. Les pages à prendre de chaque fichier fusionné se tapent dans un
+  bandeau, lues comme la ligne de commande les lit (`pagerange.ts`, d'après
+  la table `tests/fixtures/page-ranges.tsv` que `fyp-cli` parcourt aussi),
+  et la fusion les ajoute à la grille, comme une modification que Ctrl+Z
+  annule ; l'extraction et le découpage écrivent des copies de l'ordre
+  affiché, rotations comprises, sans entrer dans l'historique ni devenir le
+  point d'enregistrement (`merge.ts`, `extract.ts`, `split.ts`). Les
+  vignettes se chargent
   au fil du défilement (`thumbnails.ts`, `IntersectionObserver`, trois demandes à la
   fois, pages visibles d'abord) et sont mises en cache par page source, si
   bien que réordonner ne redessine rien. Le glisser-déposer des vignettes
@@ -528,10 +550,13 @@ un installeur et une archive portable. Répartition :
   pour son « Inspecter » (ADR 0007). Cette logique, sans DOM, est testée dans
   `app/ui/tests/` par QuickJS-ng, que lance `tools/build_ui.py`.
 - **ADR 0004 appliqué** : une seule fenêtre, aucune boîte modale hors des
-  sélecteurs de fichiers du système et du message qui dit quoi installer
-  quand WebView2 manque (le mot de passe d'un fichier chiffré est demandé
-  dans un bandeau, les erreurs et les avertissements aussi ; la vue d'une
-  page et son panneau de vignettes sont des états de la fenêtre, sous
+  sélecteurs de fichiers et de dossier du système et du message qui dit
+  quoi installer quand WebView2 manque (le mot de passe d'un fichier
+  chiffré est demandé dans un bandeau, les pages d'une fusion et le partage
+  d'un découpage se règlent dans un bandeau qui montre leur effet avant de
+  l'appliquer, les erreurs et les avertissements s'affichent aussi en
+  bandeau ; la vue d'une page et son panneau de vignettes sont des états de
+  la fenêtre, sous
   lesquels ces bandeaux restent visibles, et un numéro de page refusé le dit
   dans la barre de la vue), actions contextuelles sur les vignettes (bouton
   de suppression, menu du clic droit, clavier). Un document réparé ou

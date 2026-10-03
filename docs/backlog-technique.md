@@ -326,13 +326,6 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
   (`MetadataExt::volume_serial_number`, `file_index`, fonctionnalité
   `windows_by_handle`), ou une crate comme `same-file`, dépendance nouvelle.
   Cas rare : à reprendre quand ces fonctions seront stables.
-- [ ] **`docs/architecture.md` décrit l'application telle qu'en 0.4.1**
-  (consigné le 23 septembre 2026, en y mettant à jour la seule phrase sur la
-  fusion). « Application desktop » dit encore « `main.rs` expose onze
-  commandes » (quinze aujourd'hui, dont deux de la rampe v0.5.0, session B)
-  et ne mentionne ni l'extraction de la sélection ni le découpage ; son
-  « État à la version 0.4.1 » n'a pas suivi la rampe. À réécrire en
-  clôture de rampe.
 - [ ] **Deux modules de l'interface sont commentés en français** (consigné
   le 23 septembre 2026, en choisissant les pages de chaque fichier
   fusionné). Les en-têtes de `app/ui/src/extract.ts` et
