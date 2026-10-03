@@ -198,13 +198,13 @@ test("one banner that asks at a time: a cut or a merge, each taking the other's 
     ],
     "the merge in place of the cut",
   );
-  equal([board.asksMerge, board.asksSplit], [true, false], "which one asks");
+  equal(board.asksSplit, false, "the cut no longer asks");
   const first = board.list[1]?.id;
   board.askMerge("rapport.pdf");
   equal(board.list.filter((n) => n.role === "merge").length, 1, "asked again: still one");
   equal(board.list[1]?.id === first, false, "a new banner, for the files chosen again");
   board.askSplit("rapport.pdf");
-  equal([board.asksMerge, board.asksSplit], [false, true], "the cut in place of the merge");
+  equal([board.list.map((n) => n.role), board.asksSplit], [["event", "split"], true], "the cut in place of the merge");
   board.splitClosed();
   equal(board.list.map((n) => n.role), ["event"], "given up");
 });
@@ -213,10 +213,10 @@ test("the banner of a merge goes on Annuler, once asked for, and when a document
   const board = new NoticeBoard();
   board.askMerge("rapport.pdf");
   board.mergeClosed();
-  equal(board.asksMerge, false, "closed");
+  equal(board.list, [], "closed");
   board.askMerge("rapport.pdf");
   board.documentOpened(described("C:\\docs\\autre.pdf"));
-  equal(board.asksMerge, false, "another document");
+  equal(board.list.some((n) => n.role === "merge"), false, "another document");
 });
 
 await run();

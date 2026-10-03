@@ -145,11 +145,6 @@ export class NoticeBoard {
     this.notices = this.notices.filter((n) => n.role !== "merge");
   }
 
-  /// Whether a merge is being set up: its banner holds what was typed.
-  get asksMerge(): boolean {
-    return this.notices.some((n) => n.role === "merge");
-  }
-
   close(id: number): void {
     this.notices = this.notices.filter((n) => n.id !== id);
   }
