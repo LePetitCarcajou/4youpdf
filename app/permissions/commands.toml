@@ -52,7 +52,7 @@ commands.allow = ["merge_documents"]
 
 [[permission]]
 identifier = "allow-save-document"
-description = "Write the pages chosen, in their current order, to the file chosen: the whole document when saving it, the selected pages when extracting them."
+description = "Write the pages chosen, in their current order, to the file chosen: the whole document when saving it, the selected pages when extracting them, never over the file open."
 commands.allow = ["save_document"]
 
 [[permission]]

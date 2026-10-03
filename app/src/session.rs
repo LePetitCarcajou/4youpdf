@@ -148,6 +148,9 @@ pub struct Session {
     /// Distinguishes the bytes for the renderer's cache: a new id whenever
     /// they change.
     pub id: u64,
+    /// The file as opened, which an extraction never replaces
+    /// ([`Session::extract`]).
+    pub path: PathBuf,
     pub bytes: Arc<Vec<u8>>,
     /// Password of `bytes`: the one given when opening, empty once they
     /// are a rewrite, which is in the clear.
@@ -175,6 +178,7 @@ impl Session {
         let info = describe(id, path, &bytes, password)?;
         Ok(Session {
             id,
+            path: path.to_path_buf(),
             bytes: Arc::new(bytes),
             password: password.to_string(),
             info,
@@ -207,6 +211,24 @@ impl Session {
             size: out.len() as u64,
             pages: order.len(),
         })
+    }
+
+    /// Write the pages at `order` to `path` like [`Session::save`], for an
+    /// extraction: a copy of some pages, which leaves the document as it
+    /// is and so never replaces the file it was opened from. Windows asks
+    /// before a file is replaced, but not in words that say it is the
+    /// document open, and the window would go on taking the document for
+    /// intact while its file held only the pages extracted. Refused before
+    /// anything is built or written; any other file may be replaced, as
+    /// the user confirmed to Windows.
+    pub fn extract(&self, order: &[usize], path: &Path) -> Result<SaveReport, AppError> {
+        if same_file(path, &self.path) {
+            return Err(AppError::other(format!(
+                "« {} » est le fichier du document ouvert, qu'une extraction ne remplace jamais ; choisissez un autre nom. Rien n'a été écrit.",
+                self.info.name
+            )));
+        }
+        self.save(order, path)
     }
 
     /// Write each part of `parts` (0-based indices into this document, in
@@ -396,6 +418,19 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), AppError> {
         .open(path)
         .map_err(fail)?;
     file.write_all(bytes).map_err(fail)
+}
+
+/// Whether writing to `target` would replace the file at `open`. Only when
+/// `target` exists: a file that is not there replaces nothing, and is not
+/// compared. It is then the same file when both paths are the same once
+/// made canonical by the system, `..` and links resolved and, under
+/// Windows, the names spelt as the disk has them, whatever their case.
+/// Two hard links to one file stay two paths (`docs/backlog-technique.md`).
+fn same_file(target: &Path, open: &Path) -> bool {
+    let Ok(target) = std::fs::canonicalize(target) else {
+        return false;
+    };
+    std::fs::canonicalize(open).is_ok_and(|open| open == target)
 }
 
 /// The document in `bytes`, opened with `password`, with the pages at
@@ -805,6 +840,59 @@ mod tests {
         assert_eq!(session.id, id);
         assert!(Arc::ptr_eq(&session.bytes, &bytes));
         assert_eq!(rotations(&session.info.pages), [180, 180, 270]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An extraction never replaces the file the document was opened from,
+    /// however its path is written: the same path, the same file under
+    /// other capitals (Windows, whose names ignore case), or through a
+    /// folder and back. Nothing is written then, and the file keeps its
+    /// bytes. Any other file that exists is replaced, as the user confirmed
+    /// to Windows; saving, unlike extracting, may replace the file open.
+    #[test]
+    fn extracting_never_replaces_the_file_open() {
+        let dir = temp_dir("extract-over");
+        let path = dir.join("three.pdf");
+        std::fs::write(&path, three_pages()).unwrap();
+        std::fs::create_dir(dir.join("sub")).unwrap();
+        let session = Session::open(110, &path, "").expect("open");
+        let before = std::fs::read(&path).unwrap();
+
+        let mut same = vec![path.clone(), dir.join("sub").join("..").join("three.pdf")];
+        if cfg!(windows) {
+            same.push(dir.join("THREE.PDF"));
+        }
+        for target in &same {
+            let Err(AppError::Other { message }) = session.extract(&[0], target) else {
+                panic!("{}: the file open was replaced", target.display());
+            };
+            assert!(
+                message.starts_with("« three.pdf » est le fichier du document ouvert"),
+                "{message}"
+            );
+            assert!(message.ends_with("Rien n'a été écrit."), "{message}");
+            assert_eq!(
+                std::fs::read(&path).unwrap(),
+                before,
+                "{}",
+                target.display()
+            );
+        }
+
+        // Another file that exists is replaced by the pages extracted, and
+        // a file that does not exist yet is written.
+        let other = dir.join("other.pdf");
+        std::fs::write(&other, b"not a pdf").unwrap();
+        assert_eq!(session.extract(&[2, 0], &other).expect("extract").pages, 2);
+        assert_eq!(rotations_of(&other), [270, 90]);
+        let new = dir.join("new.pdf");
+        assert_eq!(session.extract(&[1], &new).expect("extract").pages, 1);
+        assert_eq!(rotations_of(&new), [180]);
+
+        // Saving writes the whole document where the user chose, the file
+        // open included.
+        assert_eq!(session.save(&[0, 1, 2], &path).expect("save").pages, 3);
+        assert_eq!(rotations_of(&path), [90, 180, 270]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

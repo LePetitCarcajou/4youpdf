@@ -155,10 +155,18 @@ export function mergeDocuments(document: number, paths: string[]): Promise<Merge
 }
 
 /// Write the pages at `order` (0-based indices into the open file, in the
-/// wanted order) to `path`: the whole document when saving it, the pages
-/// selected when extracting them. The open document does not change.
+/// wanted order) to `path`: the whole document, when saving it. The open
+/// document does not change; the file it was opened from may be replaced.
 export function saveDocument(path: string, order: number[]): Promise<SaveReport> {
-  return invoke<SaveReport>("save_document", { path, order });
+  return invoke<SaveReport>("save_document", { path, order, extract: false });
+}
+
+/// Write the pages at `pages` (0-based indices into the open file, in the
+/// order of the grid) to `path`, when extracting them: the same writing as
+/// `saveDocument`, but never over the file the document was opened from,
+/// which the rejection names. The open document does not change.
+export function extractPages(path: string, pages: number[]): Promise<SaveReport> {
+  return invoke<SaveReport>("save_document", { path, order: pages, extract: true });
 }
 
 /// Write each part of `parts` (0-based indices into the open file, in the

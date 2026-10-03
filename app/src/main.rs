@@ -373,20 +373,27 @@ async fn merge_documents(
 
 /// Write the pages at `order` (0-based indices into the open document,
 /// in the wanted order) to `path`: the whole document when the interface
-/// saves it, the pages selected when it extracts them. Either way the
-/// open document is left as it is; whether what was written counts as
-/// saved is the interface's business (`history.ts`).
+/// saves it, the pages selected when it extracts them (`extract`), which
+/// never replaces the file open (`Session::extract`). Either way the open
+/// document is left as it is; whether what was written counts as saved is
+/// the interface's business (`history.ts`).
 #[tauri::command]
 async fn save_document(
     state: State<'_, AppState>,
     path: String,
     order: Vec<usize>,
+    extract: bool,
 ) -> Result<SaveReport, AppError> {
     let guard = state.session();
     let session = guard
         .as_ref()
         .ok_or_else(|| AppError::other("aucun document ouvert"))?;
-    session.save(&order, &PathBuf::from(path))
+    let path = PathBuf::from(path);
+    if extract {
+        session.extract(&order, &path)
+    } else {
+        session.save(&order, &path)
+    }
 }
 
 /// Write each part of `parts` (0-based indices into the open document, in

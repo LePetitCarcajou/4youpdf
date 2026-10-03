@@ -680,10 +680,30 @@ fichier choisi par le sélecteur d'enregistrement ; le nom proposé est celui
 du document suivi de `-extrait`. Sans sélection, l'action ne fait rien et ne
 dit rien : il n'y a pas d'erreur à signaler. Depuis la grille seulement, comme
 la fusion. Côté Rust, c'est la commande `save_document`, la même qu'un
-enregistrement : la même liste d'indices de pages passée à
-`ops::extract_pages`, le même fichier relu avant d'être annoncé. Seule
-l'interface fait la différence, en ne retenant pas le fichier écrit comme
-point d'enregistrement (`history.ts`).
+enregistrement, avec son argument `extract` : la même liste d'indices de
+pages passée à `ops::extract_pages`, le même fichier relu avant d'être
+annoncé. Deux choses la distinguent d'un enregistrement : l'interface ne
+retient pas le fichier écrit comme point d'enregistrement (`history.ts`), et
+le côté Rust refuse d'écrire sur le fichier du document ouvert.
+
+- **Le fichier du document ouvert n'est jamais remplacé par une
+  extraction.** Choisi dans le sélecteur, Windows demande s'il faut
+  remplacer un fichier existant, sans dire que c'est celui du document ;
+  l'extraction est alors refusée avant toute écriture, et un bandeau le
+  dit : « Extraction impossible : « rapport.pdf » est le fichier du
+  document ouvert, qu'une extraction ne remplace jamais ; choisissez un
+  autre nom. Rien n'a été écrit. » Sans ce refus, le fichier n'aurait plus
+  gardé que les pages extraites, et la fenêtre aurait continué de tenir le
+  document pour intact. Le même fichier atteint par un autre chemin (autres
+  majuscules, détour par `dossier\..`, lien symbolique) est reconnu : quand
+  le fichier choisi existe, les deux chemins sont comparés une fois rendus
+  canoniques par le système (`fs::canonicalize`). Deux liens physiques vers
+  un même fichier restent deux chemins (`docs/backlog-technique.md`).
+- **Un autre fichier existant est remplacé**, comme par `Enregistrer
+  sous…`, une fois accepté dans la question de Windows ; un fichier qui
+  n'existe pas encore est créé. `Enregistrer sous…`, lui, peut toujours
+  remplacer le fichier du document ouvert : c'est le document entier qu'il
+  écrit, et le fichier écrit devient le point d'enregistrement.
 
 **Découper…** ouvre un bandeau au-dessus de la grille, jamais une boîte
 modale (ADR 0004), qui règle le partage :
@@ -1007,7 +1027,9 @@ vérifie que la release seule injecte le script et retire la variable.
 chiffrement, mot de passe faux), ouverture ratée qui laisse le document en
 cours ouvert, enregistrement d'un réordonnancement, extraction d'une
 sélection (l'ordre demandé, les rotations appliquées, le document laissé
-tel quel), découpage (un fichier par partie, tranches de l'ordre affiché ;
+tel quel ; jamais sur le fichier du document ouvert, qu'on l'atteigne par
+le même chemin, d'autres majuscules sous Windows ou un détour par un
+dossier, alors qu'un autre fichier existant est remplacé), découpage (un fichier par partie, tranches de l'ordre affiché ;
 parties nommées d'après le document et numérotées ; aucun fichier existant
 remplacé, et rien d'écrit dans ce cas ; découpage refusé sans rien écrire :
 partie vide, plus de parties que de pages, page inexistante ou donnée deux

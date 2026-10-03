@@ -15,6 +15,7 @@ import {
   closeDocument,
   closeWindow,
   documentModified,
+  extractPages,
   hasTauri,
   initialFile,
   mergeDocuments,
@@ -1032,7 +1033,8 @@ async function save(): Promise<boolean> {
 
 /// Write the selected pages to a new file (Ctrl+E, the context menu of a
 /// tile). Unavailable without a selection, which is not an error: there is
-/// simply nothing to extract.
+/// simply nothing to extract. Never over the file open: the Rust side
+/// refuses it, and the notice says so.
 async function extractSelection(): Promise<void> {
   const info = state.info;
   const history = state.history;
@@ -1064,7 +1066,7 @@ async function extractSelection(): Promise<void> {
   }
   setStatus(`Extraction vers ${path}…`);
   try {
-    const report = await saveDocument(path, pages);
+    const report = await extractPages(path, pages);
     setStatus(
       `Extrait : ${report.path} (${report.pages} page${report.pages > 1 ? "s" : ""}, ${formatSize(report.size)}).`,
     );
