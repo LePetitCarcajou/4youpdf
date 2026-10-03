@@ -450,3 +450,16 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
   disque ne remplace un fichier existant en silence. L'écriture atomique
   du palier v0.5.1, session C, rend le remplacement sûr, pas annoncé :
   refuser sans une option explicite (`--force`), ou le dire.
+- [ ] **La reconstruction de la table devient quadratique sur un objet
+  vide répété** (consigné le 3 octobre 2026, en rendant
+  `recover::tests::hostile_megabytes_fail_fast` indépendant de la machine).
+  Sur `1 0 obj << endobj` répété, chaque candidat échoue à l'analyse
+  serrée, puis `object_end` appelle `stream_keyword_between`, qui cherche
+  `stream` jusqu'à la fin du fichier sans s'arrêter à la borne `to` ; ce
+  balayage n'est pas compté dans le budget du scan. Mesuré en build de
+  debug avec le compteur d'octets examinés du test : 64 Ko lus 1 883 fois
+  en 1,5 s, 128 Ko 3 704 fois en 6,4 s, 256 Ko 7 345 fois en 25,9 s ; un
+  fichier de quelques mégaoctets bloque l'ouverture de longues minutes.
+  Borner la recherche à `to`, ou mettre en cache la position du prochain
+  `stream` comme celle de `obj`, puis ajouter ce motif aux fichiers du
+  test, sous la même borne `LINEAR`.
