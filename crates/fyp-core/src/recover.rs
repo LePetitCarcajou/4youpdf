@@ -21,14 +21,16 @@
 //!   slice cut at its own `endobj`, so a runaway parse never reads past it,
 //!   and a global budget of parsed bytes stops the scan on files built so
 //!   that every candidate is expensive. An object stream is read again on
-//!   the slice it was accepted on, for the same reason.
+//!   the slice it was accepted on, for the same reason. Each of its objects
+//!   is looked at on the data cut at the next one, and one per stream, at
+//!   most, a second time on all the data.
 //!
 //! Candidates that do not parse as an object are dropped: `n g obj` inside
 //! a string of an accepted object is never examined (the scan resumes after
 //! that object), inside stream data it is skipped along with the data, and
 //! on a `%` comment line it is ignored.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::document::ObjectStream;
 use crate::filters::{self, DecodeLimits};
@@ -302,7 +304,18 @@ impl Scan<'_> {
             let Some(stream) = self.load_object_stream(num, at, end, limits) else {
                 continue;
             };
-            let has_catalog = find(&stream.data, b"/Catalog").is_some();
+            let has_catalog = find_counted(&stream.data, b"/Catalog").is_some();
+            // Where the objects of the stream start, in order, and the
+            // starts already looked at: the header may name one offset any
+            // number of times, in any order.
+            let mut starts: Vec<usize> = Vec::new();
+            if has_catalog {
+                starts.extend(stream.objects.iter().map(|&(_, offset)| offset));
+                starts.sort_unstable();
+                starts.dedup();
+            }
+            let mut probed = BTreeSet::new();
+            let mut whole_data_left = true;
             for (index, &(inner, offset)) in stream.objects.iter().enumerate() {
                 let Ok(index) = u32::try_from(index) else {
                     break;
@@ -321,16 +334,12 @@ impl Scan<'_> {
                         at,
                     },
                 );
-                if has_catalog && self.catalog.is_none_or(|(pos, _)| pos < at) {
-                    let is_catalog = matches!(
-                        Parser::at(&stream.data, offset).parse_object(),
-                        Ok(Object::Dict(d))
-                            if d.get(&Name::new("Type")).and_then(Object::as_name)
-                                == Some(&Name::new("Catalog"))
-                    );
-                    if is_catalog {
-                        self.catalog = Some((at, ObjRef { num: inner, gen: 0 }));
-                    }
+                if has_catalog
+                    && self.catalog.is_none_or(|(pos, _)| pos < at)
+                    && probed.insert(offset)
+                    && is_catalog_at(&stream.data, &starts, offset, &mut whole_data_left)
+                {
+                    self.catalog = Some((at, ObjRef { num: inner, gen: 0 }));
                 }
             }
         }
@@ -402,6 +411,44 @@ impl Scan<'_> {
             .map_or(0, |&max| i64::from(max) + 1);
         trailer.insert(Name::new("Size"), Object::Integer(size));
         trailer
+    }
+}
+
+/// Is the object at `offset` of the decoded object stream `data` a catalog?
+/// It is parsed on the data cut at the next of `starts`, the sorted offsets
+/// of the stream's objects: an object ends where the next one starts
+/// (ISO 32000-2, 7.5.7), and parsed that way the objects of one stream cost
+/// its size in total, whatever its header says.
+///
+/// A header that declares another object inside this one cuts it short.
+/// The first object of a stream that does not parse on its cut is parsed
+/// again on all the data, and `whole_data_left` is cleared: one such
+/// reading per stream costs no more than the size of the stream, and
+/// finds a catalog cut that way unless an object named before it in the
+/// header fails on its own cut and takes the reading.
+fn is_catalog_at(data: &[u8], starts: &[usize], offset: usize, whole_data_left: &mut bool) -> bool {
+    let is_catalog = |obj: &Object| {
+        matches!(
+            obj,
+            Object::Dict(d)
+                if d.get(&Name::new("Type")).and_then(Object::as_name)
+                    == Some(&Name::new("Catalog"))
+        )
+    };
+    let next = starts.partition_point(|&start| start <= offset);
+    let cut = starts.get(next).copied().unwrap_or(data.len());
+    let slice = data.get(..cut).unwrap_or(data);
+    examined(slice.len().saturating_sub(offset));
+    match Parser::at(slice, offset).parse_object() {
+        Ok(obj) => is_catalog(&obj),
+        Err(_) if *whole_data_left && slice.len() < data.len() => {
+            *whole_data_left = false;
+            examined(data.len().saturating_sub(offset));
+            Parser::at(data, offset)
+                .parse_object()
+                .is_ok_and(|obj| is_catalog(&obj))
+        }
+        Err(_) => false,
     }
 }
 
@@ -936,5 +983,114 @@ mod tests {
         stopped.next_obj = find_from(file, 0, b"obj");
         stopped.run();
         assert_eq!(stopped.budget, 0);
+    }
+
+    /// One object stream holding `/Catalog` whose header makes every probe
+    /// for a catalog expensive: all objects at one long string, or each at
+    /// the next of as many nested strings, declared forwards or backwards,
+    /// or each at a catalog that never ends. Parsed on the whole decoded
+    /// data, each is read once per object.
+    #[test]
+    fn object_stream_probed_for_a_catalog_stays_linear() {
+        const SIZE: usize = 64 << 10;
+        type Offset = fn(usize) -> usize;
+        let forms: [(&str, &[u8], Offset); 4] = [
+            ("same offset", b"a", |_| 0),
+            ("nested strings", b"(", |n| n),
+            ("nested strings, descending", b"(", |n| SIZE / 4 - n),
+            ("cut catalogs", b"<</Type/Catalog/A(", |n| {
+                (n - 1) % 1024 * 18 + 1
+            }),
+        ];
+        for (what, fill, offset) in forms {
+            let mut header = String::new();
+            let mut count = 0;
+            while header.len() < SIZE / 2 {
+                count += 1;
+                header.push_str(&format!("{count} {} ", offset(count)));
+            }
+            let first = header.len();
+            let mut data = header.into_bytes();
+            data.push(b'(');
+            let filled = data.len() + SIZE / 2;
+            while data.len() < filled {
+                data.extend_from_slice(fill);
+            }
+            data.extend_from_slice(b" /Catalog)");
+            let mut file = format!(
+                "100000000 0 obj\n<< /Type /ObjStm /N {count} /First {first} /Length {} >>\nstream\n",
+                data.len()
+            )
+            .into_bytes();
+            file.extend_from_slice(&data);
+            file.extend_from_slice(b"\nendstream\nendobj\n");
+            let (xref, examined) = reconstruct_counted(&file);
+            let xref = xref.expect("objects found");
+            assert_eq!(xref.object_count(), count + 1, "{what}");
+            assert_eq!(root_of(&xref), None, "{what}");
+            assert!(
+                examined <= LINEAR * file.len(),
+                "{what}: looked at {examined} bytes of {}",
+                file.len()
+            );
+        }
+    }
+
+    /// A catalog inside which the header declares another object is cut
+    /// short by it, and still found when it is the first object of its
+    /// stream that fails on its cut. Each stream has its own second reading.
+    #[test]
+    fn catalog_in_an_object_stream_with_an_offset_inside_it() {
+        let stream = |num: u32, header: &str, body: &str| {
+            let content = format!("{header}\n{body}\n");
+            format!(
+                "{num} 0 obj\n<< /Type /ObjStm /N 2 /First {} /Length {} >>\nstream\n{content}\nendstream\nendobj\n",
+                header.len() + 1,
+                content.len()
+            )
+        };
+        let two = objects(&format!(
+            "{}{}",
+            stream(8, "5 0 6 3 ", "<< /A (/Catalog) >>"),
+            stream(9, "1 0 2 5 ", CATALOG)
+        ));
+        assert_eq!(root_of(&rebuild(&two)), Some(ObjRef { num: 1, gen: 0 }));
+        for header in ["1 0 2 5 ", "2 5 1 0 ", "1 0 2 31 "] {
+            let content = format!("{header}\n{CATALOG}\n");
+            let first = header.len() + 1;
+            let file = objects(&format!(
+                "4 0 obj\n<< /Type /ObjStm /N 2 /First {first} /Length {} >>\nstream\n{content}\nendstream\nendobj\n",
+                content.len()
+            ));
+            assert_eq!(
+                root_of(&rebuild(&file)),
+                Some(ObjRef { num: 1, gen: 0 }),
+                "{header}"
+            );
+        }
+    }
+
+    /// A catalog is still told apart when another object of its stream is
+    /// declared at the same offset, before or after it in the header.
+    #[test]
+    fn catalog_in_an_object_stream_with_a_repeated_offset() {
+        for header in ["1 0 2 0 ", "2 0 1 0 "] {
+            let content = format!("{header}\n{CATALOG}\n");
+            let first = header.len() + 1;
+            let file = objects(&format!(
+                "4 0 obj\n<< /Type /ObjStm /N 2 /First {first} /Length {} >>\nstream\n{content}\nendstream\nendobj\n",
+                content.len()
+            ));
+            let xref = rebuild(&file);
+            let first_named = if header.starts_with('1') { 1 } else { 2 };
+            assert_eq!(
+                root_of(&xref),
+                Some(ObjRef {
+                    num: first_named,
+                    gen: 0
+                }),
+                "{header}"
+            );
+        }
     }
 }
