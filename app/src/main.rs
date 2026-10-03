@@ -33,7 +33,7 @@ use tauri::{Emitter, Manager, State, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
 
 use render::RenderService;
-use session::{DocumentInfo, MergeReport, PageInfo, SaveReport, Session, SplitReport};
+use session::{Candidate, DocumentInfo, MergeReport, PageInfo, SaveReport, Session, SplitReport};
 
 /// What a command reports when it fails. `WrongPassword` lets the
 /// interface ask for one in place; everything else is shown as text.
@@ -156,18 +156,24 @@ impl AppState {
         })
     }
 
-    /// Append every page of each file of `files`, in that order, to the
-    /// opening `document` (`session::merge`) and make the result current;
-    /// returns every page as it now stands, and what became of each file.
-    /// A file that does not open is skipped, said so, and the others are
-    /// merged without it; when none opens, the document is left as it is.
-    /// Like a rotation, the rewrite runs without holding the document.
-    fn merge(&self, document: u64, files: &[PathBuf]) -> Result<MergeReport, AppError> {
+    /// Append the pages chosen of each file of `files`, all of them where
+    /// `pages` gives no list, in that order, to the opening `document`
+    /// (`session::merge`) and make the result current; returns every page
+    /// as it now stands, and what became of each file. A file that does not
+    /// open is skipped, said so, and the others are merged without it; when
+    /// none opens, the document is left as it is. Like a rotation, the
+    /// rewrite runs without holding the document.
+    fn merge(
+        &self,
+        document: u64,
+        files: &[PathBuf],
+        pages: &[Option<Vec<usize>>],
+    ) -> Result<MergeReport, AppError> {
         let current = self.current()?;
         if current.document != document {
             return Err(changed(MERGE));
         }
-        let merged = session::merge(&current.bytes, &current.password, files)?;
+        let merged = session::merge(&current.bytes, &current.password, files, pages)?;
         let pages = match merged.rewrite {
             Some(rewrite) => Some(self.commit(document, current.id, MERGE, |session, id| {
                 session.extend(id, rewrite, merged.added)
@@ -348,16 +354,19 @@ async fn rotate_pages(
     .map_err(|e| AppError::other(format!("rotation interrompue : {e}")))?
 }
 
-/// Append every page of each file of `paths`, in that order, to the open
-/// document, through `ops::merge` (see `AppState::merge`): they render and
-/// save after its own from then on. `document` is the opening the
-/// interface means (`DocumentInfo::document`). Returns every page as it
-/// now stands, and what became of each file.
+/// Append the pages chosen of each file of `paths`, in that order, to the
+/// open document, through `ops::merge_selected` (see `AppState::merge`):
+/// they render and save after its own from then on. `pages[i]` lists those
+/// of `paths[i]`, 0-based, in the order wanted, or is `null` for all of
+/// them. `document` is the opening the interface means
+/// (`DocumentInfo::document`). Returns every page as it now stands, and
+/// what became of each file.
 #[tauri::command]
 async fn merge_documents(
     app: tauri::AppHandle,
     document: u64,
     paths: Vec<String>,
+    pages: Vec<Option<Vec<usize>>>,
 ) -> Result<MergeReport, AppError> {
     // Reading the files and rewriting the document take a while: off the
     // async runtime's threads, like a rotation.
@@ -365,7 +374,7 @@ async fn merge_documents(
         let files: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
         app.try_state::<AppState>()
             .ok_or_else(|| AppError::other("état de l'application indisponible"))?
-            .merge(document, &files)
+            .merge(document, &files, &pages)
     })
     .await
     .map_err(|e| AppError::other(format!("fusion interrompue : {e}")))?
@@ -444,21 +453,29 @@ async fn pick_open_file(app: tauri::AppHandle) -> Option<String> {
 }
 
 /// Native "open files" dialog for the files to merge, several at once, in
-/// the order chosen; `None` when cancelled.
+/// the order chosen, each with how many pages it holds or why the merge
+/// will skip it (`session::candidates`), for the banner that asks which
+/// pages to take; `None` when cancelled.
 #[tauri::command]
-async fn pick_merge_files(app: tauri::AppHandle) -> Option<Vec<String>> {
-    app.dialog()
+async fn pick_merge_files(app: tauri::AppHandle) -> Result<Option<Vec<Candidate>>, AppError> {
+    let Some(files) = app
+        .dialog()
         .file()
         .add_filter("PDF", &["pdf"])
         .set_title("Fusionner à la suite du document")
         .blocking_pick_files()
-        .map(|files| {
-            files
-                .into_iter()
-                .filter_map(|f| f.into_path().ok())
-                .map(|p| p.display().to_string())
-                .collect()
-        })
+    else {
+        return Ok(None);
+    };
+    let files: Vec<PathBuf> = files
+        .into_iter()
+        .filter_map(|f| f.into_path().ok())
+        .collect();
+    // Reading and opening each file takes a while: off the async runtime's
+    // threads, like a merge.
+    tauri::async_runtime::spawn_blocking(move || Some(session::candidates(&files)))
+        .await
+        .map_err(|e| AppError::other(format!("lecture des fichiers interrompue : {e}")))
 }
 
 /// Native "choose a folder" dialog, for the files a cut writes; `None`
@@ -763,11 +780,11 @@ mod tests {
         let state = AppState::new(Arc::new(RenderService::start(&[])));
         let bytes_of = |state: &AppState| state.current().map(|c| (c.id, c.bytes));
         let files = [fixture("objstm.pdf")];
-        assert!(state.merge(1, &files).is_err(), "no document open");
+        assert!(state.merge(1, &files, &[None]).is_err(), "no document open");
         let first = state.open(&fixture("minimal.pdf"), "").expect("open");
         let (id, _) = bytes_of(&state).unwrap();
 
-        let report = state.merge(first.document, &files).expect("merge");
+        let report = state.merge(first.document, &files, &[None]).expect("merge");
         assert_eq!(report.pages.map(|pages| pages.len()), Some(2));
         assert_eq!(report.sources.len(), 1);
         let (extended, _) = bytes_of(&state).unwrap();
@@ -775,14 +792,18 @@ mod tests {
 
         // Nothing to merge: the document, and its id, stay.
         let report = state
-            .merge(first.document, &[fixture("encrypted-user-password.pdf")])
+            .merge(
+                first.document,
+                &[fixture("encrypted-user-password.pdf")],
+                &[None],
+            )
             .expect("merge");
         assert!(report.pages.is_none());
         assert_eq!(bytes_of(&state).unwrap().0, extended);
 
         // Asked for the first opening, once a second is current.
         let second = state.open(&fixture("minimal.pdf"), "").expect("open again");
-        assert!(state.merge(first.document, &files).is_err());
+        assert!(state.merge(first.document, &files, &[None]).is_err());
         assert_eq!(state.current().unwrap().document, second.document);
         assert_eq!(state.rotate(second.document, &[0], 90).unwrap().len(), 1);
     }

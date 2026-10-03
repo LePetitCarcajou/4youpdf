@@ -42,6 +42,21 @@ export interface SourceReport {
   outcome: SourceOutcome;
 }
 
+/// What a file chosen to be merged holds, read as soon as it is chosen
+/// (`session.rs`, `CandidateStatus`): its page count when it opens without
+/// a password, so that its pages can be chosen; otherwise why the merge
+/// will skip it, protected by a password or refused.
+export type CandidateStatus =
+  | { kind: "ready"; pages: number }
+  | { kind: "protected" }
+  | { kind: "refused"; message: string };
+
+export interface Candidate {
+  path: string;
+  name: string;
+  status: CandidateStatus;
+}
+
 export interface MergeReport {
   /// Every page as it now stands, or `null` when no file could be merged
   /// and the document is as it was.
@@ -147,11 +162,13 @@ export function rotatePages(document: number, pages: number[], degrees: number):
   return invoke<PageInfo[]>("rotate_pages", { document, pages, degrees });
 }
 
-/// Append every page of the files at `paths`, in that order, to the file
-/// opened as `document`: done on the Rust side, which answers with every
-/// page as it now stands, and what became of each file.
-export function mergeDocuments(document: number, paths: string[]): Promise<MergeReport> {
-  return invoke<MergeReport>("merge_documents", { document, paths });
+/// Append the pages chosen of the files at `paths`, in that order, to the
+/// file opened as `document`: `pages[i]` lists those of `paths[i]`, 0-based
+/// and in the order wanted, or is `null` for all of them. Done on the Rust
+/// side, which answers with every page as it now stands, and what became
+/// of each file; a list that does not fit its file refuses the whole merge.
+export function mergeDocuments(document: number, paths: string[], pages: (number[] | null)[]): Promise<MergeReport> {
+  return invoke<MergeReport>("merge_documents", { document, paths, pages });
 }
 
 /// Write the pages at `order` (0-based indices into the open file, in the
@@ -186,10 +203,10 @@ export function pickOpenFile(): Promise<string | null> {
   return invoke<string | null>("pick_open_file");
 }
 
-/// The files to merge, several at once, in the order chosen; `null` when
-/// cancelled.
-export function pickMergeFiles(): Promise<string[] | null> {
-  return invoke<string[] | null>("pick_merge_files");
+/// The files to merge, several at once, in the order chosen, each with its
+/// page count or why it will be skipped; `null` when cancelled.
+export function pickMergeFiles(): Promise<Candidate[] | null> {
+  return invoke<Candidate[] | null>("pick_merge_files");
 }
 
 export function pickSaveFile(suggested: string): Promise<string | null> {

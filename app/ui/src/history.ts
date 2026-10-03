@@ -14,8 +14,8 @@
 // history keeps the order in which things were done.
 //
 // Merging other files takes the same round trip: the Rust side appends
-// their pages to the document through `ops::merge` and answers with every
-// page as it now stands. The pages beyond those known are new indices,
+// their pages, or those chosen of each, to the document through
+// `ops::merge_selected` and answers with every page as it now stands. The pages beyond those known are new indices,
 // added at the end of the order as an edit like a move: undoing it takes
 // them out of the order, where saving leaves them out, and the file keeps
 // them for a redo. A merge runs in its turn among the rotations.

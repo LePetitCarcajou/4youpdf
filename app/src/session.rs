@@ -1,7 +1,7 @@
 //! The open document: its bytes, what `fyp-core` says about it, and the
 //! operations the window needs, all through `fyp_core::ops`: listing
-//! pages, turning some of them, appending the pages of other files, saving
-//! a new page order, cutting it into several files.
+//! pages, turning some of them, appending the pages chosen of other files,
+//! saving a new page order, cutting it into several files.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -88,7 +88,8 @@ pub struct SplitFile {
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SourceOutcome {
-    /// Its pages follow those of the document.
+    /// Its pages follow those of the document: all of them, or those
+    /// chosen.
     Merged {
         /// How many pages it brought.
         pages: usize,
@@ -101,6 +102,38 @@ pub enum SourceOutcome {
     /// Protected by a password, which merging does not ask for: skipped.
     Protected,
     /// Not read, or refused by the core even after repair: skipped.
+    Refused {
+        /// Why, worded for the user.
+        message: String,
+    },
+}
+
+/// A file chosen to be merged, looked at as soon as it is chosen (see
+/// [`candidates`]): how many pages it holds, for the banner that asks which
+/// of them to take, or why the merge will skip it.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Candidate {
+    /// Path as chosen.
+    pub path: String,
+    /// File name alone, for the banner.
+    pub name: String,
+    pub status: CandidateStatus,
+}
+
+/// What a file chosen to be merged holds, as far as merging is concerned.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CandidateStatus {
+    /// It opens without a password: its pages may be chosen.
+    Ready {
+        /// How many pages it holds.
+        pages: usize,
+    },
+    /// Protected by a password, which merging does not ask for: it will be
+    /// skipped.
+    Protected,
+    /// Not read, or refused by the core even after repair: it will be
+    /// skipped.
     Refused {
         /// Why, worded for the user.
         message: String,
@@ -458,52 +491,152 @@ pub fn rotate(
     Ok(Rewrite { bytes: out, pages })
 }
 
-/// The document in `bytes`, opened with `password`, followed by every page
-/// of each file of `files` that opens, in that order, through
-/// [`ops::merge`]. The files are opened without a password: one that needs
-/// a password, one that cannot be read, and one the core refuses even after
-/// repair are each skipped and said so in the report, and the others are
-/// merged without them; a file is checked to have pages before the merge,
-/// so that the merge itself fails only for the lot. When no file opens,
-/// nothing is rewritten. Like a rotation, the rewrite must read back
-/// without repair before it is returned.
-pub fn merge(bytes: &[u8], password: &str, files: &[PathBuf]) -> Result<Merged, AppError> {
+/// Why a file asked to be merged is skipped.
+enum Skipped {
+    /// It needs a password, which merging does not ask for.
+    Protected,
+    /// It could not be read, or the core refuses it even after repair.
+    Refused(String),
+}
+
+/// A file to merge, from `content`, its bytes or why they could not be
+/// read: opened without a password, with its page count, or why it is
+/// skipped. What the banner is told when the file is chosen
+/// ([`candidates`]), and what merging checks again ([`merge`]), the file
+/// having maybe changed meanwhile.
+fn open_source(content: &Result<Vec<u8>, String>) -> Result<(Document<'_>, usize), Skipped> {
+    let content = content.as_ref().map_err(|e| Skipped::Refused(e.clone()))?;
+    let doc = Document::open(content).map_err(|e| match e {
+        fyp_core::Error::WrongPassword => Skipped::Protected,
+        other => Skipped::Refused(other.to_string()),
+    })?;
+    let count = ops::pages(&doc)
+        .map_err(|e| Skipped::Refused(e.to_string()))?
+        .len();
+    Ok((doc, count))
+}
+
+/// Each file of `files`, as the banner of a merge first shows it: read and
+/// opened as [`merge`] will, then let go.
+pub fn candidates(files: &[PathBuf]) -> Vec<Candidate> {
+    files
+        .iter()
+        .map(|path| {
+            let content = std::fs::read(path).map_err(|e| e.to_string());
+            let status = match open_source(&content) {
+                Ok((_, pages)) => CandidateStatus::Ready { pages },
+                Err(Skipped::Protected) => CandidateStatus::Protected,
+                Err(Skipped::Refused(message)) => CandidateStatus::Refused { message },
+            };
+            Candidate {
+                path: path.display().to_string(),
+                name: file_name(path),
+                status,
+            }
+        })
+        .collect()
+}
+
+/// The pages to take of the file `name`, which holds `count`: every one
+/// when no list is given (the field of the banner left empty), otherwise
+/// those of `wanted`, 0-based, in that order, each once and each there.
+/// The banner refuses the same lists before asking, but the file may have
+/// changed since it was chosen: a refusal names it, and the page as the
+/// banner numbers it, from 1.
+fn selection(
+    name: &str,
+    wanted: Option<&[usize]>,
+    count: usize,
+) -> Result<ops::Selection, AppError> {
+    let Some(wanted) = wanted else {
+        return Ok(ops::Selection::All);
+    };
+    if wanted.is_empty() {
+        return Err(AppError::other(format!(
+            "« {name} » : aucune page indiquée ; rien n'a été fusionné"
+        )));
+    }
+    let mut seen = std::collections::HashSet::new();
+    for &page in wanted {
+        let number = page.saturating_add(1);
+        if page >= count {
+            return Err(AppError::other(format!(
+                "« {name} » : page {number} hors limites, le fichier a {count} page{} ; rien n'a été fusionné",
+                plural(count)
+            )));
+        }
+        // `ops::merge_selected` would take it twice; the window does not
+        // offer that (`docs/backlog-ui.md`).
+        if !seen.insert(page) {
+            return Err(AppError::other(format!(
+                "« {name} » : la page {number} est demandée deux fois ; rien n'a été fusionné"
+            )));
+        }
+    }
+    Ok(ops::Selection::Pages(wanted.to_vec()))
+}
+
+/// The document in `bytes`, opened with `password`, followed by the pages
+/// chosen of each file of `files` that opens, in that order, through
+/// [`ops::merge_selected`]: `pages[i]` names those of `files[i]`, 0-based
+/// and in the order wanted, or all of them when `None`; the document itself
+/// keeps every page. The files are opened without a password: one that
+/// needs a password, one that cannot be read, and one the core refuses even
+/// after repair are each skipped and said so in the report, and the others
+/// are merged without them; a file is checked to have pages before the
+/// merge, so that the merge itself fails only for the lot. A list of pages
+/// that does not fit its file ([`selection`]) refuses the whole merge. When
+/// no file opens, nothing is rewritten. Like a rotation, the rewrite must
+/// read back without repair before it is returned.
+pub fn merge(
+    bytes: &[u8],
+    password: &str,
+    files: &[PathBuf],
+    pages: &[Option<Vec<usize>>],
+) -> Result<Merged, AppError> {
+    if pages.len() != files.len() {
+        return Err(AppError::other(format!(
+            "{} fichier{} à fusionner mais {} liste{} de pages ; rien n'a été fusionné",
+            files.len(),
+            plural(files.len()),
+            pages.len(),
+            plural(pages.len())
+        )));
+    }
     let doc = Document::open_with_password(bytes, password.as_bytes())?;
     let read: Vec<Result<Vec<u8>, String>> = files
         .iter()
         .map(|path| std::fs::read(path).map_err(|e| e.to_string()))
         .collect();
     let mut docs: Vec<Document<'_>> = vec![doc];
+    let mut selections = vec![ops::Selection::All];
     let mut sources = Vec::with_capacity(files.len());
     let mut added = 0usize;
-    for (path, content) in files.iter().zip(&read) {
-        let outcome = match content {
-            Err(e) => SourceOutcome::Refused { message: e.clone() },
-            Ok(content) => match Document::open(content) {
-                Err(fyp_core::Error::WrongPassword) => SourceOutcome::Protected,
-                Err(e) => SourceOutcome::Refused {
-                    message: e.to_string(),
-                },
-                Ok(other) => match ops::pages(&other) {
-                    Err(e) => SourceOutcome::Refused {
-                        message: e.to_string(),
-                    },
-                    Ok(pages) => {
-                        added = added.saturating_add(pages.len());
-                        let outcome = SourceOutcome::Merged {
-                            pages: pages.len(),
-                            reconstructed: other.reconstructed().map(ToString::to_string),
-                            encryption: other.encryption().map(|e| describe_encryption(&e)),
-                        };
-                        docs.push(other);
-                        outcome
-                    }
-                },
-            },
+    for ((path, content), wanted) in files.iter().zip(&read).zip(pages) {
+        let name = file_name(path);
+        let outcome = match open_source(content) {
+            Err(Skipped::Protected) => SourceOutcome::Protected,
+            Err(Skipped::Refused(message)) => SourceOutcome::Refused { message },
+            Ok((other, count)) => {
+                let chosen = selection(&name, wanted.as_deref(), count)?;
+                let taken = match &chosen {
+                    ops::Selection::All => count,
+                    ops::Selection::Pages(pages) => pages.len(),
+                };
+                added = added.saturating_add(taken);
+                let outcome = SourceOutcome::Merged {
+                    pages: taken,
+                    reconstructed: other.reconstructed().map(ToString::to_string),
+                    encryption: other.encryption().map(|e| describe_encryption(&e)),
+                };
+                docs.push(other);
+                selections.push(chosen);
+                outcome
+            }
         };
         sources.push(SourceReport {
             path: path.display().to_string(),
-            name: file_name(path),
+            name,
             outcome,
         });
     }
@@ -514,7 +647,7 @@ pub fn merge(bytes: &[u8], password: &str, files: &[PathBuf]) -> Result<Merged, 
             sources,
         });
     }
-    let out = ops::merge(&docs)?;
+    let out = ops::merge_selected(&docs, &selections)?;
     let pages = {
         let check = Document::open(&out)?;
         if let Some(reason) = check.reconstructed() {
@@ -1044,9 +1177,20 @@ mod tests {
         assert!(message(&["a", "b", "c", "d", "e"]).contains("et 2 autres existent"));
     }
 
-    /// Merge `files` into `session`, as the application does.
+    /// Merge every page of each of `files` into `session`, as the
+    /// application does when no page is chosen.
     fn append(session: &mut Session, files: &[PathBuf]) -> Merged {
-        let mut merged = merge(&session.bytes, &session.password, files).expect("merge");
+        append_pages(session, files, &vec![None; files.len()])
+    }
+
+    /// Merge the pages `pages` of each of `files` into `session`, as the
+    /// application does.
+    fn append_pages(
+        session: &mut Session,
+        files: &[PathBuf],
+        pages: &[Option<Vec<usize>>],
+    ) -> Merged {
+        let mut merged = merge(&session.bytes, &session.password, files, pages).expect("merge");
         if let Some(rewrite) = merged.rewrite.take() {
             let id = session.id + 1;
             let pages = session.extend(id, rewrite, merged.added).expect("extend");
@@ -1173,11 +1317,218 @@ mod tests {
         assert!(Arc::ptr_eq(&session.bytes, &bytes));
 
         // A rewrite whose pages do not add up is not taken.
-        let other = merge(&session.bytes, "", &[fixture("minimal.pdf")]).expect("merge");
+        let other = merge(&session.bytes, "", &[fixture("minimal.pdf")], &[None]).expect("merge");
         let rewrite = other.rewrite.expect("rewritten");
         assert!(session.extend(52, rewrite, 5).is_err());
         assert_eq!(session.id, 51);
         assert_eq!(session.info.pages.len(), 2);
+    }
+
+    /// `count` A4 pages, each showing `<prefix><n>`, `n` from 1: a page can
+    /// be told by its text wherever it lands.
+    fn labelled(prefix: &str, count: usize) -> Vec<u8> {
+        let kids: Vec<String> = (0..count).map(|i| format!("{} 0 R", 3 + 2 * i)).collect();
+        let mut objects = vec![
+            "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+            format!(
+                "<< /Type /Pages /Kids [{}] /Count {count} /MediaBox [0 0 595 842] \
+                 /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >>",
+                kids.join(" ")
+            ),
+        ];
+        for i in 0..count {
+            let text = format!("BT /F1 24 Tf 72 720 Td ({prefix}{}) Tj ET", i + 1);
+            objects.push(format!(
+                "<< /Type /Page /Parent 2 0 R /Contents {} 0 R >>",
+                4 + 2 * i
+            ));
+            objects.push(format!(
+                "<< /Length {} >>\nstream\n{text}\nendstream",
+                text.len()
+            ));
+        }
+        let objects: Vec<&str> = objects.iter().map(String::as_str).collect();
+        hand_built(&objects)
+    }
+
+    /// What each page of the PDF in `bytes` shows ([`labelled`]), in
+    /// reading order. The file must read back without repair.
+    fn labels(bytes: &[u8]) -> Vec<String> {
+        let doc = Document::open(bytes).unwrap();
+        assert_eq!(doc.reconstructed(), None);
+        ops::pages(&doc)
+            .unwrap()
+            .iter()
+            .map(|page| {
+                let contents = doc
+                    .resolve(page.dict.get(&Name::new("Contents")).unwrap())
+                    .unwrap();
+                let data = doc.decoded(&contents).unwrap();
+                let text = String::from_utf8_lossy(&data);
+                text.split('(')
+                    .nth(1)
+                    .and_then(|rest| rest.split(')').next())
+                    .unwrap()
+                    .to_owned()
+            })
+            .collect()
+    }
+
+    /// Three documents, pages chosen in each. The document open keeps every
+    /// page, as the grid shows it; of each file merged, the pages named, in
+    /// the order named, reversed for one. The rewrite reads back without
+    /// repair, and the file saved afterwards holds exactly the pages the
+    /// grid shows, moved, dropped and turned, in its order.
+    #[test]
+    fn merging_takes_the_pages_chosen_of_each_file_in_their_order() {
+        let dir = temp_dir("merge-chosen");
+        let write = |name: &str, bytes: Vec<u8>| {
+            let path = dir.join(name);
+            std::fs::write(&path, bytes).unwrap();
+            path
+        };
+        let a = write("a.pdf", labelled("A", 3));
+        let b = write("b.pdf", labelled("B", 5));
+        let c = write("c.pdf", labelled("C", 4));
+        let mut session = Session::open(120, &a, "").expect("open");
+        assert_eq!(turn(&mut session, &[1], 90), [0, 90, 0]);
+
+        // « 5-3 » typed for b.pdf, « 1,4 » for c.pdf.
+        let merged = append_pages(
+            &mut session,
+            &[b, c],
+            &[Some(vec![4, 3, 2]), Some(vec![0, 3])],
+        );
+        assert_eq!(merged.added, 5);
+        assert!(
+            matches!(
+                outcomes(&merged)[..],
+                [
+                    SourceOutcome::Merged { pages: 3, .. },
+                    SourceOutcome::Merged { pages: 2, .. }
+                ]
+            ),
+            "{:?}",
+            outcomes(&merged)
+        );
+        assert_eq!(
+            labels(&session.bytes),
+            ["A1", "A2", "A3", "B5", "B4", "B3", "C1", "C4"]
+        );
+        assert_eq!(rotations(&session.info.pages), [0, 90, 0, 0, 0, 0, 0, 0]);
+
+        // The grid once pages were moved and dropped: C1, A2, B5, A1.
+        let out = dir.join("out.pdf");
+        assert_eq!(session.save(&[6, 1, 3, 0], &out).expect("save").pages, 4);
+        assert_eq!(
+            labels(&std::fs::read(&out).unwrap()),
+            ["C1", "A2", "B5", "A1"]
+        );
+        assert_eq!(rotations_of(&out), [0, 90, 0, 0]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A list of pages that does not fit its file refuses the whole merge,
+    /// before anything is rewritten, and says which file and which page: a
+    /// page asked twice (which `ops::merge_selected` would take), a page the
+    /// file has not, an empty list, or not one list per file. A file that
+    /// is skipped keeps its list to itself: the others merge.
+    #[test]
+    fn a_list_of_pages_that_does_not_fit_refuses_the_whole_merge() {
+        let dir = temp_dir("merge-refused");
+        let a = dir.join("a.pdf");
+        std::fs::write(&a, labelled("A", 1)).unwrap();
+        let b = dir.join("b.pdf");
+        std::fs::write(&b, labelled("B", 5)).unwrap();
+        let mut session = Session::open(130, &a, "").expect("open");
+        let bytes = Arc::clone(&session.bytes);
+        for (pages, expected) in [
+            (
+                vec![Some(vec![1, 1])],
+                "« b.pdf » : la page 2 est demandée deux fois",
+            ),
+            (
+                vec![Some(vec![0, 5])],
+                "« b.pdf » : page 6 hors limites, le fichier a 5 pages",
+            ),
+            (vec![Some(vec![])], "« b.pdf » : aucune page indiquée"),
+            (
+                vec![None, None],
+                "1 fichier à fusionner mais 2 listes de pages",
+            ),
+        ] {
+            let Err(AppError::Other { message }) =
+                merge(&session.bytes, "", std::slice::from_ref(&b), &pages)
+            else {
+                panic!("{pages:?} was merged");
+            };
+            assert!(message.starts_with(expected), "{message}");
+            assert!(message.ends_with("rien n'a été fusionné"), "{message}");
+        }
+        assert!(Arc::ptr_eq(&session.bytes, &bytes));
+        assert_eq!(labels(&session.bytes), ["A1"]);
+
+        let merged = append_pages(
+            &mut session,
+            &[fixture("encrypted-user-password.pdf"), b],
+            &[Some(vec![7]), Some(vec![4])],
+        );
+        assert!(
+            matches!(
+                outcomes(&merged)[..],
+                [
+                    SourceOutcome::Protected,
+                    SourceOutcome::Merged { pages: 1, .. }
+                ]
+            ),
+            "{:?}",
+            outcomes(&merged)
+        );
+        assert_eq!(labels(&session.bytes), ["A1", "B5"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// What the banner is told of each file chosen: how many pages it
+    /// holds, or why the merge will skip it, as the merge itself finds.
+    #[test]
+    fn the_files_chosen_are_counted_or_said_to_be_skipped() {
+        let not_pdf = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        let found = candidates(&[
+            fixture("mixed12.pdf"),
+            fixture("bad-offsets.pdf"),
+            fixture("encrypted-user-password.pdf"),
+            not_pdf,
+            fixture("absent.pdf"),
+        ]);
+        assert_eq!(
+            found.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+            [
+                "mixed12.pdf",
+                "bad-offsets.pdf",
+                "encrypted-user-password.pdf",
+                "Cargo.toml",
+                "absent.pdf"
+            ]
+        );
+        let statuses: Vec<&CandidateStatus> = found.iter().map(|c| &c.status).collect();
+        assert!(
+            matches!(
+                statuses[..],
+                [
+                    CandidateStatus::Ready { pages: 12 },
+                    CandidateStatus::Ready { pages: 1 },
+                    CandidateStatus::Protected,
+                    CandidateStatus::Refused { .. },
+                    CandidateStatus::Refused { .. }
+                ]
+            ),
+            "{statuses:?}"
+        );
+        for candidate in &found[3..] {
+            if let CandidateStatus::Refused { message } = &candidate.status {
+                assert!(!message.is_empty(), "{}", candidate.name);
+            }
+        }
     }
 
     #[test]

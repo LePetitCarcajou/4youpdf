@@ -47,7 +47,7 @@ commands.allow = ["rotate_pages"]
 
 [[permission]]
 identifier = "allow-merge-documents"
-description = "Merge the chosen files after the pages of the document."
+description = "Merge the pages chosen of each file chosen, all of them by default, after the pages of the document."
 commands.allow = ["merge_documents"]
 
 [[permission]]
@@ -67,7 +67,7 @@ commands.allow = ["pick_open_file"]
 
 [[permission]]
 identifier = "allow-pick-merge-files"
-description = "Show the native « open files » dialog for the files to merge, from the Rust side."
+description = "Show the native « open files » dialog for the files to merge, from the Rust side, and say how many pages each file chosen holds, or why it cannot be merged."
 commands.allow = ["pick_merge_files"]
 
 [[permission]]

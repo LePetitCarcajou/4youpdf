@@ -858,19 +858,24 @@ async function chooseAndMerge(at?: number): Promise<void> {
   if (state.history === null || viewer.isOpen) {
     return;
   }
-  const paths = await pickMergeFiles();
-  if (paths !== null && paths.length > 0) {
-    await mergeFiles(paths, at);
+  const candidates = await pickMergeFiles();
+  if (candidates !== null && candidates.length > 0) {
+    await mergeFiles(
+      candidates.map((c) => c.path),
+      candidates.map(() => null),
+      at,
+    );
   }
 }
 
-/// Append every page of the files at `paths`, in that order, to the
-/// document: the Rust side rewrites it through `ops::merge`, and the new
-/// pages go into the grid at the end, or from position `at`, selected, as
-/// one edit that Ctrl+Z undoes. A file that does not open is skipped and
-/// said so, and the others merge without it (merge.ts). Not while the page
-/// view is open, whose order must not change.
-async function mergeFiles(paths: readonly string[], at?: number): Promise<void> {
+/// Append the pages chosen of the files at `paths`, in that order, to the
+/// document, all of them where `pages` gives no list: the Rust side
+/// rewrites it through `ops::merge_selected`, and the new pages go into the
+/// grid at the end, or from position `at`, selected, as one edit that
+/// Ctrl+Z undoes. A file that does not open is skipped and said so, and the
+/// others merge without it (merge.ts). Not while the page view is open,
+/// whose order must not change.
+async function mergeFiles(paths: readonly string[], pages: readonly (number[] | null)[], at?: number): Promise<void> {
   const info = state.info;
   const history = state.history;
   if (info === null || history === null || viewer.isOpen || paths.length === 0) {
@@ -880,7 +885,7 @@ async function mergeFiles(paths: readonly string[], at?: number): Promise<void> 
   // Filled by the merger, which runs once the rotations before are done.
   const report: { sources: readonly SourceReport[] } = { sources: [] };
   const running = history.merge(async () => {
-    const answer = await mergeDocuments(info.document, [...paths]);
+    const answer = await mergeDocuments(info.document, [...paths], [...pages]);
     report.sources = answer.sources;
     return answer.pages;
   }, at);
