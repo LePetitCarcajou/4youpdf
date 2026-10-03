@@ -814,6 +814,40 @@ mod tests {
         }
     }
 
+    /// A page list typed by the user (`1,3,5-8`, `8-5`) is read as the
+    /// cases of `tests/fixtures/page-ranges.tsv` say, pages or refusal word
+    /// for word. The window reads the same file with its own reader
+    /// (`app/ui/tests/pagerange.test.ts`): the two agree case by case.
+    #[test]
+    fn page_lists_are_read_as_the_shared_cases_say() {
+        let cases = include_str!("../../../tests/fixtures/page-ranges.tsv");
+        let mut read = 0;
+        for line in cases
+            .lines()
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        {
+            let fields: Vec<&str> = line.split('\t').collect();
+            let [typed, count, expected] = fields[..] else {
+                panic!("{line:?}: three fields separated by tabs");
+            };
+            let got = parse_pages(typed, count.parse().unwrap());
+            match expected.strip_prefix("! ") {
+                Some(refusal) => {
+                    assert_eq!(got.unwrap_err().to_string(), refusal, "{typed:?}");
+                }
+                None => {
+                    let pages: Vec<usize> = expected
+                        .split(',')
+                        .map(|number| number.parse::<usize>().unwrap() - 1)
+                        .collect();
+                    assert_eq!(got.unwrap(), pages, "{typed:?}");
+                }
+            }
+            read += 1;
+        }
+        assert_eq!(read, 43, "cases read");
+    }
+
     /// Each refusal names the module, the numbers involved and what to
     /// change. `HostMemoryExhausted` cannot be reached from `fyp run`
     /// without committing about 4 GiB: its wording is checked here only;

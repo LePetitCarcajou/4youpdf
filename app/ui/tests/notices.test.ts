@@ -176,4 +176,47 @@ test("a password being typed goes on with the opening already chosen", async () 
   equal([board.list, board.asksPasswordFor(secret)], [[], false], "opened");
 });
 
+test("one banner that asks at a time: a cut or a merge, each taking the other's place", () => {
+  const board = new NoticeBoard();
+  board.documentOpened(described("C:\\docs\\rapport.pdf"));
+  board.event("info", "Enregistré.");
+  board.askSplit("rapport.pdf");
+  equal(
+    board.list.map((n) => [n.role, n.text]),
+    [
+      ["event", "Enregistré."],
+      ["split", "Découper « rapport.pdf » en plusieurs fichiers :"],
+    ],
+    "the cut asked",
+  );
+  board.askMerge("rapport.pdf");
+  equal(
+    board.list.map((n) => [n.role, n.text]),
+    [
+      ["event", "Enregistré."],
+      ["merge", "Fusionner dans « rapport.pdf » :"],
+    ],
+    "the merge in place of the cut",
+  );
+  equal([board.asksMerge, board.asksSplit], [true, false], "which one asks");
+  const first = board.list[1]?.id;
+  board.askMerge("rapport.pdf");
+  equal(board.list.filter((n) => n.role === "merge").length, 1, "asked again: still one");
+  equal(board.list[1]?.id === first, false, "a new banner, for the files chosen again");
+  board.askSplit("rapport.pdf");
+  equal([board.asksMerge, board.asksSplit], [false, true], "the cut in place of the merge");
+  board.splitClosed();
+  equal(board.list.map((n) => n.role), ["event"], "given up");
+});
+
+test("the banner of a merge goes on Annuler, once asked for, and when a document opens", () => {
+  const board = new NoticeBoard();
+  board.askMerge("rapport.pdf");
+  board.mergeClosed();
+  equal(board.asksMerge, false, "closed");
+  board.askMerge("rapport.pdf");
+  board.documentOpened(described("C:\\docs\\autre.pdf"));
+  equal(board.asksMerge, false, "another document");
+});
+
 await run();

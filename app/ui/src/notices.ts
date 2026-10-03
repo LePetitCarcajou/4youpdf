@@ -9,10 +9,12 @@
 // a single error, which replaces that of an earlier failed attempt. A file
 // that needs a password is asked for in a notice too, one file at a time.
 //
-// One banner asks rather than reports: the one that sets up a cut
-// (« Découper… »), where the pages per file, or the cuts before the pages
-// selected, are typed in place. It is not a stop in the way of anything:
-// it goes away on `Annuler`, once the files are written, or when another
+// Two banners ask rather than report, one at a time: the one that sets up a
+// cut (« Découper… »), where the pages per file, or the cuts before the
+// pages selected, are typed in place; and the one that chooses the pages of
+// each file to merge (« Fusionner… »), once the files are chosen. Asking
+// for one takes the other away. Neither is a stop in the way of anything:
+// each goes away on `Annuler`, once its work is done, or when another
 // document opens, and one may keep working while it is there.
 //
 // The question asked before work is lost, when the window is closed or
@@ -45,8 +47,9 @@ export interface Notice {
   /// happened; `failure`: the last opening that failed; `password`: a
   /// password asked for the file at `path`; `question`: the question asked
   /// before `leaving` loses the modifications; `split`: how to cut the
-  /// document, asked in place.
-  readonly role: "document" | "event" | "failure" | "password" | "question" | "split";
+  /// document, asked in place; `merge`: which pages of each file chosen to
+  /// merge, asked in place.
+  readonly role: "document" | "event" | "failure" | "password" | "question" | "split" | "merge";
   /// The file a failure or a password request is about.
   readonly path: string | null;
   /// What a question stands in the way of.
@@ -113,8 +116,9 @@ export class NoticeBoard {
   }
 
   /// Ask how to cut the document `name`, in place of the request made
-  /// before, if any: one at a time, like the question.
+  /// before, if any, and of the banner of a merge: one at a time.
   askSplit(name: string): void {
+    this.mergeClosed();
     this.replace(this.make("info", `Découper « ${name} » en plusieurs fichiers :`, "split", null, null));
   }
 
@@ -126,6 +130,24 @@ export class NoticeBoard {
   /// Whether the cut is being set up: its banner holds what was typed.
   get asksSplit(): boolean {
     return this.notices.some((n) => n.role === "split");
+  }
+
+  /// Ask which pages of the files chosen to merge into the document
+  /// `name`, in place of the request made before, if any, and of the banner
+  /// of a cut: one at a time.
+  askMerge(name: string): void {
+    this.splitClosed();
+    this.replace(this.make("info", `Fusionner dans « ${name} » :`, "merge", null, null));
+  }
+
+  /// The merge was set up and asked for, or given up.
+  mergeClosed(): void {
+    this.notices = this.notices.filter((n) => n.role !== "merge");
+  }
+
+  /// Whether a merge is being set up: its banner holds what was typed.
+  get asksMerge(): boolean {
+    return this.notices.some((n) => n.role === "merge");
   }
 
   close(id: number): void {

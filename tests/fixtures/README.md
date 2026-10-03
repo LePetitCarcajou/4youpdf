@@ -92,6 +92,18 @@ Fichier régulier, pour l'interface plutôt que pour un écart à la norme :
   page. Produit par `fixtures_gen.rs`, vérifié par
   `crates/fyp-core/tests/ops.rs`.
 
+Table de cas, pas un PDF :
+
+- `page-ranges.tsv` — des listes de pages telles qu'on les tape (`1,3,5-8`,
+  `8-5` pour l'ordre inverse), avec le nombre de pages du document et ce que
+  la lecture doit donner : les pages, ou le refus mot pour mot. Deux lecteurs
+  la parcourent et doivent s'accorder cas par cas : celui de la ligne de
+  commande (`parse_pages`, test
+  `page_lists_are_read_as_the_shared_cases_say` de
+  `crates/fyp-cli/src/main.rs`) et celui de la fenêtre
+  (`app/ui/src/pagerange.ts`, `app/ui/tests/pagerange.test.ts`). Écrite à la
+  main ; son en-tête décrit le format.
+
 `xrefstream.pdf`, `objstm.pdf`, `hybrid.pdf`, `inuse-offset-zero.pdf`,
 `object-zero.pdf`, `root-direct.pdf`, `encrypted-rc4.pdf`,
 `encrypted-aes256.pdf`, `encrypted-user-password.pdf` et `mixed12.pdf` sont

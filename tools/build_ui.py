@@ -37,7 +37,10 @@ def tool(*parts):
 
 def run_tests():
     """Each app/ui/tests/*.test.ts, bundled by esbuild, runs in QuickJS; a
-    test file that fails exits with an error, which stops the build."""
+    test file that fails exits with an error, which stops the build. A test
+    may import a `.tsv` table of cases shared with the Rust side
+    (tests/fixtures/page-ranges.tsv): esbuild bundles its text as a
+    string."""
     esbuild = tool("esbuild")
     qjs = tool("qjs")
     with tempfile.TemporaryDirectory() as out:
@@ -54,6 +57,7 @@ def run_tests():
                     "--platform=neutral",
                     "--target=es2022",
                     "--charset=utf8",
+                    "--loader:.tsv=text",
                     "--log-level=warning",
                     "--outfile=" + bundle,
                 ],
