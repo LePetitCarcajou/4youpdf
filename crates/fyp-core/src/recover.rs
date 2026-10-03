@@ -20,7 +20,8 @@
 //! - Work is linear in the file size. A candidate object is parsed on a
 //!   slice cut at its own `endobj`, so a runaway parse never reads past it,
 //!   and a global budget of parsed bytes stops the scan on files built so
-//!   that every candidate is expensive.
+//!   that every candidate is expensive. An object stream is read again on
+//!   the slice it was accepted on, for the same reason.
 //!
 //! Candidates that do not parse as an object are dropped: `n g obj` inside
 //! a string of an accepted object is never examined (the scan resumes after
@@ -94,8 +95,9 @@ struct Scan<'a> {
     next_trailer: Option<usize>,
     next_startxref: Option<usize>,
     found: BTreeMap<u32, Found>,
-    /// `/Type /ObjStm` objects, in file order: `(object number, offset)`.
-    object_streams: Vec<(u32, usize)>,
+    /// `/Type /ObjStm` objects, in file order: `(object number, offset,
+    /// end of the slice the object was parsed on)`.
+    object_streams: Vec<(u32, usize, usize)>,
     /// Last `/Type /Catalog` object seen: `(position, reference)`.
     catalog: Option<(usize, ObjRef)>,
     /// Trailer-like dictionaries in file order, already stripped of the
@@ -221,14 +223,15 @@ impl Scan<'_> {
         let mut parser = Parser::at(slice, start);
         match parser.parse_indirect() {
             Ok((found, obj)) if found == r => {
-                self.record(r, start, &obj);
+                self.record(r, start, end, &obj);
                 Some(parser.pos().max(start + 1))
             }
             _ => None,
         }
     }
 
-    fn record(&mut self, r: ObjRef, at: usize, obj: &Object) {
+    /// Record the object `r` found at `at`, parsed on the input cut at `end`.
+    fn record(&mut self, r: ObjRef, at: usize, end: usize, obj: &Object) {
         self.found.insert(
             r.num,
             Found {
@@ -248,7 +251,7 @@ impl Scan<'_> {
             .and_then(Object::as_name)
             .map(|n| n.0.as_slice())
         {
-            Some(b"ObjStm") if is_stream => self.object_streams.push((r.num, at)),
+            Some(b"ObjStm") if is_stream => self.object_streams.push((r.num, at, end)),
             Some(b"XRef") if is_stream => self.trailers.push(xref_stream_trailer(dict)),
             Some(b"Catalog") => self.catalog = Some((at, r)),
             _ => {}
@@ -295,8 +298,8 @@ impl Scan<'_> {
     /// skipped: its objects are simply not found.
     fn index_object_streams(&mut self, limits: DecodeLimits) {
         let streams = std::mem::take(&mut self.object_streams);
-        for (num, at) in streams {
-            let Some(stream) = self.load_object_stream(num, at, limits) else {
+        for (num, at, end) in streams {
+            let Some(stream) = self.load_object_stream(num, at, end, limits) else {
                 continue;
             };
             let has_catalog = find(&stream.data, b"/Catalog").is_some();
@@ -333,16 +336,22 @@ impl Scan<'_> {
         }
     }
 
-    /// Re-read and decode the object stream at `at`. Its `/N` and `/First`
-    /// must be direct: with the table being rebuilt, references are not
-    /// followed here.
+    /// Re-read and decode the object stream at `at`, on the input cut at
+    /// `end` as when the scan accepted it: on the whole input, a `/Length`
+    /// aimed at a far `endstream` would make every object stream of a
+    /// hostile file read to that point. Its `/N` and `/First` must be
+    /// direct: with the table being rebuilt, references are not followed
+    /// here.
     fn load_object_stream(
         &self,
         num: u32,
         at: usize,
+        end: usize,
         limits: DecodeLimits,
     ) -> Option<ObjectStream> {
-        let (found, obj) = Parser::at(self.input, at).parse_indirect().ok()?;
+        let slice = self.input.get(..end).unwrap_or(self.input);
+        examined(slice.len().saturating_sub(at));
+        let (found, obj) = Parser::at(slice, at).parse_indirect().ok()?;
         if found.num != num {
             return None;
         }
@@ -833,6 +842,56 @@ mod tests {
                 "{what}: took {elapsed:?}"
             );
         }
+    }
+
+    /// Every object stream declares a `/Length` that lands on the one
+    /// `endstream` closing the file. Read again on the whole input, each
+    /// would hold the rest of the file: megabytes copied thousands of times.
+    #[test]
+    fn object_streams_aimed_at_a_far_endstream_stay_linear() {
+        const UNIT: usize = 112;
+        const BODY: &str = "8888888 0 1 endstream endobj\n";
+        let count = (3 << 20) / UNIT;
+        let total = count * UNIT;
+        let mut file = Vec::with_capacity(total + 32);
+        for i in 0..count {
+            let head = format!(
+                "{:07} 0 obj << /Type /ObjStm /N 1 /First 10 /Length ",
+                i + 1
+            );
+            let tail = format!(" >> stream\n{BODY}");
+            let data_start = file.len() + UNIT - BODY.len();
+            let width = UNIT - head.len() - tail.len();
+            let length = format!("{:>width$}", total - data_start);
+            file.extend_from_slice(head.as_bytes());
+            file.extend_from_slice(length.as_bytes());
+            file.extend_from_slice(tail.as_bytes());
+        }
+        assert_eq!(file.len(), total);
+        file.extend_from_slice(b"\nendstream endobj\n");
+        // The premise: on the whole input, the parser trusts that `/Length`.
+        let (_, whole) = Parser::at(&file, 0).parse_indirect().unwrap();
+        let Object::Stream { data, .. } = whole else {
+            panic!("not a stream");
+        };
+        assert!(data.len() > total - UNIT, "{}", data.len());
+
+        let (xref, examined) = reconstruct_counted(&file);
+        let xref = xref.expect("objects found");
+        assert_eq!(xref.object_count(), count + 1);
+        let last = u32::try_from(count).unwrap();
+        assert_eq!(
+            xref.get(8_888_888),
+            Some(XrefEntry::InStream {
+                stream_num: last,
+                index: 0
+            })
+        );
+        assert!(
+            examined <= LINEAR * file.len(),
+            "looked at {examined} bytes of {}",
+            file.len()
+        );
     }
 
     /// The bytes the search for `stream` goes through leave the budget, and
