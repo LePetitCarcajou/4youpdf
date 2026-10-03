@@ -161,7 +161,9 @@ impl Scan<'_> {
         if let Some(resume) = self.try_parse(start, r, tight_end) {
             return resume;
         }
-        let loose_end = object_end(input, after);
+        let Some(loose_end) = self.object_end(after) else {
+            return input.len();
+        };
         if loose_end > tight_end {
             if let Some(resume) = self.try_parse(start, r, loose_end) {
                 return resume;
@@ -170,16 +172,50 @@ impl Scan<'_> {
         after
     }
 
+    /// Debit `cost` bytes of work from the budget. `false` when the budget
+    /// does not cover them: it is then spent, which stops the whole scan.
+    fn spend(&mut self, cost: usize) -> bool {
+        if cost > self.budget {
+            self.budget = 0;
+            return false;
+        }
+        self.budget -= cost;
+        true
+    }
+
+    /// End of the object whose header ends at `after`: just past its
+    /// `endobj`, skipping stream data first when a `stream` keyword comes
+    /// before that `endobj`. The end of input when the file is cut short.
+    /// `None` when the budget ran out. Only the search for `stream` is
+    /// debited here. The other searches are paid for by a parse: when they
+    /// run past the tight cut, the loose parse that follows is debited for
+    /// at least the bytes they went through; when they do not, the tight
+    /// parse already was.
+    fn object_end(&mut self, after: usize) -> Option<usize> {
+        let input = self.input;
+        let len = input.len();
+        let endobj = find_from(input, after, b"endobj");
+        let limit = endobj.unwrap_or(len);
+        let (stream, searched) = stream_keyword_between(input, after, limit);
+        if !self.spend(searched) {
+            return None;
+        }
+        if let Some(s) = stream {
+            let Some(es) = find_from(input, s + 6, b"endstream") else {
+                return Some(len);
+            };
+            return Some(find_from(input, es + 9, b"endobj").map_or(len, |e| e + 6));
+        }
+        Some(endobj.map_or(len, |e| e + 6))
+    }
+
     /// Parse the object whose header starts at `start` on the input cut at
     /// `end`. On success, record it and return where the parser stopped.
     fn try_parse(&mut self, start: usize, r: ObjRef, end: usize) -> Option<usize> {
         let cost = end.saturating_sub(start);
-        if cost > self.budget {
-            // Out of budget: stop the whole scan.
-            self.budget = 0;
+        if !self.spend(cost) {
             return Some(self.input.len());
         }
-        self.budget -= cost;
         examined(cost);
         let slice = self.input.get(..end).unwrap_or(self.input);
         let mut parser = Parser::at(slice, start);
@@ -237,11 +273,9 @@ impl Scan<'_> {
             .min()
             .unwrap_or(input.len());
         let cost = end.saturating_sub(kw);
-        if cost > self.budget {
-            self.budget = 0;
+        if !self.spend(cost) {
             return input.len();
         }
-        self.budget -= cost;
         examined(cost);
         let slice = input.get(..end).unwrap_or(input);
         let mut parser = Parser::at(slice, after);
@@ -486,42 +520,24 @@ fn next_header_start(input: &[u8], from: usize) -> usize {
     input.len()
 }
 
-/// End of the object whose header ends at `after`: just past its `endobj`,
-/// skipping stream data first when a `stream` keyword comes before that
-/// `endobj`. The end of input when the file is cut short.
-fn object_end(input: &[u8], after: usize) -> usize {
-    let len = input.len();
-    let endobj = find_from(input, after, b"endobj");
-    let limit = endobj.unwrap_or(len);
-    if let Some(s) = stream_keyword_between(input, after, limit) {
-        let Some(es) = find_from(input, s + 6, b"endstream") else {
-            return len;
-        };
-        return find_from(input, es + 9, b"endobj").map_or(len, |e| e + 6);
-    }
-    endobj.map_or(len, |e| e + 6)
-}
-
 /// A `stream` keyword in `from..to`: preceded by whitespace or `>`,
 /// followed by whitespace (ISO 32000-2, 7.3.8.1 wants CR LF or LF; spaces
-/// before that EOL are tolerated like the parser does).
-fn stream_keyword_between(input: &[u8], from: usize, to: usize) -> Option<usize> {
+/// before that EOL are tolerated like the parser does). Also returns how
+/// many bytes the search went through, never more than `to - from`.
+fn stream_keyword_between(input: &[u8], from: usize, to: usize) -> (Option<usize>, usize) {
     let mut pos = from;
-    while let Some(s) = find_from(input, pos, b"stream") {
-        if s >= to {
-            return None;
-        }
+    while let Some(s) = find_between(input, pos, to, b"stream") {
         let before_ok = s
             .checked_sub(1)
             .and_then(|i| input.get(i))
             .is_none_or(|&b| is_whitespace(b) || b == b'>');
         let after_ok = input.get(s + 6).is_some_and(|&b| is_whitespace(b));
-        if before_ok && after_ok {
-            return Some(s);
-        }
         pos = s + 6;
+        if before_ok && after_ok {
+            return (Some(s), pos.saturating_sub(from));
+        }
     }
-    None
+    (None, to.saturating_sub(from))
 }
 
 #[cfg(test)]
@@ -544,6 +560,9 @@ mod tests {
         let xref = reconstruct(input, DecodeLimits::default());
         (xref, EXAMINED.with(Cell::get))
     }
+
+    /// Bytes looked at per byte of input under which work counts as linear.
+    const LINEAR: usize = 64;
 
     const CATALOG: &str = "<< /Type /Catalog /Pages 2 0 R >>";
     const PAGES: &str = "<< /Type /Pages /Kids [3 0 R] /Count 1 >>";
@@ -760,11 +779,10 @@ mod tests {
     /// Multi-megabyte files without one valid object must fail fast, even
     /// when every candidate is designed to make the parser run far. Fast is
     /// measured in bytes looked at, the same on every machine, not in
-    /// seconds: these files cost 3 to 28 times their size, a scan gone
+    /// seconds: these files cost 3 to 63.2 times their size, a scan gone
     /// quadratic costs thousands of times.
     #[test]
     fn hostile_megabytes_fail_fast() {
-        const LINEAR: usize = 64;
         let mut garbage = Vec::with_capacity(3 << 20);
         let mut x: u32 = 12345;
         while garbage.len() < 3 << 20 {
@@ -787,11 +805,18 @@ mod tests {
         while trailers.len() < 3 << 20 {
             trailers.extend_from_slice(b"trailer << ");
         }
+        // Every candidate fails the tight parse, then looks for a `stream`
+        // keyword that is nowhere in the file.
+        let mut empty = Vec::with_capacity(3 << 20);
+        while empty.len() < 3 << 20 {
+            empty.extend_from_slice(b"1 0 obj << endobj ");
+        }
         for (what, file) in [
             ("garbage", garbage),
             ("unterminated", unterminated),
             ("distinct", distinct),
             ("trailers", trailers),
+            ("empty", empty),
         ] {
             let started = Instant::now();
             let (result, examined) = reconstruct_counted(&file);
@@ -808,5 +833,49 @@ mod tests {
                 "{what}: took {elapsed:?}"
             );
         }
+    }
+
+    /// The bytes the search for `stream` goes through leave the budget, and
+    /// a budget that does not cover them stops the scan.
+    #[test]
+    fn the_stream_search_is_debited_from_the_budget() {
+        fn scan(input: &[u8], budget: usize) -> Scan<'_> {
+            Scan {
+                input,
+                budget,
+                next_obj: None,
+                next_trailer: None,
+                next_startxref: None,
+                found: BTreeMap::new(),
+                object_streams: Vec::new(),
+                catalog: None,
+                trailers: Vec::new(),
+            }
+        }
+        let input = b"1 0 obj << /A 1 >> endobj";
+        let after = 7;
+        let endobj = find(input, b"endobj").unwrap();
+        let mut rich = scan(input, 100);
+        assert_eq!(rich.object_end(after), Some(input.len()));
+        assert_eq!(rich.budget, 100 - (endobj - after));
+        let mut exact = scan(input, endobj - after);
+        assert_eq!(exact.object_end(after), Some(input.len()));
+        assert_eq!(exact.budget, 0);
+        let mut poor = scan(input, endobj - after - 1);
+        assert_eq!(poor.object_end(after), None);
+        assert_eq!(poor.budget, 0);
+        // The search stops at the keyword: what follows it is not debited.
+        let input = b"1 0 obj << >> stream\nabc\nendstream\nendobj";
+        let keyword_end = find(input, b"stream").unwrap() + 6;
+        let mut stream = scan(input, 100);
+        assert_eq!(stream.object_end(after), Some(input.len()));
+        assert_eq!(stream.budget, 100 - (keyword_end - after));
+        // Out of budget in that search, the whole scan stops: the tight
+        // parse takes 17 bytes of 20, the search wants 4 of the 3 left.
+        let file = b"1 0 obj << endobj ";
+        let mut stopped = scan(file, 20);
+        stopped.next_obj = find_from(file, 0, b"obj");
+        stopped.run();
+        assert_eq!(stopped.budget, 0);
     }
 }
