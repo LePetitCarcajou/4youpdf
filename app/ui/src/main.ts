@@ -45,7 +45,9 @@ import {
   mergeStatus,
   planMerge,
   readRow,
+  refusalHolds,
   rowNote,
+  type MergeRefusal,
   type Row,
 } from "./merge.js";
 import { attemptOpen, choices, NoticeBoard, type Leaving, type Notice, type NoticeKind } from "./notices.js";
@@ -919,6 +921,10 @@ let mergeRequest: MergeRequest | null = null;
 /// Whether a merge asked from the banner is running: asking again waits.
 let merging = false;
 
+/// Why the merge its banner asked for was refused, while the banner says
+/// so: until that no longer holds (`refreshMergeBanner`).
+let mergeRefusal: MergeRefusal | null = null;
+
 /// Ask which pages of the files of `request` to merge: a banner above the
 /// grid, in place of the one set up before and of the banner of a cut.
 function askMerge(request: MergeRequest): void {
@@ -927,6 +933,7 @@ function askMerge(request: MergeRequest): void {
     return;
   }
   mergeRequest = request;
+  mergeRefusal = null;
   notices.askMerge(info.name);
   renderNotices();
   refreshMergeBanner();
@@ -935,6 +942,7 @@ function askMerge(request: MergeRequest): void {
 function closeMerge(): void {
   notices.mergeClosed();
   mergeRequest = null;
+  mergeRefusal = null;
   renderNotices();
 }
 
@@ -1020,7 +1028,7 @@ function mergeForm(request: MergeRequest): HTMLFormElement {
   });
   // A field changed: its row and the preview follow, and a refusal shown
   // before does not stay under lists that have changed since.
-  form.addEventListener("input", () => refreshMergeBanner());
+  form.addEventListener("input", () => refreshMergeBanner(true));
   return form;
 }
 
@@ -1034,8 +1042,9 @@ function mergeRows(form: HTMLFormElement, request: MergeRequest): Row[] {
 /// Keep the banner of the merge in step with its fields and the grid: what
 /// each field takes, or why not, beside it; what the merge would add, where,
 /// and what the document would then hold (ADR 0004, point 6). A refusal
-/// shown before does not outlive what it was about.
-function refreshMergeBanner(): void {
+/// shown before does not outlive what it was about (`refusalHolds`), `typed`
+/// telling a field changed from the grid changing.
+function refreshMergeBanner(typed = false): void {
   const form = mergeBanner();
   const request = mergeRequest;
   const history = state.history;
@@ -1059,18 +1068,21 @@ function refreshMergeBanner(): void {
   if (submit !== null) {
     submit.disabled = merging;
   }
-  showMergeRefusal("");
+  if (mergeRefusal !== null && !refusalHolds(mergeRefusal, typed, at)) {
+    showMergeRefusal(null);
+  }
 }
 
-/// Say in the banner why nothing was merged; `false` when the banner is no
-/// longer there to say it.
-function showMergeRefusal(message: string): boolean {
+/// Say in the banner why nothing was merged, or nothing for `null`; `false`
+/// when the banner is no longer there to say it.
+function showMergeRefusal(refusal: MergeRefusal | null): boolean {
   const line = mergeBanner()?.querySelector<HTMLElement>(".merge-error");
   if (line === null || line === undefined) {
     return false;
   }
-  line.textContent = message;
-  line.hidden = message === "";
+  mergeRefusal = refusal;
+  line.textContent = refusal?.message ?? "";
+  line.hidden = refusal === null;
   return true;
 }
 
@@ -1079,9 +1091,10 @@ function showMergeRefusal(message: string): boolean {
 /// that Ctrl+Z undoes; the Rust side rewrites the document through
 /// `ops::merge_selected`. A list refused stays refused beside its field, and
 /// nothing is asked; a refusal of the Rust side stays in the banner, which
-/// stays open: a list, or a file changed since, must change. A file that
-/// does not open is skipped and said so, and the others merge without it
-/// (merge.ts). Not while the page view is open, whose order must not change.
+/// stays open, until a field changes: a list, or a file changed since, must
+/// change. A file that does not open is skipped and said so, and the others
+/// merge without it (merge.ts). Not while the page view is open, whose order
+/// must not change.
 async function runMerge(): Promise<void> {
   const info = state.info;
   const history = state.history;
@@ -1098,7 +1111,7 @@ async function runMerge(): Promise<void> {
     return;
   }
   if (plan.kind === "refused") {
-    showMergeRefusal(plan.message);
+    showMergeRefusal(plan.refusal);
     return;
   }
   const { pages, at } = plan;
@@ -1121,7 +1134,7 @@ async function runMerge(): Promise<void> {
   if (outcome.kind === "failed") {
     edited(outcome);
     const message = `Fusion impossible : ${outcome.message}`;
-    if (!showMergeRefusal(message)) {
+    if (!showMergeRefusal({ message, place: false })) {
       notice("error", message);
     }
     setStatus("Fusion impossible.");

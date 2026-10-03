@@ -13,7 +13,9 @@ import {
   mergeStatus,
   planMerge,
   readRow,
+  refusalHolds,
   rowNote,
+  type MergeRefusal,
   type Row,
 } from "../src/merge.js";
 import { equal, run, test } from "./check.js";
@@ -152,7 +154,10 @@ test("asking for the merge goes to the first list refused, then refuses in the b
   );
   equal(
     planMerge([skipped], undefined),
-    { kind: "refused", message: "Aucun des fichiers choisis ne peut être fusionné : il n'y a rien à ajouter." },
+    {
+      kind: "refused",
+      refusal: { message: "Aucun des fichiers choisis ne peut être fusionné : il n'y a rien à ajouter.", place: false },
+    },
     "nothing to add, said before the page meant",
   );
   equal(planMerge([], null).kind, "refused", "no file");
@@ -160,7 +165,10 @@ test("asking for the merge goes to the first list refused, then refuses in the b
     planMerge([a, skipped], undefined),
     {
       kind: "refused",
-      message: "La page devant laquelle fusionner a été supprimée : relancez « Fusionner ici… » sur une autre page.",
+      refusal: {
+        message: "La page devant laquelle fusionner a été supprimée : relancez « Fusionner ici… » sur une autre page.",
+        place: true,
+      },
     },
     "the page meant gone",
   );
@@ -170,6 +178,18 @@ test("asking for the merge goes to the first list refused, then refuses in the b
     { kind: "merge", pages: [null, null], at: 4 },
     "in front of a page",
   );
+});
+
+test("a refusal stays until what it was about changes, and only that", () => {
+  // The Rust side refused: a file changed since it was chosen.
+  const files: MergeRefusal = { message: "Fusion impossible : « b.pdf » : page 6 hors limites", place: false };
+  equal(refusalHolds(files, false, null), true, "a tile clicked, a page turned: the grid changed, not the files");
+  equal(refusalHolds(files, false, undefined), true, "even the page meant gone");
+  equal(refusalHolds(files, true, null), false, "a field changed");
+  const place: MergeRefusal = { message: "La page devant laquelle fusionner a été supprimée", place: true };
+  equal(refusalHolds(place, false, undefined), true, "the page meant still gone");
+  equal(refusalHolds(place, true, undefined), true, "typing does not bring it back");
+  equal(refusalHolds(place, false, 0), false, "the page meant back in the grid (Ctrl+Z)");
 });
 
 /// A file as the Rust side reports it.

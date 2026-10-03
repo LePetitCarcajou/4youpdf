@@ -127,6 +127,15 @@ export function describeMerge(rows: readonly Row[], documentPages: number, at: n
   return `${total} pages ajoutées ${where} : ${parts.join(", ")} ; ${after}`;
 }
 
+/// A refusal said in the banner of the merge once asked for: `place` when
+/// it is about the page the pages would go in front of, which has left the
+/// grid; otherwise about the files chosen and the lists typed, as are those
+/// of the Rust side.
+export interface MergeRefusal {
+  readonly message: string;
+  readonly place: boolean;
+}
+
 /// What asking for the merge comes to: the keyboard to the first row
 /// refused, which says why beside its field; a refusal said in the banner,
 /// when no file can give a page or the page meant has left the grid; or the
@@ -134,7 +143,7 @@ export function describeMerge(rows: readonly Row[], documentPages: number, at: n
 /// would take, `null` for the end.
 export type MergePlan =
   | { kind: "refused-row"; row: number }
-  | { kind: "refused"; message: string }
+  | { kind: "refused"; refusal: MergeRefusal }
   | { kind: "merge"; pages: (number[] | null)[]; at: number | null };
 
 /// What asking for the merge comes to, from the rows and from `at`, where
@@ -146,15 +155,34 @@ export function planMerge(rows: readonly Row[], at: number | null | undefined): 
     return { kind: "refused-row", row: rows.findIndex((row) => row.kind === "refused") };
   }
   if (!rows.some((row) => row.kind === "all" || row.kind === "pages")) {
-    return { kind: "refused", message: "Aucun des fichiers choisis ne peut être fusionné : il n'y a rien à ajouter." };
+    return {
+      kind: "refused",
+      refusal: {
+        message: "Aucun des fichiers choisis ne peut être fusionné : il n'y a rien à ajouter.",
+        place: false,
+      },
+    };
   }
   if (at === undefined) {
     return {
       kind: "refused",
-      message: "La page devant laquelle fusionner a été supprimée : relancez « Fusionner ici… » sur une autre page.",
+      refusal: {
+        message: "La page devant laquelle fusionner a été supprimée : relancez « Fusionner ici… » sur une autre page.",
+        place: true,
+      },
     };
   }
   return { kind: "merge", pages, at };
+}
+
+/// Whether `refusal` still holds once the banner changes: `typed` when a
+/// field changed, and `at`, where the pages would now go (`mergePosition`).
+/// A refusal does not outlive what it was about, and only that: one about
+/// the files and the lists goes once a field changes, whatever the grid
+/// does (a click on a tile changes nothing it said); one about the place,
+/// once the page meant is back in the grid (Ctrl+Z), whatever is typed.
+export function refusalHolds(refusal: MergeRefusal, typed: boolean, at: number | null | undefined): boolean {
+  return refusal.place ? at === undefined : !typed;
 }
 
 /// One notice per file that deserves one, in the order of the files: a

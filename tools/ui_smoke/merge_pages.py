@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Smoke test of the window, driven through the DevTools port of WebView2
 (CDP): choosing the pages of each file merged, and an extraction that never
-replaces the file open (rampe v0.5.0, session C).
+replaces the file open (rampe v0.5.0, session C); then, since its
+correctifs, how long a refusal stays in the banner of the merge.
 
 What runs for real: the interface, the Rust commands (`pick_merge_files`
 once through the native picker, `merge_documents`, `save_document`) and the
@@ -244,6 +245,7 @@ STATE = r"""
   const form = document.querySelector("#notices form.merge");
   return {
     tiles: [...document.querySelectorAll("#grid .tile")].map((t) => Number(t.dataset.page)),
+    selected: [...document.querySelectorAll("#grid .tile.selected")].map((t) => Number(t.dataset.position)),
     modified: document.getElementById("doc-name").classList.contains("modified"),
     notices: [...document.querySelectorAll("#notices .notice")].map((n) => [n.className.replace("notice ", ""), n.querySelector("span").textContent]),
     status: document.getElementById("status-text").textContent,
@@ -617,8 +619,49 @@ def main():
             s["merge"] is not None and s["merge"]["error"].startswith("La page devant laquelle fusionner a été supprimée") and len(s["tiles"]) == 6,
             s["merge"]["error"] if s["merge"] else "",
         )
+        page.ctrl("z")
+        s = wait(page, "the page meant back", lambda s: len(s["tiles"]) == 7)
+        check(
+            "Ctrl+Z brings the page meant back: the refusal goes, the preview follows the page",
+            s["merge"] is not None
+            and s["merge"]["error"] == ""
+            and s["merge"]["preview"] == "5 pages de « B.pdf » ajoutées devant la page 1 ; le document en aura 12.",
+            json.dumps(s["merge"], ensure_ascii=False)[:300],
+        )
+
+        # -- A refusal of the Rust side stays until a field changes ----------
+        page.key(27, "Escape", "Escape")
+        wait(page, "the banner closed", lambda s: s["merge"] is None)
+        # B has five pages; said to have nine, the banner takes page 9, and
+        # the Rust side, which reads the file again, refuses it.
+        ask_merge(page, [candidate(b, 9)])
+        page.type_in('input.merge-pages[data-row="0"]', "9")
+        wait(page, "page 9 taken by the banner", lambda s: s["merge"]["notes"][0] == ["1 page", False])
+        merges_before = len(state(page)["merges"])
+        page.enter()
+        s = wait(page, "the Rust side refused", lambda s: s["merge"] is not None and s["merge"]["error"] != "")
+        check(
+            "a page the file no longer has: refused by the Rust side, in the banner, which stays; nothing merged",
+            s["merge"]["error"] == "Fusion impossible : « B.pdf » : page 9 hors limites, le fichier a 5 pages ; rien n'a été fusionné"
+            and len(s["merges"]) == merges_before + 1
+            and len(s["tiles"]) == 7,
+            s["merge"]["error"],
+        )
+        # A tile not selected yet, so that the click does change the selection.
+        target = 3 if s["selected"] == [2] else 2
+        page.click(f'#grid .tile[data-position="{target}"]')
+        s = wait(page, "a tile selected", lambda s: s["selected"] == [target])
+        check(
+            "a click on a tile: the refusal of the Rust side stays",
+            s["merge"] is not None and s["merge"]["error"].startswith("Fusion impossible : « B.pdf » : page 9 hors limites"),
+            json.dumps(s["merge"], ensure_ascii=False)[:300],
+        )
+        page.type_in('input.merge-pages[data-row="0"]', "1")
+        s = wait(page, "page 1 typed", lambda s: s["merge"]["notes"][0] == ["1 page", False] and s["merge"]["fields"] == ["1"])
+        check("a field changed: the refusal goes", s["merge"]["error"] == "", s["merge"]["error"])
 
         # -- One banner at a time; Échap and the page view close it ----------
+        page.js("document.activeElement?.blur()")
         page.ctrl("d")
         s = wait(page, "the cut", lambda s: s["split"])
         check("Ctrl+D: the banner of the cut takes the place of the merge", s["merge"] is None)
@@ -626,7 +669,7 @@ def main():
         check("Ctrl+M: the merge takes the place of the cut", not state(page)["split"])
         page.key(27, "Escape", "Escape")
         s = wait(page, "closed", lambda s: s["merge"] is None)
-        check("Échap closes it, nothing merged", len(s["tiles"]) == 6)
+        check("Échap closes it, nothing merged", len(s["tiles"]) == 7)
         ask_merge(page, [candidate(b, 5)])
         page.js("document.activeElement?.blur()")
         page.click('#grid .tile[data-position="0"]')
@@ -634,6 +677,21 @@ def main():
         s = wait(page, "the page view", lambda s: page.js("!document.getElementById('viewer').hidden"))
         check("opening the page view closes it", s["merge"] is None)
         page.key(27, "Escape", "Escape")
+        wait(page, "the page view closed", lambda s: page.js("document.getElementById('viewer').hidden"))
+
+        # -- No file to take pages from: refused in the banner ---------------
+        s = ask_merge(page, [candidate(protected, status={"kind": "protected"})])
+        merges_before = len(s["merges"])
+        page.click("#notices form.merge button.primary")
+        s = wait(page, "nothing to add", lambda s: s["merge"] is not None and s["merge"]["error"] != "")
+        check(
+            "no file can give a page: refused in the banner, nothing asked of the Rust side",
+            s["merge"]["error"] == "Aucun des fichiers choisis ne peut être fusionné : il n'y a rien à ajouter."
+            and len(s["merges"]) == merges_before,
+            s["merge"]["error"],
+        )
+        page.key(27, "Escape", "Escape")
+        wait(page, "the banner closed", lambda s: s["merge"] is None)
 
         # -- The native picker, and the Rust side counting the pages ---------
         page.js("window.__native = true; window.__nativeAnswer = undefined; "

@@ -287,7 +287,7 @@ ici).
 | `src/render.rs` | images des pages (vignettes, vue d'une page) : thread dédié qui charge PDFium et sert les demandes une à une ; où chercher la bibliothèque ; seul endroit qui connaît `pdfium-render`. Le banc de fidélité du rendu (`tools/render_bench`) compile ce fichier tel quel et appelle ses trois étapes une à une : ouvrir, dessiner, encoder |
 | `ui/src/main.ts` | la fenêtre : grille, glisser-déposer, sélection, menu contextuel, bandeau de fusion, extraction de la sélection et bandeau de découpage, panneau de vignettes à côté de la vue d'une page, clavier, raccourcis du navigateur neutralisés, avis en place, question posée avant de perdre des modifications |
 | `ui/src/history.ts` | ordre et rotation des pages, pages fusionnées, avec annuler et refaire ; une rotation ou une fusion est faite par le côté Rust, une à la fois ; ce qui compte comme modifié, et le point d'enregistrement |
-| `ui/src/merge.ts` | ce que la fenêtre dit d'une fusion, sans DOM : avant, le champ de chaque fichier lu, l'endroit où iraient les pages, l'aperçu de ce qui serait ajouté, puis la demande elle-même, les pages demandées au côté Rust ou le refus et sa raison ; après, un bandeau par fichier ignoré, ou fusionné après réparation ou déchiffrement, et la barre d'état |
+| `ui/src/merge.ts` | ce que la fenêtre dit d'une fusion, sans DOM : avant, le champ de chaque fichier lu, l'endroit où iraient les pages, l'aperçu de ce qui serait ajouté, puis la demande elle-même, les pages demandées au côté Rust ou le refus et sa raison, et jusqu'à quand ce refus tient ; après, un bandeau par fichier ignoré, ou fusionné après réparation ou déchiffrement, et la barre d'état |
 | `ui/src/pagerange.ts` | les listes de pages tapées (`1,3,5-8`, `8-5`), sans DOM : lues comme la ligne de commande les lit, règle pour règle et message pour message, d'après la table de cas `tests/fixtures/page-ranges.tsv` que les deux parcourent ; champ vide pour toutes les pages, page tapée deux fois refusée |
 | `ui/src/notices.ts` | bandeaux au-dessus de la grille, sans DOM : seule une ouverture réussie les remplace ; la question avant de perdre des modifications et ses trois issues ; les bandeaux qui règlent un découpage ou une fusion, un seul à la fois |
 | `ui/src/extract.ts` | « Extraire la sélection… », sans DOM : quand l'action est disponible, quelles pages la sélection désigne dans l'ordre affiché, le nom proposé |
@@ -652,7 +652,8 @@ et ce que le champ prend.
   « C.pdf » ; le document en aura 10. », ou « devant la page 2 » pour
   `Fusionner ici…`. Il suit ses champs et la grille : si la page visée
   change de place, le numéro suit ; si elle est supprimée, le bandeau le
-  dit et la fusion est refusée en place.
+  dit et la fusion est refusée en place, refus qui s'efface quand la page
+  revient (Ctrl+Z).
 - **Un refus s'affiche à côté de son champ, et rien n'est fusionné** : un
   numéro qui n'en est pas un (« numéro de page invalide : « abc » »), une
   page que le fichier n'a pas (« page 13 hors limites : le document a
@@ -677,7 +678,8 @@ et ce que le champ prend.
   documents ouverts, pas des chemins (ADR 0004). Le côté Rust vérifie les
   listes à son tour, le fichier ayant pu changer depuis qu'il a été choisi,
   et refuse la fusion entière, sans rien réécrire, en nommant le fichier et
-  la page ; le bandeau reste alors ouvert avec ce refus. Le document est
+  la page ; le bandeau reste alors ouvert avec ce refus, jusqu'à ce qu'un
+  champ change : un clic dans la grille ne l'efface pas. Le document est
   réécrit en mémoire comme pour une rotation, relu sans réparation, en
   clair s'il était chiffré ; le catalogue, les métadonnées et l'`/ID`
   restent ceux du document (`docs/architecture.md`, « Fusion »).
