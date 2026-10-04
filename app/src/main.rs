@@ -20,7 +20,6 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod render;
 mod session;
 
 use std::path::{Path, PathBuf};
@@ -29,10 +28,10 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use base64::Engine as _;
 use serde::Serialize;
-use tauri::{Emitter, Manager, State, WindowEvent};
+use tauri::{Emitter, Manager, RunEvent, State, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
 
-use render::RenderService;
+use fyp_app::render::{self, RenderService};
 use session::{Candidate, DocumentInfo, MergeReport, PageInfo, SaveReport, Session, SplitReport};
 
 /// What a command reports when it fails. `WrongPassword` lets the
@@ -298,7 +297,7 @@ fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
 /// Whether thumbnails can be drawn, and why not otherwise.
 #[tauri::command]
 fn renderer_status(state: State<'_, AppState>) -> render::Status {
-    state.render.status().clone()
+    state.render.status()
 }
 
 /// Image of page `page` (0-based) of the current document, `width` pixels
@@ -637,6 +636,12 @@ fn require_webview2() {
 }
 
 fn main() {
+    // The rendering worker is this executable in another mode (ADR 0008):
+    // decided here, before anything of Tauri, of WebView2 or of a plugin
+    // runs, and the worker starts none of them.
+    if render::worker::asked(std::env::args_os()) {
+        std::process::exit(render::worker::run());
+    }
     if !keeps_webview2_browser_arguments() {
         std::env::remove_var(WEBVIEW2_BROWSER_ARGUMENTS);
     }
@@ -648,7 +653,7 @@ fn main() {
     let render = Arc::new(RenderService::start(&render::library_candidates(
         development,
     )));
-    let state = AppState::new(render);
+    let state = AppState::new(Arc::clone(&render));
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(state)
@@ -671,10 +676,23 @@ fn main() {
             pick_save_file,
             pick_folder,
         ])
-        .run(tauri::generate_context!());
-    if let Err(e) = result {
-        eprintln!("4YouPDF: {e}");
-        std::process::exit(1);
+        .build(tauri::generate_context!());
+    match result {
+        Ok(app) => app.run(|app, event| {
+            // A window that closes stops the worker and waits for it,
+            // before the process ends.
+            if let RunEvent::Exit = event {
+                if let Some(state) = app.try_state::<AppState>() {
+                    state.render.shutdown();
+                }
+            }
+        }),
+        Err(e) => {
+            eprintln!("4YouPDF: {e}");
+            // `exit` runs no destructor: the worker is stopped here.
+            render.shutdown();
+            std::process::exit(1);
+        }
     }
 }
 
@@ -707,7 +725,9 @@ mod tests {
     /// open here as well, for its pages to render and to be saved.
     #[test]
     fn a_failed_open_keeps_the_current_document() {
-        let state = AppState::new(Arc::new(RenderService::start(&[])));
+        let state = AppState::new(Arc::new(RenderService::unavailable(
+            "no renderer in this test",
+        )));
         let current = || {
             state
                 .session()
@@ -744,7 +764,9 @@ mod tests {
     /// before it was even asked for, is turned in place of the one meant.
     #[test]
     fn a_rotation_applies_only_to_the_document_it_was_meant_for() {
-        let state = AppState::new(Arc::new(RenderService::start(&[])));
+        let state = AppState::new(Arc::new(RenderService::unavailable(
+            "no renderer in this test",
+        )));
         let bytes_of = |state: &AppState| state.current().map(|c| (c.id, c.bytes));
         assert!(state.rotate(1, &[0], 90).is_err(), "no document open");
         let first = state.open(&fixture("minimal.pdf"), "").expect("open");
@@ -778,7 +800,9 @@ mod tests {
     /// leaves it as it is.
     #[test]
     fn a_merge_applies_only_to_the_document_it_was_meant_for() {
-        let state = AppState::new(Arc::new(RenderService::start(&[])));
+        let state = AppState::new(Arc::new(RenderService::unavailable(
+            "no renderer in this test",
+        )));
         let bytes_of = |state: &AppState| state.current().map(|c| (c.id, c.bytes));
         let files = [fixture("objstm.pdf")];
         assert!(state.merge(1, &files, &[None]).is_err(), "no document open");
@@ -827,7 +851,9 @@ mod tests {
     /// window closes rather than staying open for good.
     #[test]
     fn closing_asks_only_while_the_document_is_reported_modified() {
-        let state = AppState::new(Arc::new(RenderService::start(&[])));
+        let state = AppState::new(Arc::new(RenderService::unavailable(
+            "no renderer in this test",
+        )));
         let told = std::cell::Cell::new(0);
         let tell = || {
             told.set(told.get() + 1);
@@ -1118,7 +1144,12 @@ mod tests {
         let opening = ["open_", "devtools("].concat();
         for source in [
             include_str!("main.rs"),
+            include_str!("lib.rs"),
             include_str!("render.rs"),
+            include_str!("render/pdfium.rs"),
+            include_str!("render/png.rs"),
+            include_str!("render/protocol.rs"),
+            include_str!("render/worker.rs"),
             include_str!("session.rs"),
         ] {
             assert!(!source.contains(&opening));

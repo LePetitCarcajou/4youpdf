@@ -164,15 +164,17 @@ fn the_core_deciphers_what_hayro_draws() {
 }
 
 /// The PNG is the one the page service would make of the same pixels: the
-/// settings of `encode_png` in app/src/render.rs, which the engine copies.
+/// settings of `encode_png` in app/src/render/png.rs, which the engine
+/// copies.
 #[test]
 fn encodes_the_png_as_the_page_service_does() {
     let service =
-        std::fs::read_to_string(root().join("app").join("src").join("render.rs")).unwrap();
+        std::fs::read_to_string(root().join("app").join("src").join("render").join("png.rs"))
+            .unwrap();
     for setting in ["CompressionType::Fast", "FilterType::Up"] {
         assert!(
             service.contains(setting),
-            "app/src/render.rs n'encode plus avec {setting} : src/render.rs doit le suivre"
+            "app/src/render/png.rs n'encode plus avec {setting} : src/render.rs doit le suivre"
         );
     }
     let dir = scratch("png");

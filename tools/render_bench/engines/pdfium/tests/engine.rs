@@ -1,6 +1,7 @@
 //! The PDFium engine as the bench runs it: a program that answers the
 //! protocol, with PDFium when it is fetched and with a fatal answer when it
-//! is not, built from app/src/render.rs with the application's dependencies.
+//! is not, built from app/src/render/pdfium.rs and app/src/render/png.rs with
+//! the application's dependencies.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -126,8 +127,9 @@ fn answers_the_protocol() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// app/src/render.rs is compiled here: with the crates, versions and features
-/// the application asks for, or the bench would measure another renderer.
+/// The application's renderer is compiled here: with the crates, versions and
+/// features the application asks for, or the bench would measure another
+/// renderer.
 #[test]
 fn builds_the_renderer_with_the_dependencies_of_the_application() {
     let manifest = |path: PathBuf| -> toml::Table {

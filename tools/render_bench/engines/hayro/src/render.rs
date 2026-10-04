@@ -136,7 +136,7 @@ fn to_image(pixmap: Pixmap) -> Option<DynamicImage> {
 }
 
 /// The PNG the page service makes of `image` (`encode_png` of
-/// `app/src/render.rs`): fast compression and the `Up` filter.
+/// `app/src/render/png.rs`): fast compression and the `Up` filter.
 pub fn encode_png(image: &DynamicImage) -> Result<Vec<u8>, String> {
     let mut png = Vec::new();
     image

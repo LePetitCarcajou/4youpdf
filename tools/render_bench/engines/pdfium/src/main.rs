@@ -1,8 +1,9 @@
 //! The PDFium engine of the rendering fidelity bench (`tools/render_bench`;
 //! `docs/banc-rendu.md`, « Protocole des moteurs »). It draws pages with the
-//! application's own module, `app/src/render.rs`, compiled here as it is:
-//! the same binding, the same drawing, the same PNG encoding, taken step by
-//! step so that each step can be timed.
+//! application's own code, `app/src/render/pdfium.rs` and
+//! `app/src/render/png.rs`, compiled here as they are: the same binding, the
+//! same drawing, the same PNG encoding, taken step by step so that each step
+//! can be timed.
 //!
 //! PDFium is looked for in the directory `FYP_PDFIUM_DIR` names, then in
 //! `app/pdfium/` of the checkout, where `tools/fetch_pdfium.py` puts the
@@ -10,12 +11,13 @@
 
 #![forbid(unsafe_code)]
 
-// The application's renderer. This engine calls its PDFium steps on its own
-// thread; the worker thread, the service and the library search serve the
-// application only.
-#[allow(dead_code)]
-#[path = "../../../../../app/src/render.rs"]
-mod render;
+// The application's renderer: what its rendering worker draws with, and
+// what its window encodes with. The worker, its protocol, the service and the
+// library search serve the application only.
+#[path = "../../../../../app/src/render/pdfium.rs"]
+mod pdfium;
+#[path = "../../../../../app/src/render/png.rs"]
+mod png;
 
 use std::env::consts::{DLL_PREFIX, DLL_SUFFIX};
 use std::io::{Read, Write};
@@ -25,7 +27,8 @@ use std::time::Instant;
 
 use fyp_render_bench::protocol::{PageRequest, Reply, Request, PROTOCOL};
 use fyp_render_bench::system;
-use render::pdfium::{encode_png, Loaded, Renderer};
+use pdfium::{Loaded, Renderer};
+use png::encode_png;
 
 fn main() -> ExitCode {
     let mut out = std::io::stdout().lock();
