@@ -38,6 +38,8 @@ Les bibliothèques disponibles depuis Rust :
    ne voient qu'un service : « page N du document ouvert, W pixels de
    large → PNG », et un état « aperçus disponibles ou non, et pourquoi ».
    Remplacer PDFium par notre moteur reviendra à réécrire ce module.
+   Depuis l'ADR 0008, le fichier qui connaît `pdfium-render` est
+   `app/src/render/pdfium.rs`, exécuté par le processus de rendu.
 3. **L'application fonctionne sans PDFium.** Bibliothèque absente ou
    inchargeable : les vignettes montrent une page vide au bon format, la
    barre d'état dit pourquoi, et ouvrir, réorganiser, supprimer, enregistrer
@@ -46,7 +48,9 @@ Les bibliothèques disponibles depuis Rust :
 4. **Un seul thread pour PDFium.** La bibliothèque n'est pas réentrante :
    un thread dédié la charge et sert les demandes une par une, à travers un
    canal. Les commandes de l'interface attendent hors du thread de
-   l'interface.
+   l'interface. *Remplacé par l'ADR 0008 (octobre 2026)* : ce thread est
+   devenu un processus à part, qui sert toujours les demandes une par
+   une ; un plantage ou un blocage de PDFium n'emporte plus l'application.
 5. **Pas dans le noyau, pas dans les modules.** `fyp-core` ne dépend pas de
    PDFium ; aucun module ne l'appelle. Le rendu est un service de
    l'application, réservé à l'affichage.
@@ -85,7 +89,9 @@ Les bibliothèques disponibles depuis Rust :
   cette mesure est le banc de fidélité du rendu (`tools/render_bench`,
   `docs/banc-rendu.md`) : deux moteurs dessinent le même jeu de pages
   versionné, et le banc donne pour chaque page l'écart entre leurs images et
-  leurs temps. Son moteur PDFium compile `app/src/render.rs` tel quel. Le
+  leurs temps. Son moteur PDFium compile `app/src/render/pdfium.rs` et
+  `app/src/render/png.rs` (`app/src/render.rs` avant l'ADR 0008) tels quels. Le
   seuil d'une « fidélité comparable » reste à fixer. D'ici là, cet ADR
   est la seule raison pour laquelle du code non Rust s'exécute dans
-  l'application.
+  l'application, depuis l'ADR 0008 dans son processus de rendu et plus dans
+  celui de la fenêtre.

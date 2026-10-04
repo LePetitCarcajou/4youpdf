@@ -216,7 +216,8 @@ Quatre tests dans `app/src/main.rs`, module `tests` :
 - `the_devtools_of_tauri_stay_out_of_the_release_build` : lit
   `app/Cargo.toml` avec la crate `toml` (dev-dependency de `fyp-app`, déjà
   dans l'arbre par `fyp-plugin-api`) et vérifie qu'aucun `open_devtools(`
-  n'apparaît dans `main.rs`, `render.rs`, `session.rs`.
+  n'apparaît dans `main.rs`, `render.rs`, `session.rs` ni, depuis
+  l'ADR 0008, dans `lib.rs` et les fichiers de `render/`.
 - `a_release_build_alone_closes_the_native_menu_and_the_debugging_port` :
   la release seule injecte le script et retire la variable, selon le
   profil sous lequel `cargo test` tourne.

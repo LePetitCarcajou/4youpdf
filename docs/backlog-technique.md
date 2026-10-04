@@ -166,7 +166,7 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
   d'une page** (consigné le 13 septembre 2026, par le banc de fidélité).
   `docs/architecture.md` (« Rendu ») affirme que, pour une page à la taille de
   la fenêtre, « le temps passe dans l'encodage PNG, pas dans PDFium ». La
-  mesure que cite le commentaire de `app/src/render.rs` a été prise dans un
+  mesure que cite le commentaire de `app/src/render/png.rs` a été prise dans un
   build debug : 190 ms pour une page de 1400 pixels. En release, sur les 156
   pages comparées du jeu de référence à 1400 pixels, l'encodage prend 5,3 %
   du temps de rendu et d'encodage : 213 ms contre 3 779 ms, 11,6 ms au plus
@@ -180,13 +180,14 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
 - [ ] **L'application n'affiche pas les champs de formulaire d'un document
   sans `/AcroForm`** (consigné le 14 septembre 2026, par le banc de fidélité,
   PDFium contre hayro). Les annotations `/Widget` de ces documents ont une
-  apparence (`/AP /N`), que PDFium ne dessine pas tel que `app/src/render.rs`
-  l'appelle : pas d'environnement de formulaire sans `/AcroForm`, donc pas de
-  dessin des widgets. Vu sur `pdfjs/issue12963.pdf`, page 1 (le nom rempli
-  « СУВОРОВ » manque) et `qpdf/annotations-no-acroform-with-p.pdf`, page 1
-  (textes des deux champs) ; hayro les dessine. La norme demande de dessiner
-  l'apparence d'une annotation visible (ISO 32000-2, 12.5.5), qu'il y ait un
-  formulaire ou non.
+  apparence (`/AP /N`), que PDFium ne dessine pas tel que
+  `app/src/render/pdfium.rs` l'appelle : pas d'environnement de formulaire
+  sans `/AcroForm`, donc pas de dessin des widgets. Vu sur
+  `pdfjs/issue12963.pdf`, page 1 (le nom rempli « СУВОРОВ » manque) et
+  `qpdf/annotations-no-acroform-with-p.pdf`, page 1 (textes des deux
+  champs) ; hayro les dessine. La norme demande de dessiner l'apparence
+  d'une annotation visible (ISO 32000-2, 12.5.5), qu'il y ait un formulaire
+  ou non.
 - [ ] **Vérifier l'interface dans la CI** (consigné le 14 septembre 2026, en
   ajoutant le panneau de vignettes). `ci.yml` ne lance ni
   `tools/fetch_ui_tools.py` ni `tools/build_ui.py` : la vérification des
@@ -195,48 +196,43 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
   y compile l'application avec la page d'attente qu'écrit `app/build.rs`
   quand `app/dist/` manque. Seul `release.yml` les exécute, sur un tag, par
   `tools/package_app.py`.
-- [ ] **Mettre à jour le commentaire de tête de `app/src/render.rs`**
-  (consigné le 14 septembre 2026, en ajoutant le panneau de vignettes). Il
-  dit que l'interface ne met rien devant la page affichée parce que
-  « thumbnails wait while the page view is open ». Depuis le panneau, les
-  vignettes attendent que la vue n'ait plus rien à dessiner, puis passent
-  une à une tant que le panneau est affiché (`thumbnailSlots`, dans
-  `app/ui/src/thumbnails.ts`) : une page demandée en naviguant peut attendre
-  une vignette. La session du panneau excluait toute modification de
-  `render.rs`.
-- [ ] **Isoler le rendu dans un processus séparé** (consigné le 14 septembre
-  2026, décision prise hors session). Un processus à mémoire et à temps
-  bornés, qui ne sait que recevoir des octets et rendre des pixels. Le rendu
-  s'exécute aujourd'hui dans le processus de la fenêtre, sur le thread de
-  `app/src/render.rs` : un PDF malveillant qui exploite un défaut de PDFium a
-  la main sur l'application, et un moteur qui dépasse sa pile l'emporte avec
-  lui, comme hayro sur `qpdf/issue-202.pdf` (`docs/mesure-hayro.md`). Chrome,
-  lui, isole PDFium dans un processus séparé, sous son bac à sable. Quel que
-  soit le moteur, l'isolation apporte :
-  - un défaut exploité ne donne la main que sur ce processus, pas sur celui
-    de la fenêtre et ses commandes, pour peu que le système restreigne ses
-    droits comme le bac à sable de Chrome restreint les siens : un processus
-    qui garde les droits de l'utilisateur peut encore atteindre celui de la
-    fenêtre ;
-  - un plantage, une pile dépassée ou une mémoire épuisée arrêtent ce
-    processus, pas l'application, qui peut dire que la page n'a pas été
-    rendue ;
-  - un dessin trop long s'abandonne en arrêtant le processus, ce qu'un
-    thread ne permet pas ;
-  - la mémoire du rendu a sa propre limite, distincte de celle de la
-    fenêtre.
-
-  Elle répond à l'une des trois conditions de bascule vers hayro de
-  `docs/mesure-hayro.md`, la deuxième, « un rendu qui ne fait ni tomber ni
-  figer l'application », dont la mesure juge la meilleure forme un processus
-  à part ou la sandbox WebAssembly, où hayro compile.
+- [ ] **Restreindre les droits du processus de rendu et borner sa mémoire,
+  reste de « Isoler le rendu dans un processus séparé »** (consigné le
+  14 septembre 2026, décision prise hors session ; réduit le 3 octobre
+  2026, session v0.5.1-A). Fait le 3 octobre 2026 (ADR 0008) : PDFium
+  tourne dans un processus à part, `fyp-app --fyp-render-worker`, qui ne
+  sait que recevoir des octets et rendre des pixels ; un plantage, une pile
+  dépassée ou un dessin de plus de 30 s arrêtent ce processus, pas
+  l'application, qui dit que la page n'a pas été rendue et le relance ; la
+  fenêtre vérifie chaque réponse et encode elle-même le PNG. C'est la forme
+  que demandait la deuxième condition de bascule de `docs/mesure-hayro.md`,
+  « un rendu qui ne fait ni tomber ni figer l'application », quel que soit
+  le moteur qui tourne dans ce processus. Reste :
+  - **la mémoire du rendu n'a pas sa propre limite** : le travailleur
+    dessine l'image avant de la comparer aux plafonds, et PDFium alloue ce
+    que le fichier lui fait allouer (session v0.5.1-B) ;
+  - **le travailleur n'est pas attaché à la fenêtre par le système** : il
+    s'arrête en lisant la fin de son entrée standard, donc après le dessin
+    en cours quand la fenêtre plante (Job Object, session v0.5.1-B) ;
+  - **ses droits sont ceux de l'utilisateur** : un défaut de PDFium
+    exploité ne donne la main que sur ce processus, mais ce processus peut
+    encore lire et écrire les fichiers de l'utilisateur et atteindre celui
+    de la fenêtre. Chrome, lui, isole PDFium sous son bac à sable. À faire
+    (jeton restreint, niveau d'intégrité bas ou espace de noms selon le
+    système) avant d'annoncer un rendu sandboxé, ou sur un rapport de
+    vulnérabilité de PDFium exploitable ;
+  - **les bouts du canal sont héritables le temps du lancement** : un
+    processus enfant lancé au même instant par un autre code (WebView2)
+    pourrait en hériter, et une demande échouerait alors au bout du délai
+    au lieu d'aussitôt (ADR 0008, « Limites connues »).
 - [ ] **Neutraliser la surcharge de WebView2 par le registre et les autres
   variables `WEBVIEW2_*`, reste de « garder les outils de développement
   coupés en release »** (consigné le 14 septembre 2026, réduit le
   19 septembre 2026). Fait le
   19 septembre 2026 : un test de `app/src/main.rs` garde la fonctionnalité
   Cargo `devtools` de `tauri` hors de `app/Cargo.toml` et `open_devtools`
-  hors de `main.rs`, `render.rs` et `session.rs` ; en release seulement,
+  hors de `main.rs`, `render.rs`, `session.rs` et, depuis l'ADR 0008,
+  `lib.rs` et les fichiers de `render/` ; en release seulement,
   `main()` retire `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` de son
   environnement avant que WebView2 ne démarre : le port de débogage que
   cette variable ouvrait sur `target/release/fyp-app.exe` est fermé, mesuré
@@ -511,3 +507,66 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
   session v0.5.1-recover, relecture). `BUDGET_FLOOR` dans `recover.rs` ;
   `docs/diagrams.md`, ligne 110, parle aussi d'un budget « linéaire en la
   taille du fichier ».
+- [ ] **Le banc cite encore `app/src/render.rs` comme le code qu'il
+  mesure** (consigné le 3 octobre 2026, session v0.5.1-A).
+  `tools/render_bench/engines.toml`, ligne 13 (la description du moteur
+  PDFium, reprise par le rapport du banc), le commentaire de
+  `tools/render_bench/src/pageset.rs`, ligne 17, celui de tête de
+  `tools/render_bench/engines/hayro/src/render.rs`, ligne 3, et celui des
+  membres de l'espace de travail, `Cargo.toml`, ligne 13 (« the PDFium
+  engine compiles app/src/render.rs »). Depuis l'ADR 0008, le moteur
+  compile `app/src/render/pdfium.rs` et `app/src/render/png.rs` ; la
+  session ne touchait au banc que pour qu'il compile et que ses tests
+  passent.
+- [ ] **`docs/mesure-hayro.md` et `docs/feuille-de-route.md` décrivent
+  encore le rendu dans le processus de la fenêtre** (consigné le 3 octobre
+  2026, session v0.5.1-A). La mesure dit, sous sa deuxième condition de
+  bascule, « Dans l'application, le fil de rendu vit dans le processus de
+  la fenêtre » ; la feuille de route garde en tête de ses dettes connues
+  « PDFium dans le processus principal […] un crash tue l'application ».
+  Faux depuis l'ADR 0008 ; le brief de la session ne nommait pas ces deux
+  documents. À reprendre à la clôture du palier v0.5.1.
+- [ ] **Des démarrages ratés lents relancent le travailleur sans fin**
+  (consigné le 3 octobre 2026, session v0.5.1-A, testeur D3). Une poignée
+  de main muette coûte 10 s : six relances par minute au plus, sous la
+  limite de huit par 60 s (`Limits::default()`, `app/src/render.rs`), et
+  les chutes par page ne s'appliquent pas à la poignée de main. Chaque
+  vignette d'un grand document lance alors un processus et attend 10 s, le
+  rendu restant « disponible ». Piste : compter aussi les échecs de
+  démarrage consécutifs, quel que soit leur rythme (trois de suite coupent
+  le rendu). Test :
+  `handshakes_that_keep_failing_turn_rendering_off_whatever_their_pace`.
+- [ ] **Rien ne vérifie `Stdio::null()` ni `CREATE_NO_WINDOW` au lancement
+  du travailleur** (consigné le 3 octobre 2026, session v0.5.1-A, testeur
+  R2). `Executable::launch`, `app/src/render.rs`. La mutation « sortie
+  d'erreur héritée » survit à tous les tests ; seule une sonde release du
+  testeur a montré qu'aucune fenêtre n'apparaît. Piste : un script de
+  `tools/ui_smoke/` qui énumère les fenêtres du travailleur, en dev et en
+  release.
+- [ ] **Tester le délai d'une demande contre un vrai dessin sans fin de
+  PDFium** (consigné le 3 octobre 2026, session v0.5.1-A, testeur). Le
+  délai n'est testé qu'avec de faux travailleurs
+  (`a_silent_worker_is_killed_when_the_delay_is_over`). Fixture proposée :
+  `tests/fixtures/render-endless-forms.pdf` (formulaires imbriqués, 10⁶
+  remplissages, 3,4 Kio ; aujourd'hui `target/agents/v0.5.1-A/endless6.pdf`,
+  que `endless.py`, à côté, fabrique). Test :
+  `an_endless_drawing_is_stopped_at_the_delay_and_refused_after_two` dans
+  `app/tests/render_worker.rs`. La même fixture sert en session v0.5.1-B
+  pour « la fenêtre tuée pendant un dessin sans fin ne laisse aucun
+  travailleur ».
+- [ ] **Une inondation de réponses non demandées coûte à la fenêtre trois
+  images, pas une** (consigné le 3 octobre 2026, session v0.5.1-A, testeur
+  R1). Environ 400 Mio au pic : une image dans la file d'une place, une en
+  lecture, plus la croissance du tampon de `read_payload`
+  (`app/src/render/protocol.rs`). C'est borné, et l'ADR 0008 le dit dans
+  ses limites connues. Piste : ne lire la réponse suivante qu'une fois la
+  précédente consommée.
+- [ ] **Les chutes d'une page repartent de zéro à chaque rotation ou
+  fusion** (consigné le 3 octobre 2026, session v0.5.1-A, relecture).
+  `Strikes::concern` (`app/src/render.rs`) remet le compte à zéro dès que
+  l'identifiant change, et une rotation ou une fusion en donne un nouveau.
+  Une page qui arrête le moteur le fera donc tomber deux fois de plus après
+  chaque réécriture, là où le brief disait « jusqu'à ce qu'un autre
+  document soit ouvert ». C'est documenté (ADR 0008, `app/README.md`) et
+  borné par la limite de relances. À décider : garder le compte à travers
+  les réécritures d'un même document ouvert.

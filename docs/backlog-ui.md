@@ -154,13 +154,14 @@ la liste une fois fait.
 - [ ] **Bug : les champs remplis d'un formulaire sans `/AcroForm` ne
   s'affichent pas** (consigné le 14 septembre 2026, par le banc de fidélité).
   PDFium contre hayro. Les annotations `/Widget` de ces documents ont une
-  apparence (`/AP /N`), que PDFium ne dessine pas tel que `app/src/render.rs`
-  l'appelle : pas d'environnement de formulaire sans `/AcroForm`, donc pas de
-  dessin des widgets. Vu sur `pdfjs/issue12963.pdf`, page 1 (le nom rempli
-  « СУВОРОВ » manque) et `qpdf/annotations-no-acroform-with-p.pdf`, page 1
-  (textes des deux champs) ; hayro les dessine. La norme demande de dessiner
-  l'apparence d'une annotation visible (ISO 32000-2, 12.5.5), qu'il y ait un
-  formulaire ou non.
+  apparence (`/AP /N`), que PDFium ne dessine pas tel que
+  `app/src/render/pdfium.rs` l'appelle : pas d'environnement de formulaire
+  sans `/AcroForm`, donc pas de dessin des widgets. Vu sur
+  `pdfjs/issue12963.pdf`, page 1 (le nom rempli « СУВОРОВ » manque) et
+  `qpdf/annotations-no-acroform-with-p.pdf`, page 1 (textes des deux
+  champs) ; hayro les dessine. La norme demande de dessiner l'apparence
+  d'une annotation visible (ISO 32000-2, 12.5.5), qu'il y ait un formulaire
+  ou non.
 - [ ] **Les flèches de la grille ne regardent ni Ctrl ni Alt** (consigné le
   14 septembre 2026, en neutralisant les raccourcis du navigateur). La
   branche des flèches du clavier de `main.ts` ne teste que Maj : Alt+← et
@@ -374,7 +375,8 @@ la liste une fois fait.
   `reconstructed()` une chaîne libre), ou bien une table côté interface
   pour les cas fréquents, avec le texte anglais en détail.
 - [ ] **Les messages du noyau numérotent les pages à partir de 0**
-  (consigné le 23 septembre 2026, en relisant la rampe v0.5.0, session C).
+  (consigné le 23 septembre 2026, en relisant la rampe v0.5.0, session C ;
+  réduit le 3 octobre 2026 de sa part sur le rendu).
   `fyp pages extract mixed12.pdf 3,3` répond « invalid page operation:
   page 2 selected more than once » (`crates/fyp-core/src/ops.rs:307`) :
   l'utilisateur a tapé 3, le noyau cite l'indice 2 ; `fyp pages delete` et
@@ -393,10 +395,11 @@ la liste une fois fait.
   refuse d'abord, en français et à partir de 1) et la fenêtre seulement
   sur une erreur de l'interface ; « empty page range {start}..{end} » de
   `ops::split` (`ops.rs:263`), à partir de 0 et fin exclue, qu'aucune des
-  deux n'atteint. Hors de `ops`, même défaut dans
-  `app/src/render.rs:240-252` (« page {page} hors de portée », « rendu de
-  la page {page} : … »), affiché par la vue d'une page (« Rendu
-  impossible : … »). Les autres refus de `ops` (« no page selected »,
+  deux n'atteint. Hors de `ops`, le même défaut dans les messages de
+  rendu (« page {page} hors de portée », « rendu de la page {page} : … »),
+  affichés par la vue d'une page, est corrigé depuis le 3 octobre 2026
+  (session v0.5.1-A, `app/src/render/pdfium.rs`) : ils citent les pages à
+  partir de 1. Les autres refus de `ops` (« no page selected »,
   « the selections leave no page to merge », « deleting every page would
   leave no page ») ne citent pas de page. Piste : que l'erreur porte
   l'indice en donnée (`NoSuchPage` le fait déjà, un doublon n'a que du
@@ -404,3 +407,42 @@ la liste une fois fait.
   l'entrée « Les raisons du noyau sont en anglais dans les bandeaux » ;
   sans toucher au noyau, la ligne de commande peut refuser le doublon
   avant l'appel, comme `session::selection` le fait pour la fusion.
+- [ ] **Une page dont le rendu a échoué n'est pas redemandée** (consigné le
+  3 octobre 2026, session v0.5.1-A). Quand le moteur de rendu s'arrête
+  pendant le dessin d'une page, sa vignette reste vide avec, en infobulle,
+  « le moteur de rendu s'est arrêté ; il sera relancé », et la vue affiche
+  « Rendu impossible : … » : `ThumbnailLoader` et `PageViewer` gardent
+  l'échec (`failed`) jusqu'à un autre document ou une rotation de la page.
+  Le moteur est bien relancé à la demande suivante, mais rien ne redemande
+  la page qui a échoué, alors qu'une seule chute peut venir d'ailleurs que
+  de la page (processus tué, mémoire du système). À décider : une nouvelle
+  tentative, automatique ou par un geste, pour les échecs que le côté Rust
+  dit passagers, ce qui demande qu'il les distingue des refus définitifs
+  (page hors de portée, page refusée après deux chutes).
+- [ ] **Une page très haute cesse d'être dessinée en zoomant** (consigné le
+  3 octobre 2026, session v0.5.1-A). Depuis l'ADR 0008, une image de plus
+  de 16 384 pixels de haut ou de 4096 × 8192 pixels est refusée : une page
+  plus de deux fois plus haute que large (ticket de caisse, infographie)
+  affiche « Rendu impossible : la page 1 est trop haute pour être dessinée
+  à cette largeur » passé un certain grossissement, alors que l'image
+  précédente était nette. Le plafond du zoom (`zoom.ts`) ne connaît que la
+  largeur maximale, 4096 pixels. Piste : qu'il tienne compte aussi de la
+  hauteur de la page, avec l'entrée « Le plafond du zoom vient vite sur un
+  écran dense », ou un rendu par tuiles.
+- [ ] **Les erreurs de PDFium arrivent à l'utilisateur sous leur forme
+  `Debug` anglaise** (consigné le 3 octobre 2026, session v0.5.1-A, testeur
+  R3). Exemple : « rendu de la page 1 :
+  PdfiumLibraryInternalError(Unknown) », formé par `{e:?}` dans
+  `app/src/render/pdfium.rs`. Déjà le cas avant la session ; la page est
+  bien citée à partir de 1. À traiter avec « Les raisons du noyau sont en
+  anglais dans les bandeaux ».
+- [ ] **L'infobulle de l'état du rendu reste sur l'échec du premier
+  démarrage** (consigné le 3 octobre 2026, session v0.5.1-A, testeur R4 et
+  relecture). Après un premier démarrage raté du moteur, `renderer_status`
+  répond « disponible » avec le détail « le moteur de rendu n'a pas
+  démarré : … » : la barre d'état affiche « Aperçus : PDFium » avant que
+  PDFium ait été trouvé, et son infobulle garde cette raison après une
+  relance réussie, l'interface ne relisant l'état qu'après une page qui
+  échoue (`showRendererStatus`, `app/ui/src/main.ts`). Piste : relire
+  l'état après la première page rendue, ou un libellé propre à « pas encore
+  démarré ».

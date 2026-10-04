@@ -484,18 +484,43 @@ installeur et une archive portable. Répartition :
   document en cours. `main.rs` ouvre aussi la fenêtre, avec le profil de
   WebView2 dans le dossier `data` d'une copie portable, et s'arrête sur un
   message quand WebView2 manque.
-- **Rendu (`app/src/render.rs`)** : PDFium par `pdfium-render`, chargé à
-  l'exécution, sur un thread dédié qui sert les demandes une par une.
-  Dépendance temporaire et confinée à ce module (ADR 0005) : l'interface
-  ne voit qu'un service « page N, largeur W → PNG » et son état ; sans la
-  bibliothèque, tout fonctionne avec des vignettes vides. Pour une page à
-  la taille de la fenêtre, le temps passe dans l'encodage PNG, pas dans
-  PDFium : le filtre `Up` est plus de quatre fois plus rapide que le filtre
-  adaptatif par défaut, pour des fichiers 12 à 14 % plus gros. Une demande
-  passe par trois étapes : ouvrir le document, dessiner la page, l'encoder.
-  Le banc de fidélité du rendu (`tools/render_bench`, `docs/banc-rendu.md`)
-  compile ce module tel quel et appelle ces étapes une à une, pour
-  chronométrer séparément le dessin et l'encodage.
+- **Rendu (`app/src/render.rs` et `app/src/render/`)** : PDFium par
+  `pdfium-render`, chargé à l'exécution, dans un processus à part
+  (ADR 0008) : `fyp-app` relancé avec `--fyp-render-worker`, argument que
+  `main()` teste avant tout code de Tauri. `render.rs` est le service du
+  processus de la fenêtre : il lance ce travailleur, lui parle par son
+  entrée et sa sortie standard en trames binaires à longueur préfixée
+  (`render/protocol.rs`), sert les demandes une par une, et le relance
+  quand il meurt, se tait plus de 30 s ou répond autre chose que ce qui
+  était demandé ; la demande en cours échoue alors, en mots, sans que la
+  fenêtre tombe. Une page qui fait tomber le travailleur deux fois n'est
+  plus dessinée ; plus de huit relances en une minute, et le rendu est
+  indisponible jusqu'au redémarrage, ce que dit l'état du rendu. Le
+  travailleur (`render/worker.rs`) ne charge que PDFium et s'arrête quand
+  il lit la fin de son entrée, entre deux demandes : fermer la fenêtre
+  l'arrête et l'attend ; si la fenêtre meurt, il s'arrête à la fin du
+  dessin en cours, sans borne de temps tant que le système ne l'attache pas
+  à la fenêtre (session B du palier v0.5.1). Il répond par des pixels
+  bruts ; la fenêtre vérifie chaque longueur contre un plafond avant
+  d'allouer, puis les dimensions de l'image, et encode elle-même le PNG
+  (`render/png.rs`). Le document et son mot de passe voyagent dans une
+  trame, une fois par document et de nouveau après une relance, jamais par
+  la ligne de commande ni l'environnement. Le travailleur garde les droits
+  de l'utilisateur et sa mémoire n'est pas bornée : ce n'est pas encore un
+  bac à sable. Dépendance temporaire et confinée à `render/pdfium.rs`
+  (ADR 0005) : l'interface ne voit qu'un service « page N, largeur W →
+  PNG » et son état ; sans la bibliothèque, tout fonctionne avec des
+  vignettes vides, et aucun travailleur ne reste. Pour une page à la taille
+  de la fenêtre, le temps passe dans l'encodage PNG, pas dans PDFium : le
+  filtre `Up` est plus de quatre fois plus rapide que le filtre adaptatif
+  par défaut, pour des fichiers 12 à 14 % plus gros. Une demande passe par
+  trois étapes : ouvrir le document, dessiner la page, l'encoder. Le banc
+  de fidélité du rendu (`tools/render_bench`, `docs/banc-rendu.md`) compile
+  `render/pdfium.rs` et `render/png.rs` tels quels et appelle ces étapes
+  une à une, pour chronométrer séparément le dessin et l'encodage. Pour ses
+  tests, `fyp-app` a une cible bibliothèque
+  (`app/src/lib.rs`), réduite au rendu : ceux de `app/tests/` y prennent le
+  service et le lancent contre le vrai exécutable en mode travailleur.
 - **Interface (`app/ui/`)** : l'ordre des pages et l'historique
   annuler/refaire vivent dans l'interface (`history.ts`) ; le côté Rust ne
   connaît que le document ouvert, tourné au fil des rotations. L'interface
@@ -525,7 +550,7 @@ installeur et une archive portable. Répartition :
   une à la fois et panneau affiché seulement (`thumbnailSlots`) : passées
   les vignettes que la grille avait déjà demandées à l'ouverture de la vue,
   une page demandée en naviguant ne passe jamais derrière une file
-  d'attente du thread de rendu, au plus derrière une demande, une voisine en
+  d'attente du service de rendu, au plus derrière une demande, une voisine en
   cours ou une vignette. Un clic à côté de la page, sur un fond qui fait
   partie de la vue, ne la referme pas : Échap et son bouton `Grille`
   ramènent à la grille, et ouvrir un autre document la ferme. Le numéro

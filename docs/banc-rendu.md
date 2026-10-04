@@ -11,10 +11,10 @@ ajouté pour être mesuré contre lui (`docs/mesure-hayro.md`). Un autre s'ajout
 sans toucher au banc (« Ajouter un moteur »).
 
 Le banc est en Rust (`tools/render_bench`). Il doit exécuter le code même de
-`app/src/render.rs`, compilé avec les versions exactes du `Cargo.lock` de
-l'application, et comparer des millions de pixels par page. Les scripts
-Python de `tools/`, qui s'en tiennent à la bibliothèque standard, ne feraient
-ni l'un ni l'autre en un temps raisonnable.
+`app/src/render/pdfium.rs` et de `app/src/render/png.rs`, compilé avec les
+versions exactes du `Cargo.lock` de l'application, et comparer des millions
+de pixels par page. Les scripts Python de `tools/`, qui s'en tiennent à la
+bibliothèque standard, ne feraient ni l'un ni l'autre en un temps raisonnable.
 
 ## Lancer
 
@@ -104,14 +104,16 @@ son protocole (`tools/render_bench/src/protocol.rs`, version 1) :
   l'application (compression rapide, filtre `Up`).
 
 Le moteur PDFium (`tools/render_bench/engines/pdfium`) compile
-`app/src/render.rs` tel quel et en appelle les trois étapes une à une :
-`Renderer::open`, `Loaded::draw` et `encode_png`. Le fil de travail de
-l'application enchaîne ces mêmes étapes pour chaque demande. Le moteur cherche
+`app/src/render/pdfium.rs` et `app/src/render/png.rs` tels quels et en appelle
+les trois étapes une à une : `Renderer::open`, `Loaded::draw` et `encode_png`.
+L'application enchaîne ces mêmes étapes pour chaque demande, les deux premières
+dans son processus de rendu, l'encodage dans celui de la fenêtre (ADR 0008) :
+le banc ne mesure pas le passage des pixels de l'un à l'autre. Le moteur cherche
 la bibliothèque dans `FYP_PDFIUM_DIR`, puis dans `app/pdfium/` : la version
 épinglée, jamais une copie restée à côté d'un exécutable. Il donne pour
 version le contenu du fichier `RELEASE` que `tools/fetch_pdfium.py` écrit à
 côté de la bibliothèque, et le début de l'empreinte de celle-ci. Un test
-(`tests/engine.rs`) vérifie qu'il compile `render.rs` avec les dépendances et
+(`tests/engine.rs`) vérifie qu'il compile ces fichiers avec les dépendances et
 les fonctionnalités de `app/Cargo.toml`.
 
 Le moteur hayro (`tools/render_bench/engines/hayro`) dessine avec hayro 0.7.1,
@@ -298,7 +300,7 @@ relatif du temps de rendu d'une même page est de 2,8 % en médiane, 8,9 % au
 l'encodage PNG prend 5,3 % du temps de rendu et d'encodage : 213 ms contre
 3 779 ms. Par page, la médiane est de 1,1 ms pour l'encodage et de 3,1 ms pour
 le rendu. Au pire, l'encodage prend 11,6 ms, et le rendu 1 388 ms, le plan A1.
-La mesure citée par `app/src/render.rs`, 190 ms pour encoder une page de
+La mesure citée par `app/src/render/png.rs`, 190 ms pour encoder une page de
 1400 pixels, venait d'un build debug, où `image` et `png` ne sont pas
 optimisés ; `docs/architecture.md` la reprend sans le préciser
 (`docs/backlog-technique.md`).
