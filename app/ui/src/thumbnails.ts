@@ -7,7 +7,7 @@
 // The renderer serves one request at a time, and the page view goes first:
 // how many thumbnails may be drawn at once depends on it (`thumbnailSlots`).
 
-import { renderPage } from "./api.js";
+import { renderPage, type RendererStatus } from "./api.js";
 
 const CONCURRENCY = 3;
 
@@ -171,6 +171,11 @@ export class ThumbnailLoader {
   private version(page: number): number {
     return this.versions.get(page) ?? 0;
   }
+}
+
+/// What the status bar says of the renderer.
+export function rendererLabel(status: RendererStatus): string {
+  return status.available ? "Aperçus : PDFium" : `Aperçus indisponibles — ${status.detail}`;
 }
 
 function pageOf(tile: HTMLElement): number {

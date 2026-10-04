@@ -151,8 +151,22 @@ export function rendererStatus(): Promise<RendererStatus> {
   return invoke<RendererStatus>("renderer_status");
 }
 
-export function renderPage(page: number, width: number): Promise<string> {
-  return invoke<string>("render_page", { page, width });
+let renderFailed: (() => void) | undefined;
+
+/// `listener` is told each time a page could not be rendered: what the
+/// renderer says of itself (`rendererStatus`) may have changed, the Rust
+/// side turning rendering off when its engine stops too often.
+export function onRenderFailure(listener: () => void): void {
+  renderFailed = listener;
+}
+
+export async function renderPage(page: number, width: number): Promise<string> {
+  try {
+    return await invoke<string>("render_page", { page, width });
+  } catch (e: unknown) {
+    renderFailed?.();
+    throw e;
+  }
 }
 
 /// Turn the pages at `pages` (0-based indices into the file opened as

@@ -20,6 +20,7 @@ import {
   initialFile,
   mergeDocuments,
   onCloseRequested,
+  onRenderFailure,
   onFileDrop,
   openDocument,
   pickFolder,
@@ -52,7 +53,7 @@ import {
 import { attemptOpen, choices, NoticeBoard, type Leaving, type Notice, type NoticeKind } from "./notices.js";
 import { browserShortcut, stopsHere } from "./shortcuts.js";
 import { cutPoints, describeParts, parseEvery, splitAt, splitDone, splitEvery } from "./split.js";
-import { ThumbnailLoader, thumbnailSlots } from "./thumbnails.js";
+import { ThumbnailLoader, rendererLabel, thumbnailSlots } from "./thumbnails.js";
 import { PageViewer, pageRatio } from "./viewer.js";
 
 const THUMB_WIDTH = 160;
@@ -1826,21 +1827,29 @@ ui.delete.addEventListener("click", () => deletePositions([...state.selection]))
 ui.save.addEventListener("click", () => void save());
 ui.viewerPanel.addEventListener("click", togglePanel);
 
+/// Ask the Rust side what the renderer says of itself and show it in the
+/// status bar. Once rendering is off, the pages of the next document are
+/// not asked for.
+async function showRendererStatus(): Promise<void> {
+  try {
+    const status = await rendererStatus();
+    state.rendererAvailable = status.available;
+    ui.rendererStatus.textContent = rendererLabel(status);
+    ui.rendererStatus.title = status.detail;
+  } catch (e: unknown) {
+    ui.rendererStatus.textContent = `Aperçus indisponibles — ${String(e)}`;
+  }
+}
+
 async function start(): Promise<void> {
   if (!hasTauri()) {
     notice("error", "Cette page doit être ouverte par l'application 4YouPDF, pas par un navigateur.");
     return;
   }
-  try {
-    const status = await rendererStatus();
-    state.rendererAvailable = status.available;
-    ui.rendererStatus.textContent = status.available
-      ? "Aperçus : PDFium"
-      : `Aperçus indisponibles — ${status.detail}`;
-    ui.rendererStatus.title = status.detail;
-  } catch (e: unknown) {
-    ui.rendererStatus.textContent = `Aperçus indisponibles — ${String(e)}`;
-  }
+  await showRendererStatus();
+  // Rendering may be turned off while the window is open (its engine
+  // stopped too often): the status bar says so as soon as a page fails.
+  onRenderFailure(() => void showRendererStatus());
   await onFileDrop((paths) => {
     ui.dropOverlay.hidden = true;
     const pdf = paths.find((p) => p.toLowerCase().endsWith(".pdf")) ?? paths[0];
