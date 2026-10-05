@@ -811,24 +811,33 @@ const CLOSING: &str = "le moteur de rendu est arrêté : l'application se ferme"
 /// request.
 const OTHER_REQUEST: &str = "réponse à une autre demande";
 
-/// Where the PDFium library may be, in this order: the directory named by
-/// `FYP_PDFIUM_DIR`; the directory of the executable, where the installer
-/// and the portable archive put it; and `development`, the `app/pdfium/`
-/// of the checkout a development build was compiled from
-/// (`tools/fetch_pdfium.py`), which a packaged build does not give.
+/// Where the PDFium library may be. A packaged build (`development` is
+/// `None`) looks in the directory of its executable, where the installer
+/// and the portable archive put it, and nowhere else. A build compiled
+/// from a checkout gives `development`, the `app/pdfium/` of that checkout
+/// (`tools/fetch_pdfium.py`), and looks, in this order: in the directory
+/// named by `FYP_PDFIUM_DIR`, in `development`, then in the directory of
+/// its executable, so that a stale copy left in `target/` is not the one
+/// loaded.
 pub fn library_candidates(development: Option<PathBuf>) -> Vec<PathBuf> {
-    let mut dirs = Vec::new();
-    if let Some(dir) = std::env::var_os("FYP_PDFIUM_DIR") {
-        dirs.push(PathBuf::from(dir));
-    }
-    if let Some(dir) = std::env::current_exe()
+    let beside = std::env::current_exe()
         .ok()
-        .and_then(|exe| exe.parent().map(Path::to_path_buf))
-    {
-        dirs.push(dir);
+        .and_then(|exe| exe.parent().map(Path::to_path_buf));
+    let named = std::env::var_os("FYP_PDFIUM_DIR").map(PathBuf::from);
+    candidates_from(named, beside, development)
+}
+
+/// [`library_candidates`] from the directory `FYP_PDFIUM_DIR` names, the
+/// one of the executable and the one of the checkout.
+fn candidates_from(
+    named: Option<PathBuf>,
+    beside: Option<PathBuf>,
+    development: Option<PathBuf>,
+) -> Vec<PathBuf> {
+    match development {
+        None => beside.into_iter().collect(),
+        Some(checkout) => named.into_iter().chain([checkout]).chain(beside).collect(),
     }
-    dirs.extend(development);
-    dirs
 }
 
 #[cfg(test)]

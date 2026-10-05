@@ -943,20 +943,42 @@ fn concurrent_requests_each_get_their_own_page() {
     assert_eq!((seen.launches(), seen.count("draw")), (1, 80));
 }
 
-/// A packaged build looks next to its executable, never in the checkout
-/// it was built from; a development build looks there last.
+/// A packaged build looks next to its executable and nowhere else: not in
+/// the checkout it was built from, not where `FYP_PDFIUM_DIR` says. A
+/// build compiled from a checkout looks where the variable says, then in
+/// its `app/pdfium/`, and only then next to its executable, where a stale
+/// copy may have been left.
 #[test]
-fn only_a_development_build_looks_in_the_checkout() {
+fn a_packaged_build_looks_beside_itself_and_a_checkout_build_there_last() {
+    let named = PathBuf::from("named");
+    let beside = PathBuf::from("target/release");
+    let checkout = PathBuf::from("app/pdfium");
+    assert_eq!(
+        candidates_from(Some(named.clone()), Some(beside.clone()), None),
+        std::slice::from_ref(&beside)
+    );
+    assert_eq!(candidates_from(None, None, None), Vec::<PathBuf>::new());
+    assert_eq!(
+        candidates_from(
+            Some(named.clone()),
+            Some(beside.clone()),
+            Some(checkout.clone())
+        ),
+        [named, checkout.clone(), beside.clone()]
+    );
+    assert_eq!(
+        candidates_from(None, Some(beside.clone()), Some(checkout.clone())),
+        [checkout.clone(), beside]
+    );
+
+    // The same, from what this process is.
     let exe_dir = std::env::current_exe()
         .unwrap()
         .parent()
         .unwrap()
         .to_path_buf();
-    let checkout = Path::new(env!("CARGO_MANIFEST_DIR")).join("pdfium");
-    let packaged = library_candidates(None);
-    assert!(packaged.contains(&exe_dir));
-    assert!(!packaged.contains(&checkout));
+    assert_eq!(library_candidates(None), std::slice::from_ref(&exe_dir));
     let development = library_candidates(Some(checkout.clone()));
-    assert_eq!(development.last(), Some(&checkout));
-    assert_eq!(development[..development.len() - 1], packaged[..]);
+    assert_eq!(development.last(), Some(&exe_dir));
+    assert_eq!(development[development.len() - 2], checkout);
 }

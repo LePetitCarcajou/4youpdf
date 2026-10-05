@@ -647,8 +647,9 @@ fn main() {
     }
     #[cfg(windows)]
     require_webview2();
-    // A development build (`cargo run`, not `tauri build`) also finds PDFium
-    // in app/pdfium/ of its checkout; a packaged build only next to itself.
+    // A build compiled from the checkout (`cargo run`, not `tauri build`)
+    // looks for PDFium in app/pdfium/ of its checkout before it looks next
+    // to itself; a packaged build only next to itself (ADR 0008).
     let development = tauri::is_dev().then(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("pdfium"));
     let render = Arc::new(RenderService::start(&render::library_candidates(
         development,
