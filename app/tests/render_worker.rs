@@ -434,6 +434,130 @@ fn a_page_too_tall_is_refused_and_the_worker_stays() {
     assert_eq!(service.worker_pid(), pid);
 }
 
+/// The stand-in of a window that dies: run by the test below, in a process
+/// of its own, it starts a worker on a page that takes long to draw, says
+/// which process it is, and waits to be killed.
+#[test]
+fn stand_in_for_a_window_that_dies() {
+    if std::env::var_os(STAND_IN).is_none() {
+        return;
+    }
+    let Some(service) = service() else {
+        println!("worker none");
+        return;
+    };
+    let service = Arc::new(service);
+    let bytes = endless_page();
+    let request = {
+        let service = Arc::clone(&service);
+        thread::spawn(move || service.render(1, bytes, "", 0, 4096))
+    };
+    let started = Instant::now();
+    while !service.is_drawing() && started.elapsed() < PATIENCE {
+        thread::yield_now();
+    }
+    println!("worker {}", service.worker_pid().unwrap_or(0));
+    let _ = request.join();
+    println!("drawn");
+    thread::sleep(Duration::from_secs(600));
+}
+
+/// The variable that makes [`stand_in_for_a_window_that_dies`] run.
+const STAND_IN: &str = "FYP_TEST_WINDOW_STAND_IN";
+
+/// A page that takes PDFium much longer than the tests wait: a form of a
+/// thousand filled curves, drawn by a form a thousand times.
+fn endless_page() -> Arc<Vec<u8>> {
+    let mut curves = String::new();
+    for i in 0..1000_u32 {
+        let (x, y) = (i * 7 % 590, i * 13 % 840);
+        writeln!(
+            curves,
+            "{} {} m {} {} {} {} {} {} c f",
+            x,
+            y,
+            x + 200,
+            y + 50,
+            x + 50,
+            y + 300,
+            x + 5,
+            y + 5
+        )
+        .unwrap();
+    }
+    let calls = "/F1 Do\n".repeat(1000);
+    let form = |resources: &str, content: &str| {
+        format!(
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 595 842] {resources}/Length {} >>\nstream\n{content}\nendstream",
+            content.len()
+        )
+    };
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /XObject << /F1 5 0 R >> >> >>".to_string(),
+        "<< /Length 7 >>\nstream\n/F1 Do\n\nendstream".to_string(),
+        form("/Resources << /XObject << /F1 6 0 R >> >> ", &calls),
+        form("", &curves),
+    ];
+    let mut file = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for (index, object) in objects.iter().enumerate() {
+        offsets.push(file.len());
+        write!(file, "{} 0 obj\n{object}\nendobj\n", index + 1).unwrap();
+    }
+    let xref = file.len();
+    write!(file, "xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).unwrap();
+    for offset in offsets {
+        writeln!(file, "{offset:010} 00000 n ").unwrap();
+    }
+    write!(
+        file,
+        "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+        objects.len() + 1
+    )
+    .unwrap();
+    Arc::new(file.into_bytes())
+}
+
+/// On Windows the worker never outlives the window, even one that is
+/// killed while its worker draws: the job the worker is in ends it at
+/// once, where the end of its input would only be read after the drawing.
+#[cfg(windows)]
+#[test]
+fn a_worker_that_draws_ends_with_the_window_that_is_killed() {
+    use std::io::{BufRead, BufReader};
+    let mut window = Command::new(std::env::current_exe().unwrap())
+        .args(["stand_in_for_a_window_that_dies", "--exact", "--nocapture"])
+        .env(STAND_IN, "1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("start the stand-in");
+    let mut lines = BufReader::new(window.stdout.take().unwrap()).lines();
+    let worker = lines
+        .by_ref()
+        .map_while(Result::ok)
+        .find_map(|line| line.strip_prefix("worker ").map(str::to_string))
+        .expect("the stand-in says its worker");
+    if worker == "none" {
+        eprintln!("PDFium not fetched: skipped");
+        let _ = window.wait();
+        return;
+    }
+    let worker: u32 = worker.parse().unwrap();
+    assert!(alive(worker), "the worker draws");
+    kill(window.id());
+    let _ = window.wait();
+    let ended = gone_within(worker, Duration::from_secs(3));
+    if !ended {
+        kill(worker);
+    }
+    assert!(ended, "the worker ended with its window");
+    // It was still drawing: the job ended it, not the end of the page.
+    assert!(!lines.map_while(Result::ok).any(|line| line == "drawn"));
+}
+
 /// Dropping the service, as closing the application does, leaves no
 /// worker behind.
 #[test]

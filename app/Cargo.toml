@@ -31,6 +31,10 @@ base64 = "0.22"
 # (the dialog plugin, which uses rfd, needs one).
 [target.'cfg(windows)'.dependencies]
 rfd = { version = "0.16", default-features = false, features = ["common-controls-v6"] }
+# The job that ends the rendering worker with the window, and the reading
+# of the memory the worker holds (ADR 0008): the system calls, without
+# `unsafe` here.
+win32job = "2.0.3"
 
 # Reads this manifest in a test, to check that tauri's `devtools` feature
 # stays off (ADR 0007); already in the tree through fyp-plugin-api.

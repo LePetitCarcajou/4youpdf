@@ -18,7 +18,9 @@
 //!   is sent again;
 //! - a page that brought the worker down twice is refused from then on,
 //!   until another document comes; too many restarts in a short time, and
-//!   rendering is off until the application is started again.
+//!   rendering is off until the application is started again;
+//! - on Windows the worker is in a job that ends it when the window goes,
+//!   however the window goes.
 //!
 //! One request at a time reaches the worker: PDFium is not thread-safe,
 //! and a page as wide as the window takes a while. So the page view sends
@@ -134,10 +136,49 @@ impl Process for Child {
     }
 }
 
+/// The worker as the system holds it for the window: its process and, on
+/// Windows, the job it is in.
+struct Tied {
+    child: Child,
+    /// Closed with the last handle of the window on it, by the system if
+    /// the window is gone: the worker ends then, whatever it was doing.
+    #[cfg(windows)]
+    _job: win32job::Job,
+}
+
+impl Process for Tied {
+    fn id(&self) -> u32 {
+        Process::id(&self.child)
+    }
+
+    fn exited(&mut self) -> bool {
+        self.child.exited()
+    }
+
+    fn kill(&mut self) {
+        Process::kill(&mut self.child);
+    }
+}
+
+/// A job that ends its processes when its last handle closes, with `child`
+/// in it. The handle is not inherited: only the window holds the job.
+#[cfg(windows)]
+fn tie(child: &Child) -> io::Result<win32job::Job> {
+    use std::os::windows::io::AsRawHandle;
+    let mut limits = win32job::ExtendedLimitInfo::new();
+    limits.limit_kill_on_job_close();
+    let job = win32job::Job::create_with_limit_info(&limits).map_err(io::Error::other)?;
+    job.assign_process(child.as_raw_handle() as isize)
+        .map_err(io::Error::other)?;
+    Ok(job)
+}
+
 /// The worker as the application runs it: an executable started with
 /// [`worker::ARGUMENT`] alone, its standard input and output piped, its
 /// standard error dropped, and no console window on Windows. Nothing about
-/// a document goes on its command line or in its environment.
+/// a document goes on its command line or in its environment. On Windows
+/// it is put in a job that ends it with the window before it is given back,
+/// so before it is told anything; a worker that cannot be is killed.
 pub struct Executable(PathBuf);
 
 impl Executable {
@@ -168,6 +209,16 @@ impl Launch for Executable {
             command.creation_flags(0x0800_0000);
         }
         let mut child = command.spawn()?;
+        #[cfg(windows)]
+        let job = match tie(&child) {
+            Ok(job) => job,
+            Err(e) => {
+                Process::kill(&mut child);
+                return Err(io::Error::other(format!(
+                    "le moteur de rendu n'a pas pu être attaché à la fenêtre ({e})"
+                )));
+            }
+        };
         let (Some(input), Some(output)) = (child.stdin.take(), child.stdout.take()) else {
             Process::kill(&mut child);
             return Err(io::Error::other("canal du moteur de rendu absent"));
@@ -175,7 +226,11 @@ impl Launch for Executable {
         Ok(Link {
             input: Box::new(input),
             output: Box::new(output),
-            process: Box::new(child),
+            process: Box::new(Tied {
+                child,
+                #[cfg(windows)]
+                _job: job,
+            }),
         })
     }
 }

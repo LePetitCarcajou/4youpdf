@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """Smoke test of the rendering worker under the real window (palier v0.5.1,
-session A; ADR 0008), driven through the DevTools port of WebView2 (CDP) and
-the process list of Windows.
+sessions A and B; ADR 0008), driven through the DevTools port of WebView2
+(CDP) and the process list of Windows.
 
 What runs for real: the window, its `render_page` and `renderer_status`
 commands, the worker process it starts (`fyp-app.exe --fyp-render-worker`)
 and PDFium. The worker is ended from here with `TerminateProcess`; the
 window is closed with `WM_CLOSE`, as the cross does, then killed, as a crash
-would. Pages are asked for through `window.__TAURI__.core.invoke` and by the
-interface itself (the thumbnails of the grid, the page view). DOM state and
-process lists only: nothing here looks at the screen.
+would, once while its worker is idle and once while it draws a page that
+takes minutes: the job the worker is in ends it at once. Pages are asked
+for through `window.__TAURI__.core.invoke` and by the interface itself
+(the thumbnails of the grid, the page view). DOM state and process lists
+only: nothing here looks at the screen.
 
 Needs PDFium (`python tools/fetch_pdfium.py`) and a development build that
 embeds the current interface:
@@ -66,6 +68,46 @@ def heavy_pdf(path):
         page.format(6),
         f"<< /Length {len(heavy)} >>{NL}stream{NL}{heavy}{NL}endstream",
         f"<< /Length {len(light)} >>{NL}stream{NL}{light}{NL}endstream",
+    ]
+    out = f"%PDF-1.7{NL}"
+    offsets = []
+    for number, body in enumerate(objects, 1):
+        offsets.append(len(out))
+        out += f"{number} 0 obj{NL}{body}{NL}endobj{NL}"
+    xref = len(out)
+    out += f"xref{NL}0 {len(objects) + 1}{NL}0000000000 65535 f {NL}"
+    for offset in offsets:
+        out += f"{offset:010} 00000 n {NL}"
+    out += f"trailer{NL}<< /Size {len(objects) + 1} /Root 1 0 R >>{NL}startxref{NL}{xref}{NL}%%EOF{NL}"
+    with open(path, "wb") as f:
+        f.write(out.encode("ascii"))
+    return path
+
+
+def endless_pdf(path):
+    """A one-page A4 PDF that takes PDFium minutes: a form of a thousand
+    filled curves, drawn by a form a thousand times."""
+    curves = NL.join(
+        f"{i * 7 % 590} {i * 13 % 840} m {i * 7 % 590 + 200} {i * 13 % 840 + 50} "
+        f"{i * 7 % 590 + 50} {i * 13 % 840 + 300} {i * 7 % 590 + 5} {i * 13 % 840 + 5} c f"
+        for i in range(1000)
+    )
+    calls = NL.join(["/F1 Do"] * 1000)
+
+    def form(resources, content):
+        return (
+            f"<< /Type /XObject /Subtype /Form /BBox [0 0 595 842] {resources}/Length {len(content)} >>"
+            f"{NL}stream{NL}{content}{NL}endstream"
+        )
+
+    objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R "
+        "/Resources << /XObject << /F1 5 0 R >> >> >>",
+        f"<< /Length 6 >>{NL}stream{NL}/F1 Do{NL}endstream",
+        form("/Resources << /XObject << /F1 6 0 R >> >> ", calls),
+        form("", curves),
     ]
     out = f"%PDF-1.7{NL}"
     offsets = []
@@ -304,7 +346,29 @@ def main():
             wait_until("the end of the worker", lambda: not any(p["ProcessId"] == worker["ProcessId"] for p in app_processes()), timeout=10)
         except RuntimeError:
             gone = False
-        check("the window killed: its worker ends by itself, its input closed", gone, json.dumps(app_processes()))
+        check("the window killed: its worker does not outlive it", gone, json.dumps(app_processes()))
+    finally:
+        base.stop(proc)
+
+    # -- The window killed while its worker draws: the job ends the worker ---
+    proc, page = base.launch(endless_pdf(os.path.join(tmp, "endless.pdf")))
+    try:
+        worker = wait_until("the worker", lambda: (workers(proc.pid) or [None])[0], timeout=40)
+        wait_until("the tile of the page", lambda: tiles(page)["count"] == 1, timeout=40)
+        time.sleep(2)
+        seen = tiles(page)
+        check("the thumbnail of the endless page is still being drawn", seen["loaded"] == 0 and not seen["failed"], json.dumps(seen))
+        check("by the same worker", [p["ProcessId"] for p in workers(proc.pid)] == [worker["ProcessId"]])
+        kernel32.TerminateProcess(int(proc._handle), 1)
+        proc.wait(timeout=20)
+        killed = time.time()
+        gone = True
+        try:
+            wait_until("the end of the worker", lambda: not any(p["ProcessId"] == worker["ProcessId"] for p in app_processes()), timeout=3)
+        except RuntimeError:
+            gone = False
+        check("the window killed while its worker draws: the worker is ended at once",
+              gone, f"{time.time() - killed:.1f} s, {json.dumps(app_processes())}")
     finally:
         base.stop(proc)
         for left in app_processes():
