@@ -15,7 +15,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use fyp_app::render::protocol::{self, Reply, Request, VERSION};
-use fyp_app::render::{worker, Executable, Limits, RenderService};
+use fyp_app::render::{worker, Executable, Launch, Limits, RenderService};
 use fyp_core::document::Document;
 use fyp_core::ops;
 
@@ -432,6 +432,76 @@ fn a_page_too_tall_is_refused_and_the_worker_stays() {
     let image = image::load_from_memory(&png).unwrap();
     assert_eq!((image.width(), image.height()), (100, 10_000));
     assert_eq!(service.worker_pid(), pid);
+}
+
+/// A worker that holds more than its ceiling is stopped by the window, for
+/// real: a page 4096 pixels wide takes more than the 64 Mio it is given
+/// here. The request fails and says why, and the next one, a small image,
+/// is drawn by another worker.
+#[test]
+fn a_worker_over_its_ceiling_is_stopped_and_the_next_page_is_drawn() {
+    if cfg!(not(any(windows, target_os = "linux"))) {
+        eprintln!("the memory of a process is not read on this system: skipped");
+        return;
+    }
+    let tight = Limits {
+        memory: 64 << 20,
+        watch: Duration::from_millis(5),
+        ..Limits::default()
+    };
+    let tight =
+        RenderService::start_with(Box::new(Executable::new(FYP_APP)), &[pdfium_dir()], tight);
+    if !tight.status().available {
+        eprintln!("PDFium not fetched: skipped ({})", tight.status().detail);
+        return;
+    }
+    let bytes = fixture("mixed12.pdf");
+    tight
+        .render(1, Arc::clone(&bytes), "", 0, 160)
+        .expect("a thumbnail fits");
+    let first = tight.worker_pid().expect("a worker runs");
+    let error = tight
+        .render(1, Arc::clone(&bytes), "", 0, 4096)
+        .unwrap_err();
+    assert_eq!(
+        error,
+        "le moteur de rendu a dépassé son plafond de mémoire (64 Mio) ; il a été arrêté et sera relancé"
+    );
+    assert!(gone_within(first, PATIENCE));
+    assert_eq!(tight.worker_pid(), None);
+    let png = tight
+        .render(1, Arc::clone(&bytes), "", 1, 300)
+        .expect("the next request succeeds");
+    assert_eq!(image::load_from_memory(&png).unwrap().width(), 300);
+    assert_ne!(tight.worker_pid(), Some(first));
+    drop(tight);
+    // With the ceiling of the application, the same page is drawn.
+    let Some(service) = service() else { return };
+    service
+        .render(1, bytes, "", 0, 4096)
+        .expect("the page fits the default ceiling");
+}
+
+/// The window reads what its worker holds through the system, without
+/// PDFium and before the worker is told anything.
+#[test]
+fn the_memory_of_a_worker_is_read() {
+    let mut link = Executable::new(FYP_APP).launch().expect("start the worker");
+    let started = Instant::now();
+    let mut held = link.process.memory();
+    // Linux tells nothing of a process between `fork` and `exec`.
+    while held.is_none_or(|held| held == 0) && started.elapsed() < Duration::from_secs(5) {
+        thread::sleep(Duration::from_millis(10));
+        held = link.process.memory();
+    }
+    if cfg!(any(windows, target_os = "linux")) {
+        let held = held.expect("the system tells");
+        assert!(held > 0 && held < 256 << 20, "{held} bytes");
+    } else {
+        assert_eq!(held, None);
+    }
+    link.process.kill();
+    assert!(link.process.exited());
 }
 
 /// The stand-in of a window that dies: run by the test below, in a process

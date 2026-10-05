@@ -3,7 +3,7 @@
 //! by `tests/render_worker.rs`.
 
 use std::io::PipeWriter;
-use std::sync::atomic::AtomicU32;
+use std::sync::atomic::{AtomicU32, AtomicU64};
 
 use super::protocol::Request;
 use super::*;
@@ -28,6 +28,10 @@ struct Seen {
     requests: Mutex<Vec<(u32, &'static str)>>,
     /// The password of each document received.
     passwords: Mutex<Vec<String>>,
+    /// The bytes of memory the fake workers say they hold.
+    held: AtomicU64,
+    /// Whether the system does not tell what they hold.
+    untold: AtomicBool,
 }
 
 impl Seen {
@@ -72,10 +76,18 @@ impl Process for FakeProcess {
         }
         self.output.lock().unwrap().take();
     }
+
+    fn memory(&mut self) -> Option<u64> {
+        (!self.seen.untold.load(Ordering::SeqCst)).then(|| self.seen.held.load(Ordering::SeqCst))
+    }
 }
 
 impl Launch for Fake {
     fn launch(&self) -> io::Result<Link> {
+        // A process that just started holds nothing: not what the one
+        // before it held, which the guard would otherwise read until this
+        // one's script says otherwise.
+        self.seen.held.store(0, Ordering::SeqCst);
         let launch = self.seen.launches.fetch_add(1, Ordering::SeqCst) + 1;
         let (mut requests, input) = io::pipe()?;
         let (output, replies) = io::pipe()?;
@@ -162,8 +174,13 @@ fn limits() -> Limits {
         restarts: 8,
         restart_window: Duration::from_secs(60),
         farewell: Duration::from_secs(5),
+        memory: MIB,
+        memory_per_document_byte: 3,
+        watch: Duration::from_millis(5),
     }
 }
+
+const MIB: u64 = 1 << 20;
 
 fn service_with(
     limits: Limits,
@@ -770,6 +787,9 @@ fn a_worker_that_lingers_is_killed() {
                     self.1.store(true, Ordering::SeqCst);
                     self.0.kill();
                 }
+                fn memory(&mut self) -> Option<u64> {
+                    self.0.memory()
+                }
             }
             Ok(Link {
                 process: Box::new(Stubborn(link.process, Arc::new(AtomicBool::new(false)))),
@@ -849,6 +869,9 @@ fn shutting_down_starts_no_worker_in_place_of_a_dead_one() {
         }
         fn kill(&mut self) {
             self.inner.kill();
+        }
+        fn memory(&mut self) -> Option<u64> {
+            self.inner.memory()
         }
     }
     struct Waiting {
@@ -981,4 +1004,254 @@ fn a_packaged_build_looks_beside_itself_and_a_checkout_build_there_last() {
     let development = library_candidates(Some(checkout.clone()));
     assert_eq!(development.last(), Some(&exe_dir));
     assert_eq!(development[development.len() - 2], checkout);
+}
+
+/// A fake worker scripted with what the tests saw of it.
+fn service_seen(
+    limits: Limits,
+    script: impl Fn(&Seen, u32, &Request) -> Act + Send + Sync + 'static,
+) -> (RenderService, Arc<Seen>) {
+    let seen = Arc::new(Seen::default());
+    let fake = Fake {
+        script: {
+            let seen = Arc::clone(&seen);
+            Arc::new(move |launch, request| script(&seen, launch, request))
+        },
+        seen: Arc::clone(&seen),
+    };
+    (RenderService::start_with(Box::new(fake), &[], limits), seen)
+}
+
+/// A worker that holds more than its ceiling while it draws is stopped by
+/// the guard: the request fails and says why, and the next one is served
+/// by another worker, which is sent the document again.
+#[test]
+fn a_worker_over_its_ceiling_is_stopped_and_the_next_request_succeeds() {
+    let (service, seen) = service_seen(limits(), |seen, launch, request| {
+        if launch == 1 && draws(request, 0) {
+            // It grows, and does not answer.
+            seen.held.store(2 * MIB, Ordering::SeqCst);
+            Act::Silence
+        } else {
+            seen.held.store(MIB / 2, Ordering::SeqCst);
+            honest(request)
+        }
+    });
+    let started = Instant::now();
+    let error = service.render(1, bytes(), "", 0, 16).unwrap_err();
+    assert_eq!(
+        error,
+        "le moteur de rendu a dépassé son plafond de mémoire (1 Mio) ; il a été arrêté et sera relancé"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(4),
+        "stopped by the guard, not by the delay of a request"
+    );
+    assert_eq!((seen.launches(), seen.kills()), (1, 1));
+    assert_eq!(service.worker_pid(), None);
+    assert!(service.status().available);
+    service
+        .render(1, bytes(), "", 1, 16)
+        .expect("the next page");
+    assert_eq!((seen.launches(), seen.count("document")), (2, 2));
+    // It fell once on that page: asked again, the page is drawn.
+    service
+        .render(1, bytes(), "", 0, 16)
+        .expect("the same page");
+    assert_eq!((seen.launches(), seen.kills()), (2, 1));
+}
+
+/// While the worker reads a document, it may hold what that document
+/// allows, before it has answered: the ceiling is raised before the first
+/// byte leaves, not once the document is open.
+#[test]
+fn the_ceiling_of_a_document_holds_while_it_is_read() {
+    let (service, seen) = service_seen(limits(), |seen, _, request| {
+        if let Request::Document { .. } = request {
+            // Three of the four mebibytes allowed, over several readings.
+            seen.held.store(3 * MIB, Ordering::SeqCst);
+            thread::sleep(Duration::from_millis(100));
+        }
+        honest(request)
+    });
+    let large = Arc::new(vec![b'%'; 1 << 20]);
+    service
+        .render(1, large, "", 0, 16)
+        .expect("the document is read and drawn");
+    assert_eq!((seen.launches(), seen.kills()), (1, 0));
+}
+
+/// A worker started again after a large document is held to the ceiling
+/// of a worker without a document from the start, before its handshake:
+/// not to the ceiling of the document the one before it was sent.
+#[test]
+fn a_new_worker_is_held_to_the_ceiling_without_a_document() {
+    let (service, seen) = service_seen(limits(), |seen, launch, request| match (launch, request) {
+        (1, Request::Draw { .. }) => Act::Die,
+        (2, Request::Hello { .. }) => {
+            // Under the ceiling of the document, over that of no document.
+            seen.held.store(2 * MIB, Ordering::SeqCst);
+            thread::sleep(Duration::from_millis(100));
+            honest(request)
+        }
+        _ => honest(request),
+    });
+    let large = Arc::new(vec![b'%'; 1 << 20]);
+    let error = service
+        .render(1, Arc::clone(&large), "", 0, 16)
+        .unwrap_err();
+    assert_eq!(error, "le moteur de rendu s'est arrêté ; il sera relancé");
+    // The first one may be killed as well as dead, if it is let go of
+    // before it noted its end: only what follows is counted.
+    let kills = seen.kills();
+    let error = service
+        .render(1, Arc::clone(&large), "", 1, 16)
+        .unwrap_err();
+    assert_eq!(
+        error,
+        "le moteur de rendu n'a pas démarré : il a dépassé son plafond de mémoire"
+    );
+    assert_eq!((seen.launches(), seen.kills()), (2, kills + 1));
+    service.render(1, large, "", 1, 16).expect("a third worker");
+    assert_eq!(seen.launches(), 3);
+}
+
+/// A worker the guard stopped between two requests is replaced without a
+/// word; the next worker that dies is said to have stopped, not to have
+/// passed its ceiling.
+#[test]
+fn a_kill_for_memory_is_not_blamed_on_the_next_worker() {
+    let (service, seen) = service_seen(limits(), |_, launch, request| match (launch, request) {
+        (2, Request::Draw { .. }) => Act::Die,
+        _ => honest(request),
+    });
+    service.render(1, bytes(), "", 0, 16).expect("render");
+    // Idle, the worker grows past its ceiling: the guard stops it.
+    seen.held.store(2 * MIB, Ordering::SeqCst);
+    let started = Instant::now();
+    while seen.kills() == 0 && started.elapsed() < Duration::from_secs(5) {
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!((seen.launches(), seen.kills()), (1, 1));
+    let error = service.render(1, bytes(), "", 0, 16).unwrap_err();
+    assert_eq!(error, "le moteur de rendu s'est arrêté ; il sera relancé");
+    assert_eq!(seen.launches(), 2);
+}
+
+/// The ceiling grows with the document the worker was sent last, three
+/// bytes for each of its bytes: what a worker may hold with a large
+/// document stops it once it is sent a small one.
+#[test]
+fn the_ceiling_follows_the_document_sent_last() {
+    let (service, seen) = service_seen(limits(), |seen, _, request| match request {
+        Request::Draw { id: 2, .. } => Act::Silence,
+        Request::Document { .. } => {
+            seen.held.store(3 * MIB, Ordering::SeqCst);
+            honest(request)
+        }
+        _ => honest(request),
+    });
+    let large = Arc::new(vec![b'%'; 1 << 20]);
+    service
+        .render(1, Arc::clone(&large), "", 0, 16)
+        .expect("render");
+    // Several readings of the guard: three of the four mebibytes allowed.
+    thread::sleep(Duration::from_millis(100));
+    service.render(1, large, "", 1, 16).expect("render");
+    assert_eq!((seen.launches(), seen.kills()), (1, 0));
+    let error = service.render(2, bytes(), "", 0, 16).unwrap_err();
+    assert!(error.contains("plafond de mémoire (1 Mio)"), "{error}");
+    assert_eq!((seen.launches(), seen.kills()), (1, 1));
+}
+
+/// While the worker opens a smaller document, it may still hold the larger
+/// one before: the larger ceiling holds until it answers, the smaller one
+/// after.
+#[test]
+fn the_ceiling_of_the_document_before_holds_while_the_next_one_opens() {
+    let (service, seen) = service_seen(limits(), |seen, _, request| match request {
+        Request::Document { id: 1, .. } => {
+            seen.held.store(3 * MIB, Ordering::SeqCst);
+            honest(request)
+        }
+        Request::Document { id: 2, .. } => {
+            // Still the size of the large one, over several readings.
+            thread::sleep(Duration::from_millis(100));
+            seen.held.store(MIB / 2, Ordering::SeqCst);
+            honest(request)
+        }
+        Request::Draw { id: 2, page: 1, .. } => {
+            seen.held.store(2 * MIB, Ordering::SeqCst);
+            Act::Silence
+        }
+        _ => honest(request),
+    });
+    let large = Arc::new(vec![b'%'; 1 << 20]);
+    service.render(1, large, "", 0, 16).expect("render");
+    service.render(2, bytes(), "", 0, 16).expect("render");
+    assert_eq!((seen.launches(), seen.kills()), (1, 0));
+    let error = service.render(2, bytes(), "", 1, 16).unwrap_err();
+    assert!(error.contains("plafond de mémoire (1 Mio)"), "{error}");
+    assert_eq!((seen.launches(), seen.kills()), (1, 1));
+}
+
+/// The ceiling holds before the worker is sent a document, and before it
+/// has even answered the handshake: a worker that grows at once is stopped
+/// at once, and the reason is kept.
+#[test]
+fn the_ceiling_holds_before_any_document() {
+    let (service, seen) = service_seen(limits(), |seen, launch, request| {
+        if launch == 1 {
+            seen.held.store(MIB + 1, Ordering::SeqCst);
+            Act::Silence
+        } else {
+            seen.held.store(MIB, Ordering::SeqCst);
+            honest(request)
+        }
+    });
+    assert_eq!(seen.count("document"), 0);
+    assert_eq!((seen.launches(), seen.kills()), (1, 1));
+    let status = service.status();
+    assert!(status.available);
+    assert!(
+        status
+            .detail
+            .contains("il a dépassé son plafond de mémoire"),
+        "{}",
+        status.detail
+    );
+    // Exactly the ceiling is not over it.
+    service
+        .render(1, Arc::new(Vec::new()), "", 0, 16)
+        .expect("render");
+    thread::sleep(Duration::from_millis(50));
+    assert_eq!((seen.launches(), seen.kills()), (2, 1));
+}
+
+/// Where the system does not tell what a process holds, the guard stops
+/// nothing; and closing the service ends the guard with it.
+#[test]
+fn a_worker_whose_memory_is_not_told_is_left_alone() {
+    let (service, seen) = service_seen(limits(), |_, _, request| honest(request));
+    seen.untold.store(true, Ordering::SeqCst);
+    seen.held.store(u64::MAX, Ordering::SeqCst);
+    thread::sleep(Duration::from_millis(50));
+    service.render(1, bytes(), "", 0, 16).expect("render");
+    assert_eq!((seen.launches(), seen.kills()), (1, 0));
+    service.shutdown();
+    assert!(service.guard.lock().unwrap().is_none());
+}
+
+/// The ceiling of a document never wraps around.
+#[test]
+fn the_ceiling_saturates() {
+    let limits = Limits::default();
+    assert_eq!(limits.ceiling(0), 1 << 30);
+    assert_eq!(limits.ceiling(100 << 20), (1 << 30) + (300 << 20));
+    assert_eq!(limits.ceiling(usize::MAX), u64::MAX);
+    let huge = Limits {
+        memory: u64::MAX,
+        ..limits
+    };
+    assert_eq!(huge.ceiling(1), u64::MAX);
 }

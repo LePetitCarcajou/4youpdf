@@ -19,6 +19,9 @@
 //! - a page that brought the worker down twice is refused from then on,
 //!   until another document comes; too many restarts in a short time, and
 //!   rendering is off until the application is started again;
+//! - a worker that holds more memory than its ceiling is stopped, like one
+//!   that fell: a thread of the window, the guard, reads what it holds
+//!   ([`memory`]) from the moment it is started;
 //! - on Windows the worker is in a job that ends it when the window goes,
 //!   however the window goes.
 //!
@@ -29,6 +32,7 @@
 //! is shown: a page asked for while browsing waits behind one request at
 //! most, a neighbour or a thumbnail.
 
+mod memory;
 mod pdfium;
 mod png;
 pub mod protocol;
@@ -39,7 +43,7 @@ use std::hash::{BuildHasher, Hasher, RandomState};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, TryLockError};
 use std::thread;
@@ -75,6 +79,13 @@ pub struct Limits {
     /// How long the worker has to exit once its input is closed, before it
     /// is killed.
     pub farewell: Duration,
+    /// The bytes of memory a worker may hold whatever it was sent.
+    pub memory: u64,
+    /// The bytes it may hold besides, for each byte of the document it
+    /// was sent last.
+    pub memory_per_document_byte: u64,
+    /// How often the guard reads what the worker holds.
+    pub watch: Duration,
 }
 
 impl Default for Limits {
@@ -85,7 +96,20 @@ impl Default for Limits {
             restarts: 8,
             restart_window: Duration::from_secs(60),
             farewell: Duration::from_secs(2),
+            memory: 1 << 30,
+            memory_per_document_byte: 3,
+            watch: Duration::from_millis(50),
         }
+    }
+}
+
+impl Limits {
+    /// The bytes a worker may hold once it was sent a document of
+    /// `document` bytes.
+    fn ceiling(&self, document: usize) -> u64 {
+        let document = u64::try_from(document).unwrap_or(u64::MAX);
+        self.memory
+            .saturating_add(self.memory_per_document_byte.saturating_mul(document))
     }
 }
 
@@ -118,6 +142,9 @@ pub trait Process: Send {
     fn exited(&mut self) -> bool;
     /// Stop it now and wait until it is gone.
     fn kill(&mut self);
+    /// The bytes of memory it holds, or `None` when the system does not
+    /// tell; never blocks.
+    fn memory(&mut self) -> Option<u64>;
 }
 
 impl Process for Child {
@@ -133,6 +160,10 @@ impl Process for Child {
     fn kill(&mut self) {
         let _ = Child::kill(self);
         let _ = self.wait();
+    }
+
+    fn memory(&mut self) -> Option<u64> {
+        memory::held(self)
     }
 }
 
@@ -157,6 +188,10 @@ impl Process for Tied {
 
     fn kill(&mut self) {
         Process::kill(&mut self.child);
+    }
+
+    fn memory(&mut self) -> Option<u64> {
+        self.child.memory()
     }
 }
 
@@ -276,6 +311,8 @@ enum Failure {
     Silent(Duration),
     /// It answered something that is not a reply to the request.
     Lied(String),
+    /// The guard stopped it: it held more than this many bytes.
+    Greedy(u64),
 }
 
 impl Failure {
@@ -288,6 +325,10 @@ impl Failure {
             ),
             Failure::Lied(what) => format!(
                 "le moteur de rendu a donné une réponse inattendue ({what}) ; il a été arrêté et sera relancé"
+            ),
+            Failure::Greedy(ceiling) => format!(
+                "le moteur de rendu a dépassé son plafond de mémoire ({} Mio) ; il a été arrêté et sera relancé",
+                ceiling >> 20
             ),
         }
     }
@@ -332,6 +373,38 @@ fn pump_in(mut output: Box<dyn Read + Send>, replies: &SyncSender<Result<Reply, 
         let last = reply.is_err();
         if replies.send(reply).is_err() || last {
             break;
+        }
+    }
+}
+
+/// What the guard and the requests share: the process of the worker and
+/// what it may hold.
+struct Watch {
+    /// The process of the worker, apart from [`State`] so that the guard
+    /// reads it, and closing the application stops it, under a request in
+    /// flight.
+    process: Mutex<Option<Box<dyn Process>>>,
+    /// The bytes of memory the worker may hold.
+    ceiling: AtomicU64,
+    /// The ceiling the worker was stopped for passing, until the request
+    /// that failed for it has said so; zero otherwise.
+    passed: AtomicU64,
+}
+
+/// Read what the worker holds every `every`, and stop it when that is more
+/// than its ceiling, until `stop` closes. The request in flight then fails
+/// as for any worker that fell.
+fn guard(watch: &Watch, every: Duration, stop: &Receiver<()>) {
+    while let Err(RecvTimeoutError::Timeout) = stop.recv_timeout(every) {
+        let mut process = watch.process.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(process) = process.as_mut() else {
+            continue;
+        };
+        let ceiling = watch.ceiling.load(Ordering::SeqCst);
+        if process.memory().is_some_and(|held| held > ceiling) {
+            // Said before the worker ends: the request that fails reads it.
+            watch.passed.store(ceiling.max(1), Ordering::SeqCst);
+            process.kill();
         }
     }
 }
@@ -428,9 +501,9 @@ pub struct RenderService {
     /// being drawn.
     status: Mutex<Status>,
     state: Mutex<State>,
-    /// The process of the worker, apart from `state` so that closing the
-    /// application can stop it under a request in flight.
-    process: Mutex<Option<Box<dyn Process>>>,
+    watch: Arc<Watch>,
+    /// Dropped, it ends the guard.
+    guard: Mutex<Option<Sender<()>>>,
     closing: AtomicBool,
     drawing: AtomicBool,
 }
@@ -461,6 +534,20 @@ impl RenderService {
         candidates: &[PathBuf],
         limits: Limits,
     ) -> RenderService {
+        let watch = Arc::new(Watch {
+            process: Mutex::new(None),
+            ceiling: AtomicU64::new(limits.memory),
+            passed: AtomicU64::new(0),
+        });
+        // The guard runs before the first worker is started: no worker is
+        // ever told anything without it.
+        let (stop, stopped) = mpsc::channel();
+        let guarded = {
+            let watch = Arc::clone(&watch);
+            thread::Builder::new()
+                .name("render-guard".into())
+                .spawn(move || guard(&watch, limits.watch, &stopped))
+        };
         let service = RenderService {
             launcher,
             candidates: candidates.to_vec(),
@@ -470,10 +557,18 @@ impl RenderService {
                 detail: String::new(),
             }),
             state: Mutex::new(State::default()),
-            process: Mutex::new(None),
+            watch,
+            guard: Mutex::new(Some(stop)),
             closing: AtomicBool::new(false),
             drawing: AtomicBool::new(false),
         };
+        if let Err(e) = guarded {
+            service.set_status(
+                false,
+                format!("le moteur de rendu n'a pas démarré : pas de gardien de sa mémoire ({e})"),
+            );
+            return service;
+        }
         let started = service.launch(&mut service.state());
         match started {
             Ok(detail) => service.set_status(true, detail),
@@ -496,7 +591,12 @@ impl RenderService {
                 detail: detail.to_string(),
             }),
             state: Mutex::new(State::default()),
-            process: Mutex::new(None),
+            watch: Arc::new(Watch {
+                process: Mutex::new(None),
+                ceiling: AtomicU64::new(0),
+                passed: AtomicU64::new(0),
+            }),
+            guard: Mutex::new(None),
             closing: AtomicBool::new(false),
             drawing: AtomicBool::new(false),
         }
@@ -563,6 +663,11 @@ impl RenderService {
         if self.status().available {
             self.set_status(false, CLOSING.into());
         }
+        // No worker is started any more: nothing is left to guard.
+        self.guard
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
@@ -570,7 +675,10 @@ impl RenderService {
     }
 
     fn process(&self) -> MutexGuard<'_, Option<Box<dyn Process>>> {
-        self.process.lock().unwrap_or_else(PoisonError::into_inner)
+        self.watch
+            .process
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     fn set_status(&self, available: bool, detail: String) {
@@ -613,7 +721,7 @@ impl RenderService {
             Err((phase, failure)) => {
                 state.strikes.fall(phase);
                 self.retire(worker, Duration::ZERO);
-                Err(failure.message())
+                Err(self.explained(failure).message())
             }
         }
     }
@@ -644,6 +752,12 @@ impl RenderService {
                 return Ok(Err("document trop grand pour le moteur de rendu".into()));
             };
             worker.loaded = None;
+            // Before its first byte leaves: what the worker may hold with
+            // this document. Until it answers, it may still hold the one
+            // before as well, which it lets go of once this one is read:
+            // the larger ceiling of the two holds meanwhile.
+            let ceiling = self.limits.ceiling(bytes.len());
+            self.watch.ceiling.fetch_max(ceiling, Ordering::SeqCst);
             worker.send(Outgoing::Owned(head)).map_err(opening)?;
             worker
                 .send(Outgoing::Shared(Arc::clone(bytes)))
@@ -656,6 +770,7 @@ impl RenderService {
                 } if echoed == sequence => Err(message),
                 _ => return Err(opening(Failure::Lied(OTHER_REQUEST.into()))),
             };
+            self.watch.ceiling.store(ceiling, Ordering::SeqCst);
             // A document PDFium refuses is refused once, not once per page.
             worker.loaded = Some((document, outcome.clone()));
             outcome
@@ -767,6 +882,12 @@ impl RenderService {
             output,
             process,
         } = self.launcher.launch().map_err(|e| failed(&e))?;
+        // A worker that was sent nothing yet: the guard holds it to the
+        // ceiling of a worker without a document, from here on.
+        self.watch
+            .ceiling
+            .store(self.limits.memory, Ordering::SeqCst);
+        self.watch.passed.store(0, Ordering::SeqCst);
         if let Some(mut stray) = self.process().replace(process) {
             // Never two workers: one that was not let go of ends here.
             stray.kill();
@@ -823,15 +944,25 @@ impl RenderService {
             }
             Err(failure) => {
                 self.retire(worker, Duration::ZERO);
-                Err(failed(&match failure {
+                Err(failed(&match self.explained(failure) {
                     Failure::Stopped => "il s'est arrêté pendant la poignée de main".to_string(),
                     Failure::Silent(patience) => format!(
                         "pas de réponse à la poignée de main en {} s",
                         patience.as_secs().max(1)
                     ),
                     Failure::Lied(what) => format!("poignée de main inattendue ({what})"),
+                    Failure::Greedy(_) => "il a dépassé son plafond de mémoire".to_string(),
                 }))
             }
+        }
+    }
+
+    /// `failure`, or, for a worker that stopped because the guard stopped
+    /// it, that. Asked once the worker is let go of.
+    fn explained(&self, failure: Failure) -> Failure {
+        match (failure, self.watch.passed.swap(0, Ordering::SeqCst)) {
+            (Failure::Stopped, ceiling) if ceiling > 0 => Failure::Greedy(ceiling),
+            (failure, _) => failure,
         }
     }
 
