@@ -237,19 +237,22 @@ WebView2 de l'installeur échoue, lui s'arrête sans rien installer.
 
 ### PDFium dans les paquets
 
-Le processus de rendu de l'application (voir « Processus de rendu ») cherche
-`pdfium.dll`, dans l'ordre : dans le dossier désigné
-par `FYP_PDFIUM_DIR` ; à côté de son exécutable, où l'installeur et
-l'archive la mettent ; puis, dans un build de développement seulement
-(`cargo run`, pas `cargo tauri build`), dans `app/pdfium/`. Un paquet ne
-regarde jamais le dépôt dont il vient : il fonctionne sur une machine où
-`fetch_pdfium.py` n'a jamais tourné. Sous Windows, pas de recherche système :
-elle passe par le dossier courant et le `PATH`, où un `pdfium.dll` déposé
-serait chargé à la place du nôtre. Au survol, « Aperçus : PDFium » dans la
-barre d'état donne le fichier chargé ; sinon la barre dit quels chemins ont
-été essayés. Exception : quand le moteur n'a pas démarré du premier coup
-(voir « Processus de rendu »), le survol garde la raison de cet échec, même
-une fois le moteur relancé.
+Le processus de rendu de l'application (voir « Processus de rendu ») ne
+cherche `pdfium.dll`, dans un paquet, qu'à côté de son exécutable, où
+l'installeur et l'archive la mettent : ni dans le dépôt dont il vient (il
+fonctionne sur une machine où `fetch_pdfium.py` n'a jamais tourné), ni
+dans le dossier que désignerait `FYP_PDFIUM_DIR`. Un build compilé depuis
+le dépôt (`cargo run`, `cargo build --release`, pas `cargo tauri build`)
+cherche, dans l'ordre : dans le dossier désigné par `FYP_PDFIUM_DIR`, dans
+`app/pdfium/`, puis à côté de son exécutable. `app/pdfium/` passe avant :
+une copie périmée restée dans `target/release/` après un changement de la
+version épinglée n'est pas celle qui est chargée. Sous Windows, pas de
+recherche système : elle passe par le dossier courant et le `PATH`, où un
+`pdfium.dll` déposé serait chargé à la place du nôtre. Au survol,
+« Aperçus : PDFium » dans la barre d'état donne le fichier chargé ; sinon
+la barre dit quels chemins ont été essayés. Exception : quand le moteur
+n'a pas démarré du premier coup (voir « Processus de rendu »), le survol
+garde la raison de cet échec, même une fois le moteur relancé.
 
 ### Version, signature, icônes
 
@@ -288,12 +291,14 @@ ici).
 | `src/main.rs` | commandes exposées à l'interface : ouvrir, fermer, état du rendu, fichier passé en ligne de commande, rendre une page, faire pivoter des pages, fusionner à la suite les pages choisies d'autres fichiers, enregistrer, découper en plusieurs fichiers, dialogues de fichiers et de dossier, modifications non enregistrées déclarées, fermeture de la fenêtre ; ouverture de la fenêtre (profil WebView2 d'une copie portable) ; fermeture refusée et portée à l'interface tant que le document est déclaré modifié ; message et arrêt si WebView2 manque ; script d'initialisation qui ferme le menu contextuel natif en release, variable de débogage de WebView2 retirée en release |
 | `src/session.rs` | le document ouvert vu par `fyp-core` : pages, réparation, chiffrement ; rotation par `ops::rotate` et fusion par `ops::merge_selected`, qui réécrivent le document gardé en mémoire, chaque fichier à fusionner compté dès qu'il est choisi, puis ouvert et vérifié de nouveau, ignoré et signalé s'il ne s'ouvre pas, ses pages prises telles que choisies ; enregistrement et extraction par `ops::extract_pages`, l'extraction jamais sur le fichier du document ouvert ; découpage par le même appel, une partie par fichier, nommées et écrites sans jamais en remplacer une qui existe |
 | `src/lib.rs` | la cible bibliothèque de `fyp-app`, réduite au rendu (`render`), pour que les tests de `tests/` lancent le service contre le vrai exécutable |
-| `src/render.rs` | images des pages (vignettes, vue d'une page), côté fenêtre : lance le processus de rendu, lui envoie le document puis les demandes une à une, vérifie ses réponses, l'arrête et le relance quand il meurt, se tait ou ment, refuse la page qui le fait tomber deux fois, coupe le rendu après trop de relances, l'arrête à la fermeture ; où chercher la bibliothèque (voir « Processus de rendu », ADR 0008) |
+| `src/render.rs` | images des pages (vignettes, vue d'une page), côté fenêtre : lance le processus de rendu, lui envoie le document puis les demandes une à une, vérifie ses réponses, l'arrête et le relance quand il meurt, se tait ou ment, refuse la page qui le fait tomber deux fois, coupe le rendu après trop de relances, l'arrête à la fermeture ; sous Windows, le met dans un Job Object qui l'arrête avec la fenêtre ; le gardien, qui l'arrête au-delà de son plafond de mémoire ; où chercher la bibliothèque (voir « Processus de rendu », ADR 0008) |
+| `src/render/memory.rs` | ce que le processus de rendu occupe en mémoire, lu par le système : mémoire engagée sous Windows, `/proc/<pid>/status` sous Linux |
 | `src/render/protocol.rs` | les trames entre la fenêtre et le processus de rendu, et leurs plafonds ; ne connaît pas PDFium |
 | `src/render/worker.rs` | le processus de rendu : `fyp-app --fyp-render-worker`, qui charge PDFium et répond jusqu'à la fermeture de son entrée standard |
 | `src/render/pdfium.rs` | seul fichier qui connaît `pdfium-render` : charger la bibliothèque, ouvrir un document, dessiner une page ; exécuté par le processus de rendu |
 | `src/render/png.rs` | l'encodage PNG, fait par le processus de la fenêtre. Le banc de fidélité du rendu (`tools/render_bench`) compile `pdfium.rs` et `png.rs` tels quels et appelle leurs trois étapes une à une : ouvrir, dessiner, encoder |
 | `tests/render_worker.rs` | le service et le protocole contre le vrai exécutable `fyp-app` en mode travailleur |
+| `examples/render_timing.rs` | le temps d'une demande de page, du service au PNG ; `tools/render_timing.py` le compare à celui de v0.5.0 (ADR 0008, « Mesures ») |
 | `ui/src/main.ts` | la fenêtre : grille, glisser-déposer, sélection, menu contextuel, bandeau de fusion, extraction de la sélection et bandeau de découpage, panneau de vignettes à côté de la vue d'une page, clavier, raccourcis du navigateur neutralisés, avis en place, question posée avant de perdre des modifications |
 | `ui/src/history.ts` | ordre et rotation des pages, pages fusionnées, avec annuler et refaire ; une rotation ou une fusion est faite par le côté Rust, une à la fois ; ce qui compte comme modifié, et le point d'enregistrement |
 | `ui/src/merge.ts` | ce que la fenêtre dit d'une fusion, sans DOM : avant, le champ de chaque fichier lu, l'endroit où iraient les pages, l'aperçu de ce qui serait ajouté, puis la demande elle-même, les pages demandées au côté Rust ou le refus et sa raison, et jusqu'à quand ce refus tient ; après, un bandeau par fichier ignoré, ou fusionné après réparation ou déchiffrement, et la barre d'état |
@@ -556,24 +561,28 @@ n'en reste aucun.
   haut ni de 4096 × 8192 pixels : « la page 1 est trop haute pour être
   dessinée à cette largeur ». Une page A4 à la largeur maximale, 4096
   pixels, en est loin.
+- **Le moteur prend trop de mémoire** : la fenêtre lit toutes les 50 ms ce
+  que ce processus occupe, et l'arrête au-delà de 1 Gio plus trois fois la
+  taille du document ouvert (une page A4 à la largeur maximale en demande
+  185 Mio). La page dit « le moteur de rendu a dépassé son plafond de
+  mémoire (1024 Mio) ; il a été arrêté et sera relancé », puis tout se
+  passe comme pour un moteur qui plante. Sous Windows et sous Linux ; pas
+  sous macOS, où rien ne borne encore cette mémoire.
 - **À la fermeture**, l'application arrête ce processus et l'attend. Si la
-  fenêtre disparaît autrement (plantage, tuée), il s'arrête de lui-même
-  dès qu'il lit la fin de son entrée standard, donc à la fin du dessin en
-  cours s'il y en a un : aussitôt quand il ne dessine rien, mais sans borne
-  de temps sur une page qui se dessine sans fin, la fenêtre n'étant plus là
-  pour l'arrêter au bout de 30 secondes (mesuré encore vivant 90 secondes
-  après, sur une page de formulaires imbriqués). L'attacher à la fenêtre
-  par le système est la session B du palier v0.5.1.
+  fenêtre disparaît autrement (plantage, tuée depuis le Gestionnaire des
+  tâches), Windows arrête ce processus avec elle, même au milieu d'un
+  dessin : il est dans un Job Object que seule la fenêtre tient. Sous
+  Linux, il s'arrête de lui-même dès qu'il lit la fin de son entrée
+  standard, donc à la fin du dessin en cours s'il y en a un.
 - **Le moteur ne démarre pas** au lancement de l'application (mort ou muet
   avant d'avoir répondu) : il est relancé à la première page demandée,
   comme après un plantage. Sans bibliothèque PDFium, il ne l'est pas : la
   barre d'état dit où elle a été cherchée.
 - Les messages de rendu citent les pages à partir de 1.
 
-Ce processus garde les droits de l'utilisateur et sa mémoire n'est pas
-bornée : il protège la fenêtre d'un plantage ou d'un blocage du moteur, pas
-encore d'un fichier qui en prendrait le contrôle (ADR 0008, « Limites
-connues »).
+Ce processus garde les droits de l'utilisateur : il protège la fenêtre
+d'un plantage, d'un blocage ou d'une mémoire qui enfle, pas encore d'un
+fichier qui en prendrait le contrôle (ADR 0008, « Limites connues »).
 
 ### Panneau de vignettes
 

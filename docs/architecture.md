@@ -498,22 +498,32 @@ installeur et une archive portable. Répartition :
   indisponible jusqu'au redémarrage, ce que dit l'état du rendu. Le
   travailleur (`render/worker.rs`) ne charge que PDFium et s'arrête quand
   il lit la fin de son entrée, entre deux demandes : fermer la fenêtre
-  l'arrête et l'attend ; si la fenêtre meurt, il s'arrête à la fin du
-  dessin en cours, sans borne de temps tant que le système ne l'attache pas
-  à la fenêtre (session B du palier v0.5.1). Il répond par des pixels
+  l'arrête et l'attend ; si la fenêtre meurt, Windows l'arrête avec elle,
+  même au milieu d'un dessin (un Job Object « tuer à la fermeture », dans
+  lequel il entre avant de recevoir quoi que ce soit) ; sous Linux, il
+  s'arrête à la fin du dessin en cours. Un thread de la fenêtre, le
+  gardien, lit toutes les 50 ms la mémoire qu'il occupe (`render/memory.rs`)
+  et l'arrête au-delà de 1 Gio plus trois fois la taille du document
+  envoyé, sous Windows et sous Linux. Il répond par des pixels
   bruts ; la fenêtre vérifie chaque longueur contre un plafond avant
   d'allouer, puis les dimensions de l'image, et encode elle-même le PNG
   (`render/png.rs`). Le document et son mot de passe voyagent dans une
   trame, une fois par document et de nouveau après une relance, jamais par
   la ligne de commande ni l'environnement. Le travailleur garde les droits
-  de l'utilisateur et sa mémoire n'est pas bornée : ce n'est pas encore un
-  bac à sable. Dépendance temporaire et confinée à `render/pdfium.rs`
+  de l'utilisateur : ce n'est pas encore un bac à sable. Un paquet ne
+  cherche PDFium qu'à côté de son exécutable ; un build compilé depuis le
+  dépôt, dans `FYP_PDFIUM_DIR`, puis `app/pdfium/`, puis à côté de son
+  exécutable. Dépendance temporaire et confinée à `render/pdfium.rs`
   (ADR 0005) : l'interface ne voit qu'un service « page N, largeur W →
   PNG » et son état ; sans la bibliothèque, tout fonctionne avec des
-  vignettes vides, et aucun travailleur ne reste. Pour une page à la taille
-  de la fenêtre, le temps passe dans l'encodage PNG, pas dans PDFium : le
-  filtre `Up` est plus de quatre fois plus rapide que le filtre adaptatif
-  par défaut, pour des fichiers 12 à 14 % plus gros. Une demande passe par
+  vignettes vides, et aucun travailleur ne reste. Dans un build debug,
+  où `image` et `png` ne sont pas optimisés, l'encodage PNG d'une page à
+  la taille de la fenêtre coûte plus que son dessin par PDFium (190 ms pour
+  1400 pixels de large) ; dans un build release, celui de l'application
+  livrée, il n'en prend que 5,3 %, 1,1 ms par page en médiane
+  (`docs/banc-rendu.md`, « Temps de référence »). Dans les deux, le filtre
+  `Up` est plus de quatre fois plus rapide que le filtre adaptatif par
+  défaut, pour des fichiers 12 à 14 % plus gros. Une demande passe par
   trois étapes : ouvrir le document, dessiner la page, l'encoder. Le banc
   de fidélité du rendu (`tools/render_bench`, `docs/banc-rendu.md`) compile
   `render/pdfium.rs` et `render/png.rs` tels quels et appelle ces étapes

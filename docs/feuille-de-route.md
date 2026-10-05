@@ -183,8 +183,9 @@ Session A (19 septembre 2026) : WebView durcie, ADR 0007. Session B
   ouvert, pages citées à partir de 1 dans les messages.
 - Fin : tuer le processus de rendu depuis le Gestionnaire des tâches ne
   ferme pas la fenêtre et le rendu reprend ; temps de rendu médians au
-  plus 15 % au-dessus de ceux de v0.5.0 ; grille de sortie de palier
-  cochée.
+  plus 15 % au-dessus de ceux de v0.5.0 là où le dessin dépasse 100 ms par
+  page, au plus 10 ms au-dessus ailleurs (critère revu le 3 octobre 2026,
+  ADR 0008, « Mesures ») ; grille de sortie de palier cochée.
 
 ### v0.6.0 — Rampe « navigation » (2 sessions)
 - Noyau : lire les signets (`/Outlines`) et les annotations de lien

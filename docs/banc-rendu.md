@@ -302,8 +302,8 @@ l'encodage PNG prend 5,3 % du temps de rendu et d'encodage : 213 ms contre
 le rendu. Au pire, l'encodage prend 11,6 ms, et le rendu 1 388 ms, le plan A1.
 La mesure citée par `app/src/render/png.rs`, 190 ms pour encoder une page de
 1400 pixels, venait d'un build debug, où `image` et `png` ne sont pas
-optimisés ; `docs/architecture.md` la reprend sans le préciser
-(`docs/backlog-technique.md`).
+optimisés, ce que ce commentaire et `docs/architecture.md` précisent
+depuis la session v0.5.1-B.
 
 ## Ligne de base : PDFium contre PDFium
 

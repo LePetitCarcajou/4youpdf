@@ -1,7 +1,9 @@
 # ADR 0008 — Le rendu dans un processus à part
 
 **Statut** : accepté — 2026-10 ; remplace le point 4 de l'ADR 0005 (un
-thread pour PDFium) et précise son point 2 (où vit `pdfium-render`)
+thread pour PDFium) et précise son point 2 (où vit `pdfium-render`) ;
+complété par la session v0.5.1-B (points 8 à 10, « Le gardien de la
+mémoire », « Mesures »)
 
 ## Contexte
 Jusqu'à la version 0.5.0, PDFium tournait dans le processus de la fenêtre,
@@ -57,6 +59,30 @@ pile sur `qpdf/issue-202.pdf`.
    service prend ce qui lance le travailleur par un trait (`Launch`) : les
    tests unitaires lui donnent de faux travailleurs, en mémoire, qui
    meurent, se taisent ou mentent, sans PDFium.
+8. **Sous Windows, le travailleur meurt avec la fenêtre.** Aussitôt lancé,
+   et avant d'être rendu au service, donc avant de recevoir `Hello`, le
+   travailleur est placé dans un Job Object « tuer à la fermeture »
+   (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`), dont seule la fenêtre tient la
+   poignée, non héritable. Quand la fenêtre disparaît, de quelque façon
+   que ce soit, le système ferme cette poignée et arrête le travailleur,
+   même au milieu d'un dessin. Un travailleur qui ne peut pas y être placé
+   est tué, et ce lancement échoue comme un démarrage raté. Le Job ne porte
+   rien d'autre. L'appel système passe par `win32job` 2.0.3, dépendance
+   ciblée Windows (`[target.'cfg(windows)'.dependencies]`), la seule que la
+   session ajoute (go de Martin, 3 octobre 2026) : pas d'`unsafe` dans
+   notre code, et rien de nouveau dans `Cargo.lock` hors d'elle (`windows`
+   0.61 et `thiserror` 1 y étaient). Sous Linux, la fin de l'entrée
+   standard reste le seul signal (« Limites connues »).
+9. **La mémoire du travailleur est bornée par un gardien de la fenêtre**,
+   sous Windows et sous Linux, qui le tue au-delà de 1 Gio plus trois fois
+   la taille du document qu'il a reçu en dernier (« Le gardien de la
+   mémoire »).
+10. **Chargement de PDFium.** Un paquet (`cargo tauri build`) ne cherche
+    la bibliothèque que dans le dossier de son exécutable. Un build
+    compilé depuis le dépôt (`cargo run`, `cargo build --release`) cherche
+    dans le dossier `FYP_PDFIUM_DIR`, puis dans `app/pdfium/`, puis dans le
+    dossier de son exécutable : une copie périmée laissée dans
+    `target/release/` n'est plus chargée (`library_candidates`, ADR 0005).
 
 ## Protocole (version 1)
 Une trame : un octet qui la nomme, la longueur de sa charge sur quatre
@@ -136,17 +162,19 @@ est trop haute pour être dessinée à cette largeur »), et reste en service.
 | Le travailleur meurt pendant une demande (plantage, pile dépassée, tué) | la demande échoue ; un autre travailleur est lancé à la demande suivante, et reçoit de nouveau le document et son mot de passe | « le moteur de rendu s'est arrêté ; il sera relancé » sur la page demandée |
 | Le travailleur est trouvé mort entre deux demandes | il est remplacé avant la demande, qui n'échoue pas ; la relance compte | rien |
 | Pas de réponse dans le délai | le travailleur est tué, puis comme ci-dessus | « le moteur de rendu n'a pas répondu en 30 s ; il a été arrêté et sera relancé » |
+| Le travailleur occupe plus que son plafond de mémoire | le gardien le tue ; puis comme un travailleur mort : pendant une demande, elle échoue ; entre deux demandes, il est remplacé avant la suivante | « le moteur de rendu a dépassé son plafond de mémoire (1024 Mio) ; il a été arrêté et sera relancé », le plafond en vigueur entre parenthèses |
 | Réponse qui n'est pas celle de la demande, trame hors plafond ou mal formée | le travailleur est tué, puis comme ci-dessus | « le moteur de rendu a donné une réponse inattendue (…) ; il a été arrêté et sera relancé » |
 | La même page fait tomber le travailleur deux fois | elle est refusée ensuite sans qu'un travailleur soit lancé pour elle, jusqu'à ce qu'une demande concerne un autre document | « la page N a arrêté le moteur de rendu deux fois ; elle n'est plus dessinée » |
 | L'ouverture d'un document fait tomber le travailleur deux fois | toutes ses pages sont refusées de même | « ce document a arrêté le moteur de rendu deux fois à l'ouverture ; ses pages ne sont plus dessinées » |
 | Plus de huit relances en une minute | plus aucun travailleur n'est lancé de la session ; `renderer_status` répond « indisponible » | la raison sur chaque page demandée, et dans la barre d'état dès qu'une page échoue |
 | PDFium refuse le document ou la page | réponse `Failed` ; le travailleur reste | la raison donnée par le travailleur, les pages citées à partir de 1 |
 | La fenêtre se ferme | l'entrée du travailleur est fermée, il est attendu deux secondes, tué sinon ; une demande en cours échoue aussitôt, son travailleur tué, et aucun travailleur n'est plus lancé ; une demande surprise pendant une poignée de main échoue à la fin de celle-ci, 10 s au plus | rien |
-| La fenêtre disparaît (plantage, tuée) | le système ferme l'entrée du travailleur, qui s'arrête à la fin du dessin en cours s'il y en a un, aussitôt sinon (« Limites connues ») | rien |
+| La fenêtre disparaît (plantage, tuée) | sous Windows, le système ferme le Job et arrête le travailleur aussitôt, qu'il dessine ou non ; sous Linux, il ferme l'entrée du travailleur, qui s'arrête à la fin du dessin en cours s'il y en a un, aussitôt sinon (« Limites connues ») | rien |
 | Le premier travailleur ne démarre pas, meurt ou se tait avant la poignée de main | le rendu reste « disponible » avec la raison en détail ; un travailleur est lancé à la première page demandée, et cette relance compte | « Aperçus : PDFium » dans la barre d'état, dont l'infobulle garde la raison du premier échec même après une relance réussie, l'interface ne relisant l'état qu'après une page qui échoue (`docs/backlog-ui.md`) ; si la relance échoue, la raison sur la page demandée |
 | Le travailleur n'a pas de PDFium, ou parle une autre version | aucun autre n'est lancé de la session | « Aperçus indisponibles » et la raison dans la barre d'état, dès le démarrage |
 
-« Tomber » couvre les trois premières pannes : mort, silence, mensonge.
+« Tomber » couvre la mort, le silence, le mensonge et le dépassement du
+plafond de mémoire.
 Un autre document, pour ce compte, est un autre identifiant : une rotation
 ou une fusion, qui réécrivent le document, repartent de zéro. L'interface
 ne redemande pas d'elle-même une page qui a échoué : la deuxième chute
@@ -172,10 +200,76 @@ d'état, que l'interface relit (`renderer_status`) après chaque page qui
 | Chutes d'une page, ou de l'ouverture d'un document | 2 | une chute peut venir d'ailleurs (travailleur tué, mémoire du système) ; deux désignent la page |
 | Relances | 8 par fenêtre glissante de 60 s | une page nuisible coûte au plus deux relances : quatre pages nuisibles vues en une minute passent, une boucle de relances s'arrête en moins d'une minute |
 | Adieu à la fermeture | 2 s | le travailleur s'arrête dès que son entrée se ferme ; passé ce temps il est tué |
+| Mémoire du travailleur | 1 Gio + 3 × la taille du document reçu en dernier ; 1 Gio avant tout document ; pendant l'ouverture d'un document, le plus grand de son plafond et de celui du précédent | décision de Martin, 3 octobre 2026. Pics mesurés en build release (mémoire engagée) : 185 Mio pour une page A4 à 4096 pixels (`mixed12.pdf`, `encrypted-rc4.pdf`), 169 Mio pour `pdfjs/bomb_giant.pdf` à 4096, 296 Mio pour le plan A1 de 6 Mio (`pdfjs/22060_A1_01_Plans.pdf`) à 4096, dont 17 Mio une fois le document ouvert ; 25 Mio pour une A4 à 1400 pixels. 1 Gio laisse plus de cinq fois le pic A4 ; les trois fois la taille couvrent la trame reçue, la copie de PDFium et ce qu'il en lit (2,7 fois la taille pour le plan A1) |
+| Lecture de la mémoire | toutes les 50 ms | la fenêtre de dépassement (« Le gardien de la mémoire ») contre le coût d'une lecture, un appel système |
 
-Les plafonds du protocole sont des constantes de `protocol.rs` ; les délais
-et le nombre de relances, `Limits::default()` dans `render.rs` ; les deux
-chutes, `FALLS`.
+Les plafonds du protocole sont des constantes de `protocol.rs` ; les délais,
+le nombre de relances, le plafond de mémoire et la cadence du gardien,
+`Limits::default()` dans `render.rs` ; les deux chutes, `FALLS`.
+
+## Le gardien de la mémoire
+Un thread de la fenêtre, `render-guard`, démarré avec le service avant le
+premier travailleur, lit toutes les 50 ms la mémoire que le travailleur
+occupe, par le système et sans rien lui demander
+(`app/src/render/memory.rs`), et le tue quand elle dépasse son plafond. La
+demande en cours échoue alors comme pour un travailleur mort, en disant
+pourquoi ; la relance et le compte des chutes sont ceux de « Pannes et
+réponses ». Un seul mécanisme sur les deux systèmes, sans dépendance de
+plus, avec un seuil qui suit la taille du document, que la fenêtre connaît
+puisqu'elle l'envoie : décision de Martin (3 octobre 2026), plutôt qu'une
+limite que le travailleur s'appliquerait (`RLIMIT_AS` sous Linux) ou qu'un
+plafond de mémoire physique sur le Job, qui ne tue pas.
+
+- **Ce qui est lu.** Sous Windows, la mémoire engagée du processus
+  (`PagefileUsage` de `GetProcessMemoryInfo`, par
+  `win32job::utils::get_process_memory_info`) : ce qu'il a réservé et que
+  le système doit pouvoir lui fournir, même s'il n'y a pas encore écrit.
+  Sous Linux, `RssAnon` plus `VmSwap` de `/proc/<pid>/status` : sa mémoire
+  privée, en mémoire ou échangée. Pas `VmRSS` seul, qui compte aussi les
+  pages de la bibliothèque PDFium, partagées et sans coût, et ignore ce qui
+  est parti dans l'échange, où une page qui ne fait qu'allouer grandirait
+  sans être vue ; un noyau sans `RssAnon` (avant 4.5) donne `VmRSS`. Un
+  processus fini et pas encore attendu n'a plus ces lignes : rien n'est lu.
+  Ailleurs (macOS), rien n'est lu, et le travailleur n'a pas de plafond
+  (`docs/backlog-technique.md`, avant de livrer macOS).
+- **Quand.** Le gardien tourne avant que le premier travailleur ne soit
+  lancé. Chaque travailleur est tenu au plafond sans document, 1 Gio, dès
+  que le service le connaît, avant `Hello` ; le plafond d'un document est
+  posé avant que son premier octet ne parte. Le plafond est donc en place
+  avant que le travailleur ne lise le premier octet d'un document, sur
+  chaque système où il existe.
+- **Changement de document.** Le travailleur garde le document précédent
+  jusqu'à ce qu'il ait lu la trame du suivant : jusqu'à sa réponse, le
+  plafond est le plus grand des deux, puis celui du nouveau. Un travailleur
+  qui garde ensuite plus que ce plafond (mémoire non rendue au système) est
+  tué ; entre deux demandes, il est remplacé sans que la demande suivante
+  échoue.
+- **Fenêtre de dépassement.** Entre deux lectures, rien ne retient le
+  travailleur. Mesuré le 3 octobre 2026 (build release, Intel Core
+  i7-11700KF, 32 Gio, Windows 11) par une sonde Python qui n'est pas dans
+  le dépôt : elle lance `target/release/fyp-app.exe --fyp-render-worker`,
+  lui envoie `Hello` (`app/pdfium/`), `mixed12.pdf` puis la demande de sa
+  première page à 4096 pixels, et, sur un autre thread, lit sa mémoire
+  engagée (`GetProcessMemoryInfo`, `PagefileUsage`, par `ctypes`) toutes
+  les 50 ms, le tue au-delà du plafond et note la valeur lue, le pic
+  (`PeakPagefileUsage`) et les instants ; 10 essais par plafond :
+  - plafond de 16 ou de 64 Mio : le dépassement est vu à la première
+    lecture, 50 à 51 ms après la demande ; le travailleur occupait déjà
+    94 Mio (le bitmap alloué) et avait atteint son pic de 185 Mio ; il
+    était mort 20 ms plus tard au plus ;
+  - plafond de 128 Mio : 5 essais sur 10 ont échappé au gardien, la page
+    ayant été dessinée, envoyée et sa mémoire rendue entre deux lectures ;
+    les 5 autres l'ont vu à 185 Mio.
+
+  Un processus qui ne fait qu'écrire en mémoire en remplit environ 8 Gio/s
+  sur cette machine (Python, `b'\x01' * (1 << 30)` : 1 Gio en 124 ms) :
+  en 50 ms de lecture et 20 ms pour mourir, un travailleur hostile peut
+  écrire de l'ordre de 0,5 Gio au-delà de son plafond, et en engager
+  davantage sans y écrire, jusqu'à la limite de mémoire engagée du
+  système, où ses allocations échouent. Un plafond posé sur le Job
+  (`JOB_OBJECT_LIMIT_PROCESS_MEMORY`) refuserait l'allocation elle-même ;
+  `win32job` ne l'expose pas, et l'appel direct demanderait `unsafe` : il
+  est au backlog, comme seconde barrière.
 
 ## Limites connues
 - **Ce n'est pas encore un bac à sable.** Le travailleur garde les droits
@@ -185,20 +279,36 @@ chutes, `FALLS`.
   du blocage et des réponses fausses, pas d'un code hostile qui s'exécute.
   Restreindre ses droits est au backlog, avec sa condition
   (`docs/backlog-technique.md`).
-- **Mémoire non bornée**, jusqu'à la session B du palier v0.5.1 : le
-  travailleur dessine l'image avant de la comparer aux plafonds, et PDFium
-  alloue ce que le fichier lui fait allouer. Une mémoire épuisée tue le
-  travailleur, ce que la fenêtre sait traiter, mais peut peser sur la
-  machine avant.
-- **Un travailleur peut survivre à la fenêtre, le temps du dessin en
-  cours** : il ne s'arrête qu'en lisant la fin de son entrée, ce qu'il ne
-  fait qu'entre deux demandes. Oisif, il s'arrête aussitôt. Pendant un
-  dessin sans fin, il n'a pas de borne : la fenêtre n'est plus là pour
-  appliquer le délai de 30 s. Le testeur de la session l'a mesuré encore
-  vivant 90 s après la fermeture de son entrée, sur une page de 3,4 Kio
-  faite de formulaires imbriqués (10⁶ remplissages), et 11 s après la mort
-  de la fenêtre réelle pour la vignette de cette page. L'attacher à la
-  fenêtre par un Job Object est la session B.
+- **Un plafond fait pour des pages simples.** Les 185 Mio d'une page A4
+  à 4096 pixels sont ceux d'une page sans effets. Le testeur de la
+  session B a vu une page de 4,9 Kio, faite de 10 groupes de transparence
+  imbriqués avec masque doux, tuée par le gardien à 4096 pixels ; 8
+  niveaux passent à 980 Mio, et 16 niveaux ne prennent que 192 Mio à 1400
+  pixels. D'après cette mesure, environ 80 Mio par niveau à 4096 pixels ;
+  vraisemblablement un bitmap de la page par groupe, ce que rien n'a
+  profilé. Une telle page s'affiche à la
+  taille de la vue et est refusée au zoom maximal
+  (`docs/backlog-technique.md`).
+- **Une mémoire bornée par lecture, pas par le système.** Le gardien voit
+  le travailleur toutes les 50 ms : une page qui alloue et rend sa mémoire
+  entre deux lectures lui échappe, et un travailleur hostile peut dépasser
+  son plafond de l'ordre de 0,5 Gio avant d'être tué (« Le gardien de la
+  mémoire »). Le travailleur dessine l'image avant de la comparer aux
+  plafonds du protocole. Sous macOS, aucun plafond. Sous Linux, le gardien
+  n'a été exécuté que sans PDFium (la CI ne le télécharge pas, et la
+  session a été menée sous Windows) : son effet sur un vrai dessin n'y est
+  pas vérifié (`docs/backlog-technique.md`).
+- **Sous Linux, un travailleur peut survivre à la fenêtre, le temps du
+  dessin en cours** : il ne s'arrête qu'en lisant la fin de son entrée, ce
+  qu'il ne fait qu'entre deux demandes. Oisif, il s'arrête aussitôt.
+  Pendant un dessin sans fin, il n'a pas de borne : la fenêtre n'est plus
+  là pour appliquer le délai de 30 s ni le plafond de mémoire. Le testeur
+  de la session A l'a mesuré encore vivant 90 s après la fermeture de son
+  entrée, sous Windows, sur une page de 3,4 Kio faite de formulaires
+  imbriqués (10⁶ remplissages). Sous Windows, le Job l'arrête aussitôt
+  depuis la session B ; sous Linux, l'attacher à la fenêtre
+  (`PR_SET_PDEATHSIG` ou un équivalent sans `unsafe`) est au backlog,
+  avant de livrer l'application sous Linux.
 - **Des démarrages ratés lents ne coupent pas le rendu.** Une poignée de
   main muette coûte 10 s : six relances par minute au plus, sous la limite
   de huit, et chaque page demandée relance alors un travailleur
@@ -215,8 +325,8 @@ chutes, `FALLS`.
   n'attend jamais un tuyau, seulement une file avec délai : le pire cas est
   une demande qui échoue au bout de 30 s au lieu d'aussitôt.
 - **Le coût.** Les pixels traversent un tuyau : 11 Mio pour une page A4 de
-  1400 pixels de large, 95 Mio à 4096. La mesure avant et après, et son
-  seuil de 15 %, sont la session B.
+  1400 pixels de large, 95 Mio à 4096. Quelques millisecondes par page
+  rapide, rien de mesurable sur une page lente (« Mesures »).
 - **Deux copies du document**, comme avant (ADR 0005), mais dans deux
   processus : celle du noyau dans la fenêtre, celle de PDFium dans le
   travailleur, plus, le temps de l'ouverture, la trame reçue.
@@ -225,9 +335,70 @@ chutes, `FALLS`.
   dépasserait 16 384 pixels de haut : la vue dit pourquoi. Avant, PDFium
   tentait un bitmap de la taille demandée, quelle qu'elle soit.
 
+## Mesures
+Temps de bout en bout d'une demande de rendu, de l'appel de
+`RenderService::render` au PNG, en build release : avant, v0.5.0, PDFium
+sur un thread de la fenêtre ; après, le travailleur de cette ADR, avec son
+Job et son gardien. Page 1 de chaque fichier, en vignette (160 pixels de
+large) et en page de la vue (1400), 30 demandes au même service, trois
+passes où les deux versions alternent : médiane de 90 demandes par case.
+Machine : Intel Core i7-11700KF, 32 Gio, Windows 11 ; rustc 1.98.1 ;
+PDFium chromium/8044 (`app/pdfium/`) ; corpus pdf.js au commit
+`fd453c2ce3e1` (`tests/corpus/SOURCES.md`), que `fetch_corpus.py`, qui
+suit la branche par défaut, peut ne plus donner. Pris le 3 octobre 2026
+sur l'arbre de travail de la session v0.5.1-B (base `390eeec`), avant que
+le plafond ne suive aussi le document précédent pendant une ouverture, ce
+qui ne touche pas une demande sur un même document.
+
+| Fichier | Largeur | v0.5.0 | Après | Écart | Critère |
+|---|---|---|---|---|---|
+| `tests/fixtures/mixed12.pdf` (12 Kio) | 160 | 0,68 ms | 0,80 ms | +0,12 ms (+18,7 %) | ≤ +10 ms : tenu |
+| `tests/fixtures/mixed12.pdf` | 1400 | 8,50 ms | 15,28 ms | +6,78 ms (+79,7 %) | ≤ +10 ms : tenu |
+| `pdfjs/22060_A1_01_Plans.pdf` (6,0 Mio) | 160 | 1 419,32 ms | 1 407,16 ms | −0,9 % | ≤ +15 % : tenu |
+| `pdfjs/22060_A1_01_Plans.pdf` | 1400 | 1 481,80 ms | 1 471,46 ms | −0,7 % | ≤ +15 % : tenu |
+| `pdfjs/issue3188.pdf` (7,7 Mio) | 160 | 0,35 ms | 0,46 ms | +0,11 ms (+28,7 %) | ≤ +10 ms : tenu |
+| `pdfjs/issue3188.pdf` | 1400 | 3,08 ms | 7,19 ms | +4,11 ms (+133,1 %) | ≤ +10 ms : tenu |
+
+**Critère** (Martin, 3 octobre 2026 ; il remplace le seuil de 15 % du
+brief, relatif partout) : au plus 15 % au-dessus de v0.5.0 là où le dessin
+domine, une médiane de v0.5.0 au-delà de 100 ms par page ; ailleurs, au
+plus 10 ms de surcoût absolu, à 160 comme à 1400 pixels. Un seuil relatif
+punit les pages que PDFium dessine en 3 ms, où quelques millisecondes de
+transport font plus que doubler le temps.
+
+**Hypothèse, non vérifiée** : le surcoût vient de la traversée du tuyau
+par les pixels bruts (11 Mio pour une page A4 à 1400 pixels, 141 Kio
+pour une vignette), introduite par la session A, et non du Job ni du
+gardien : il est d'un dixième de milliseconde en vignette et de 4 à 7 ms à
+1400 pixels. Rien n'a été profilé. Réduire ce coût est au backlog, rattaché
+au chemin PNG puis base64 vers l'interface, qui coûte bien plus
+(`docs/backlog-technique.md`).
+
+**Reproduire**, depuis la racine du dépôt :
+
+```
+python tools/fetch_pdfium.py
+python tools/fetch_corpus.py
+python tools/render_timing.py
+```
+
+`tools/render_timing.py` tire `git archive v0.5.0` dans
+`../4YouPDF-v0.5.0`, hors du dépôt, s'il n'y est pas, y ajoute
+`tools/render_timing/baseline_v0_5_0.rs` comme exemple de `fyp-app`, qui
+compile le `render.rs` de v0.5.0 tel quel, compile les deux côtés en
+release, fait alterner `--rounds` passes de `--requests` demandes, puis
+imprime ce tableau et applique le critère (code de sortie 1 s'il n'est pas
+tenu). Le côté d'après est `app/examples/render_timing.rs`. D'autres
+fichiers se donnent en arguments. Les temps ne valent que pour la machine
+où ils sont pris.
+
 ## Conséquences
 - Tuer le processus de rendu depuis le Gestionnaire des tâches ne ferme
   pas la fenêtre, et le rendu reprend à la page suivante.
+- Sous Windows, tuer la fenêtre depuis le Gestionnaire des tâches arrête
+  aussi son processus de rendu.
+- Une page qui fait enfler le moteur au-delà de son plafond est refusée
+  après deux chutes, comme une page qui le fait planter.
 - Le Gestionnaire des tâches montre deux processus `fyp-app` quand PDFium
   est là, un seul sinon.
 - L'état du rendu n'est plus fixé au démarrage : `renderer_status` peut
@@ -258,4 +429,20 @@ chutes, `FALLS`.
   tué entre deux demandes puis pendant un dessin, la page refusée après
   deux chutes, le rendu coupé après huit relances et la barre d'état qui le
   dit, aucun processus `fyp-app` après la fermeture ni après la mort de la
-  fenêtre.
+  fenêtre, et, depuis la session B, la fenêtre tuée pendant que son
+  travailleur dessine une page de plusieurs minutes : le travailleur
+  arrêté aussitôt.
+- Session B. `app/src/render/memory.rs` : la lecture de
+  `/proc/<pid>/status`, sur tous les systèmes. `app/src/render/tests.rs` :
+  le gardien contre de faux travailleurs qui grossissent pendant un
+  dessin, avant tout document, avec un grand document puis un petit, ou
+  dont le système ne dit pas la mémoire ; le plafond qui sature ; l'ordre
+  de `library_candidates` pour un paquet et pour un build compilé depuis
+  le dépôt. `app/tests/render_worker.rs` : la mémoire d'un vrai
+  travailleur lue sans PDFium ; avec PDFium, un vrai travailleur tué
+  au-delà d'un plafond abaissé à 64 Mio puis la demande suivante servie,
+  et la même page dessinée sous le plafond par défaut ; sous Windows, une
+  fenêtre de substitution tuée pendant que son travailleur dessine, le
+  travailleur arrêté avec elle (ce test échoue si le Job n'a plus « tuer à
+  la fermeture »). La CI exécute sous Linux tout ce qui n'a pas besoin de
+  PDFium.

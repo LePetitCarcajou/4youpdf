@@ -129,9 +129,27 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
   encodage ; ne garder d'une page quittée que son image de page entière ;
   un rendu par tuiles, qui lèverait aussi le plafond de 4096 pixels
   (`docs/backlog-ui.md`, « Le plafond du zoom vient vite sur un écran
-  dense »). Un rendu ne peut pas être interrompu : `pdfium-render` n'expose
-  pas le rendu progressif de PDFium, et la vue s'en tient à une demande à
-  la fois, 200 ms après le dernier cran.
+  dense »). La vue ne peut pas abandonner un rendu dont elle ne veut plus :
+  `pdfium-render` n'expose pas le rendu progressif de PDFium, et le seul
+  moyen d'interrompre un dessin est d'arrêter le processus de rendu, ce que
+  la fenêtre ne fait qu'après 30 s, au-delà du plafond de mémoire ou à la
+  fermeture (ADR 0008). La vue s'en tient donc à une demande à la fois,
+  200 ms après le dernier cran.
+  - [ ] **Réduire le coût du transfert des pixels du processus de rendu à
+    la fenêtre** (consigné le 4 octobre 2026, session v0.5.1-B, décision
+    de Martin). Mesuré en build release (ADR 0008, « Mesures ») : depuis
+    que PDFium tourne dans un processus à part, une page de 1400 pixels
+    que PDFium dessine en quelques millisecondes coûte de 4 à 7 ms de plus
+    qu'en v0.5.0, une vignette un dixième de milliseconde ; une page lente
+    rien de mesurable. Hypothèse non vérifiée : la traversée du tuyau par
+    les pixels bruts, 11 Mio pour une page A4 à 1400 pixels. C'est sous le
+    critère du palier (10 ms au plus) et bien moins que le PNG puis le
+    base64 de l'entrée ci-dessus. Pistes, à profiler d'abord : des
+    écritures plus grosses dans le tuyau ; une copie de moins côté
+    travailleur (`into_rgba8` puis la trame) ; la lecture directe dans le
+    tampon final côté fenêtre ; une mémoire partagée seulement si elle
+    vient sans `unsafe` dans notre code ni dépendance que Martin n'a pas
+    acceptée.
 - [ ] **Activer le signalement privé des vulnérabilités sur le dépôt, avant
   la première release publique** (consigné le 13 septembre 2026, réduit le
   16). Choix fait le 16 septembre 2026 : le signalement privé de GitHub
@@ -151,27 +169,6 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
   --strip header`), depuis les sujets des commits, sans écrire le fichier.
   Reste : les 17 versions taguées avant, v0.0.1 à v0.3.4, n'ont pas de
   section, et rien ne vérifie qu'une section précède chaque tag.
-- [ ] **Empêcher un build de développement en release de charger une
-  `pdfium.dll` restée dans `target/release/`** (consigné le 13 septembre
-  2026, en préparant le moteur PDFium du banc de fidélité). Il y en a une,
-  identique aujourd'hui à `app/pdfium/pdfium.dll` (SHA-256 `04100c03…`, même
-  date de modification) ; qu'elle vienne de l'empaquetage, qui copie les
-  ressources de `tauri.bundle.json`, n'a pas été vérifié.
-  `library_candidates` (`app/src/render.rs`) cherche à côté de l'exécutable
-  avant `app/pdfium/` : après un changement de la version épinglée par
-  `tools/fetch_pdfium.py`, `cargo run --release -p fyp-app` chargerait encore
-  cette copie. Le banc, lui, ne cherche que dans `FYP_PDFIUM_DIR` puis dans
-  `app/pdfium/`.
-- [ ] **Préciser dans quel build l'encodage PNG coûte plus que le rendu
-  d'une page** (consigné le 13 septembre 2026, par le banc de fidélité).
-  `docs/architecture.md` (« Rendu ») affirme que, pour une page à la taille de
-  la fenêtre, « le temps passe dans l'encodage PNG, pas dans PDFium ». La
-  mesure que cite le commentaire de `app/src/render/png.rs` a été prise dans un
-  build debug : 190 ms pour une page de 1400 pixels. En release, sur les 156
-  pages comparées du jeu de référence à 1400 pixels, l'encodage prend 5,3 %
-  du temps de rendu et d'encodage : 213 ms contre 3 779 ms, 11,6 ms au plus
-  pour une page (`docs/banc-rendu.md`, « Temps de référence »). Or
-  l'application empaquetée est un build release.
 - [ ] **Corriger le renvoi à la section « Protocole des moteurs » de
   `docs/banc-rendu.md`** (consigné le 14 septembre 2026, en ajoutant le moteur
   hayro). `tools/render_bench/engines.toml`, `tools/render_bench/src/protocol.rs`
@@ -196,10 +193,10 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
   y compile l'application avec la page d'attente qu'écrit `app/build.rs`
   quand `app/dist/` manque. Seul `release.yml` les exécute, sur un tag, par
   `tools/package_app.py`.
-- [ ] **Restreindre les droits du processus de rendu et borner sa mémoire,
-  reste de « Isoler le rendu dans un processus séparé »** (consigné le
-  14 septembre 2026, décision prise hors session ; réduit le 3 octobre
-  2026, session v0.5.1-A). Fait le 3 octobre 2026 (ADR 0008) : PDFium
+- [ ] **Restreindre les droits du processus de rendu, reste de « Isoler le
+  rendu dans un processus séparé »** (consigné le 14 septembre 2026,
+  décision prise hors session ; réduit le 3 octobre 2026, sessions
+  v0.5.1-A puis v0.5.1-B). Fait le 3 octobre 2026 (ADR 0008) : PDFium
   tourne dans un processus à part, `fyp-app --fyp-render-worker`, qui ne
   sait que recevoir des octets et rendre des pixels ; un plantage, une pile
   dépassée ou un dessin de plus de 30 s arrêtent ce processus, pas
@@ -207,13 +204,12 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
   fenêtre vérifie chaque réponse et encode elle-même le PNG. C'est la forme
   que demandait la deuxième condition de bascule de `docs/mesure-hayro.md`,
   « un rendu qui ne fait ni tomber ni figer l'application », quel que soit
-  le moteur qui tourne dans ce processus. Reste :
-  - **la mémoire du rendu n'a pas sa propre limite** : le travailleur
-    dessine l'image avant de la comparer aux plafonds, et PDFium alloue ce
-    que le fichier lui fait allouer (session v0.5.1-B) ;
-  - **le travailleur n'est pas attaché à la fenêtre par le système** : il
-    s'arrête en lisant la fin de son entrée standard, donc après le dessin
-    en cours quand la fenêtre plante (Job Object, session v0.5.1-B) ;
+  le moteur qui tourne dans ce processus. Fait en session B : sous Windows,
+  un Job Object « tuer à la fermeture » arrête le travailleur avec la
+  fenêtre, même tuée pendant un dessin ; un gardien de la fenêtre lit la
+  mémoire du travailleur toutes les 50 ms et l'arrête au-delà de 1 Gio
+  plus trois fois la taille du document, sous Windows et sous Linux.
+  Reste :
   - **ses droits sont ceux de l'utilisateur** : un défaut de PDFium
     exploité ne donne la main que sur ce processus, mais ce processus peut
     encore lire et écrire les fichiers de l'utilisateur et atteindre celui
@@ -224,7 +220,66 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
   - **les bouts du canal sont héritables le temps du lancement** : un
     processus enfant lancé au même instant par un autre code (WebView2)
     pourrait en hériter, et une demande échouerait alors au bout du délai
-    au lieu d'aussitôt (ADR 0008, « Limites connues »).
+    au lieu d'aussitôt (ADR 0008, « Limites connues ») ;
+  - **le travailleur dessine l'image avant de la comparer aux plafonds** :
+    une page dont l'image dépasserait 4096 × 8192 pixels est d'abord
+    allouée, puis refusée. Le gardien borne ce que cela coûte ; refuser
+    d'après les dimensions de la page, avant de dessiner, l'éviterait.
+- [ ] **Proposer en amont à `win32job` un plafond
+  `JOB_OBJECT_LIMIT_PROCESS_MEMORY`, et l'ajouter comme seconde barrière
+  quand il existera** (consigné le 3 octobre 2026, session v0.5.1-B,
+  décision de Martin). `win32job` 2.0.3 n'expose pas le plafond de mémoire
+  engagée d'un Job (`JOB_OBJECT_LIMIT_PROCESS_MEMORY`), seulement un
+  plafond de mémoire physique, qui ne tue pas, et l'appel direct
+  demanderait `unsafe`. Le plafond de mémoire du travailleur est donc tenu
+  par un gardien de la fenêtre, qui lit toutes les 50 ms : entre deux
+  lectures, rien ne retient le travailleur (ADR 0008, « Le gardien de la
+  mémoire »). Un plafond posé sur le Job
+  refuserait l'allocation elle-même. À faire : une demande de fusion en
+  amont (`ExtendedLimitInfo::limit_process_memory`), puis, une fois
+  publiée, la limite dans `tie` (`app/src/render.rs`), le gardien restant
+  pour le seuil qui suit la taille du document.
+- [ ] **Borner la mémoire du processus de rendu sous macOS, avant de livrer
+  macOS** (consigné le 3 octobre 2026, session v0.5.1-B, décision de
+  Martin). `app/src/render/memory.rs` ne sait lire la mémoire d'un
+  processus que sous Windows et sous Linux ; ailleurs le gardien ne lit
+  rien et le travailleur n'a pas de plafond. `RLIMIT_AS` n'est pas
+  appliqué par macOS ; pistes : `proc_pid_rusage` ou `ps -o rss=`, sans
+  `unsafe` dans notre code.
+- [ ] **Sous Linux, attacher le processus de rendu à la fenêtre, avant de
+  livrer l'application sous Linux (bloc E)** (consigné le 3 octobre 2026,
+  session v0.5.1-B, décision de Martin). Sous Linux, un travailleur dont la
+  fenêtre meurt (plantage, tuée) ne s'arrête qu'en lisant la fin de son
+  entrée standard, donc après le dessin en cours, sans borne de temps : la
+  fenêtre n'est plus là pour appliquer le délai de 30 s ni le plafond de
+  mémoire. Sous Windows, le Job Object l'arrête aussitôt (ADR 0008). À
+  faire : `PR_SET_PDEATHSIG`, ou un équivalent, sans `unsafe` dans notre
+  code.
+- [ ] **Vérifier le gardien de la mémoire sous Linux avec PDFium, avant de
+  livrer Linux** (consigné le 3 octobre 2026, session v0.5.1-B). Sous
+  Linux, la CI exécute la lecture de `/proc/<pid>/status` sur un vrai
+  travailleur sans PDFium et les tests du gardien contre de faux
+  travailleurs ; le test qui fait dépasser le plafond à PDFium
+  (`a_worker_over_its_ceiling_is_stopped_and_the_next_page_is_drawn`) n'y
+  tourne pas, PDFium n'y étant pas téléchargé, et la session n'a été menée
+  que sous Windows. Le pic de mémoire d'une page A4 à 4096 pixels n'a pas
+  été mesuré sous Linux, où ce qui est compté (`RssAnon` + `VmSwap`) n'est
+  pas la mémoire engagée de Windows.
+- [ ] **Un `FYP_PDFIUM_DIR` vide fait chercher PDFium dans le dossier
+  courant** (consigné le 3 octobre 2026, session v0.5.1-B, à la lecture du
+  code ; non reproduit). `library_candidates` (`app/src/render.rs`) prend
+  la variable telle quelle : vide, elle donne un chemin relatif, donc
+  `pdfium.dll` dans le dossier courant. Depuis la session B, seul un build
+  compilé depuis le dépôt lit cette variable ; un paquet l'ignore. À
+  faire : ignorer une valeur vide ou relative.
+- [ ] **Durcir le chargeur de DLL du processus de rendu sous Windows**
+  (consigné le 3 octobre 2026, session v0.5.1-B, hors périmètre du brief).
+  `pdfium.dll` est chargée par son chemin complet, mais les bibliothèques
+  dont elle dépend sont cherchées par Windows dans l'ordre par défaut, qui
+  commence par le dossier de l'exécutable. `SetDefaultDllDirectories`
+  (`LOAD_LIBRARY_SEARCH_SYSTEM32`) restreindrait cette recherche ; l'appel
+  demande `unsafe`, ou une crate qui le fait pour nous. À décider avec la
+  restriction des droits du travailleur.
 - [ ] **Neutraliser la surcharge de WebView2 par le registre et les autres
   variables `WEBVIEW2_*`, reste de « garder les outils de développement
   coupés en release »** (consigné le 14 septembre 2026, réduit le
@@ -551,9 +606,10 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
   remplissages, 3,4 Kio ; aujourd'hui `target/agents/v0.5.1-A/endless6.pdf`,
   que `endless.py`, à côté, fabrique). Test :
   `an_endless_drawing_is_stopped_at_the_delay_and_refused_after_two` dans
-  `app/tests/render_worker.rs`. La même fixture sert en session v0.5.1-B
-  pour « la fenêtre tuée pendant un dessin sans fin ne laisse aucun
-  travailleur ».
+  `app/tests/render_worker.rs`. Depuis la session v0.5.1-B, ce fichier
+  fabrique une page du même genre (`endless_page`, un formulaire de mille
+  courbes dessiné mille fois) pour « la fenêtre tuée pendant un dessin ne
+  laisse aucun travailleur » : elle peut servir à ce test sans fixture.
 - [ ] **Une inondation de réponses non demandées coûte à la fenêtre trois
   images, pas une** (consigné le 3 octobre 2026, session v0.5.1-A, testeur
   R1). Environ 400 Mio au pic : une image dans la file d'une place, une en
@@ -570,3 +626,61 @@ diffère, et la date de sa réduction quand une session en a soldé une part.
   document soit ouvert ». C'est documenté (ADR 0008, `app/README.md`) et
   borné par la limite de relances. À décider : garder le compte à travers
   les réécritures d'un même document ouvert.
+- [ ] **Le scénario du sélecteur natif de `tools/ui_smoke/merge_pages.py`
+  échoue parfois** (consigné le 4 octobre 2026, session v0.5.1-B). Une
+  exécution sur trois de la session a donné 40/41 : « the native picker:
+  pick_merge_files answers each file with its page count » sans réponse
+  (`…`) au bout de 20 s ; les deux suivantes, 41/41, sur le même build. Le
+  sélecteur est piloté par des messages de fenêtre (`picker`, `choose`) ;
+  la session n'a pas touché à ce chemin. Piste : attendre que la boîte de
+  dialogue ait pris le nom tapé avant de valider, et dire dans le détail
+  du cas laquelle des étapes a manqué.
+- [ ] **Une page de groupes de transparence imbriqués dépasse le plafond de
+  mémoire au zoom maximal** (consigné le 4 octobre 2026, session v0.5.1-B,
+  testeur, O1). Une page de 4,9 Kio faite de 10 groupes de transparence
+  imbriqués, chacun avec un masque doux en luminosité, est tuée par le
+  gardien à 4096 pixels de large ; 8 niveaux passent à 980 Mio, juste sous
+  1 Gio ; à 1400 pixels, 16 niveaux prennent 192 Mio. D'après la mesure,
+  environ 80 Mio par niveau à 4096 pixels ; vraisemblablement un bitmap de
+  la page par groupe, ce que rien n'a profilé. Un fichier de mise en page
+  honnête, avec des effets imbriqués, peut être refusé au
+  zoom maximal alors qu'il passe à la taille de la vue. La limite est
+  écrite dans l'ADR 0008 (« Limites connues ») ; le seuil est une décision
+  de Martin. À décider : un plafond qui suit aussi la largeur demandée, ou
+  une page refusée au zoom maximal puis redemandée plus étroite.
+  Fabrication : `target/agents/v0.5.1-B/make_groups.py` (testeur, hors du
+  dépôt ; à reprendre en fixture si la question est rouverte).
+- [ ] **Ce que lit le gardien sous Windows n'est tenu par aucun test**
+  (consigné le 4 octobre 2026, session v0.5.1-B, testeur, O3 ; mutation
+  B12 survivante). Lire l'ensemble de travail au lieu de la mémoire
+  engagée (`app/src/render/memory.rs`) passe tous les tests : le vrai
+  travailleur ne peut pas engager de mémoire sans y écrire sur commande, et
+  un test demanderait un faux processus natif.
+- [ ] **Des tests du service de rendu échouent sous charge** (consigné le
+  4 octobre 2026, session v0.5.1-B, testeur, O4). Sous 16 processus qui
+  tournent à vide, deux tests de la session v0.5.1-A, aux délais courts,
+  échouent de temps en temps, sur `390eeec` comme sur l'arbre de la
+  session : `a_silent_worker_is_killed_when_the_delay_is_over` et
+  `a_first_start_that_fails_is_tried_again_at_the_next_request` (sa
+  poignée de main de 300 ms expire avant la raison attendue). Mesures :
+  les tests de `render::` alternés 15 fois entre `390eeec` et l'arbre de
+  la session, 3 échecs de chaque côté ; 25 passes de la relecture sur
+  l'arbre de la session, 4 échecs, dont ces deux tests. Une CI sur deux
+  cœurs peut les rencontrer. Piste : des délais qui ne dépendent pas
+  de l'ordonnanceur (un faux travailleur qui attend un signal du test).
+- [ ] **Sous Linux, le gardien peut lire le `/proc/<pid>/status` d'un autre
+  processus** (consigné le 4 octobre 2026, session v0.5.1-B, relecture, à
+  la lecture du code ; non reproduit). Quand le gardien tue un travailleur,
+  `Process::kill` l'attend, ce qui libère son PID ; le processus mort reste
+  pourtant dans `Watch::process` jusqu'à la demande suivante, et le
+  gardien relit `/proc/<pid>/status` toutes les 50 ms. Si le PID est
+  réattribué à un gros processus, il repose `passed` et rappelle un `kill`
+  sans effet. À faire : ne plus lire la mémoire d'un processus déjà
+  attendu (`guard`, `app/src/render.rs`).
+- [ ] **Sous Linux, la mémoire que lit le gardien ignore la mémoire
+  partagée anonyme** (consigné le 4 octobre 2026, session v0.5.1-B,
+  relecture, à la lecture du code). `RssAnon` + `VmSwap`
+  (`app/src/render/memory.rs`) ne compte pas `RssShmem` : un travailleur
+  compromis qui écrirait dans un `memfd` ou un tmpfs échapperait au
+  plafond, que `VmRSS` aurait compté. À décider avant de livrer Linux :
+  ajouter `RssShmem`.

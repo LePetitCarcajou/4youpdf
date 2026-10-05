@@ -10,11 +10,12 @@ use image::DynamicImage;
 
 /// The PNG the interface receives for `image`.
 pub fn encode_png(image: &DynamicImage) -> Result<Vec<u8>, String> {
-    // A large image spends its time in PNG encoding, not in PDFium. The
-    // `Up` filter suits pages, whose rows are mostly alike: over four
-    // times faster than the adaptive default, for files 12 to 14 %
-    // larger (a page 1400 pixels wide in a debug build: 190 ms instead
-    // of 810 ms).
+    // In a debug build, a large image spends its time in PNG encoding,
+    // not in PDFium; in a release build encoding is about 5 % of the time
+    // (`docs/banc-rendu.md`). The `Up` filter suits pages, whose rows are
+    // mostly alike: over four times faster than the adaptive default, for
+    // files 12 to 14 % larger (a page 1400 pixels wide in a debug build:
+    // 190 ms instead of 810 ms).
     let mut png = Vec::new();
     image
         .write_with_encoder(PngEncoder::new_with_quality(

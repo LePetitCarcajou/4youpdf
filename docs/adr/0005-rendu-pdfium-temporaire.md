@@ -74,9 +74,11 @@ Les bibliothèques disponibles depuis Rust :
   `pdfium.dll` à côté de l'exécutable, avec la notice de sa compilation et
   les licences de PDFium et des bibliothèques compilées dedans ;
   `tools/fetch_pdfium.py` vérifie l'empreinte SHA-256 de l'archive épinglée.
-  Un paquet cherche la bibliothèque à côté de son exécutable ou dans le
-  dossier `FYP_PDFIUM_DIR`, jamais dans le dépôt dont il vient ; seul un
-  build de développement regarde aussi `app/pdfium/`. Sous Windows, pas de
+  Un paquet ne cherche la bibliothèque qu'à côté de son exécutable ; seul
+  un build compilé depuis le dépôt regarde le dossier `FYP_PDFIUM_DIR`,
+  puis `app/pdfium/`, avant le dossier de son exécutable (depuis la session
+  v0.5.1-B ; avant, un paquet lisait aussi `FYP_PDFIUM_DIR`, et
+  `app/pdfium/` passait en dernier). Sous Windows, pas de
   recherche système : elle passe par le dossier courant et le `PATH`, où un
   `pdfium.dll` déposé serait chargé à la place du nôtre.
 - **Une version épinglée.** `pdfium-render` cible une version précise de
